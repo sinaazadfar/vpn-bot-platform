@@ -8,6 +8,9 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from vpn_bot_platform.common.qr import make_qr_png_bytes
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
+    admin_payment_actions,
+    admin_ticket_actions,
+    admin_wallet_charge_actions,
     plan_buy_button,
     seller_admin_menu,
     seller_buyer_menu,
@@ -163,6 +166,85 @@ async def seller_menu_callback(
     elif action.action == "admin_broadcast":
         await callback.message.edit_text(
             _shortcut_text("Broadcast", ["/broadcast <title> | <message>", "/send_broadcast <broadcast_id>"]),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "pay_ok":
+        if not action.value:
+            await callback.answer("Payment is missing.", show_alert=True)
+            return
+        try:
+            approved = await seller_context.approve_payment(
+                admin_telegram_id=callback.from_user.id,
+                payment_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Pending payment not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Payment Approved"),
+                    f"Payment ID: {approved.payment.id}",
+                    f"Order ID: {approved.order.id}",
+                    f"Order status: {status_label(approved.order.status)}",
+                    "",
+                    f"Provision with /provision_order {approved.order.id}",
+                ]
+            ),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "wallet_ok":
+        if not action.value:
+            await callback.answer("Transaction is missing.", show_alert=True)
+            return
+        try:
+            approved = await seller_context.approve_wallet_charge(
+                admin_telegram_id=callback.from_user.id,
+                transaction_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Pending wallet charge not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Wallet Charge Approved"),
+                    f"Transaction ID: {approved.transaction.id}",
+                    f"Amount: {approved.transaction.amount:,.0f}",
+                ]
+            ),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "ticket_close":
+        if not action.value:
+            await callback.answer("Ticket is missing.", show_alert=True)
+            return
+        try:
+            ticket_item = await seller_context.close_ticket(
+                admin_telegram_id=callback.from_user.id,
+                ticket_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Ticket not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Ticket Closed"),
+                    f"Ticket ID: {ticket_item.id}",
+                    f"Subject: {ticket_item.subject}",
+                    f"Status: {status_label(ticket_item.status)}",
+                ]
+            ),
             reply_markup=seller_admin_menu(),
         )
     await callback.answer()
@@ -977,6 +1059,19 @@ async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerCo
         "\n".join([title("Pending Payments"), section("Payments", rows)]),
         reply_markup=seller_admin_menu(),
     )
+    for item in pending[:5]:
+        await callback.message.answer(
+            "\n".join(
+                [
+                    title("Payment Action"),
+                    f"Payment ID: {item.payment.id}",
+                    f"Order ID: {item.order.id}",
+                    f"Plan: {item.plan.name}",
+                    f"Amount: {item.payment.amount:,.0f}",
+                ]
+            ),
+            reply_markup=admin_payment_actions(item.payment.id),
+        )
 
 
 async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerContextService) -> None:
@@ -991,6 +1086,18 @@ async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerCont
         "\n".join([title("Wallet Charges"), section("Pending charges", rows)]),
         reply_markup=seller_admin_menu(),
     )
+    for item in pending[:5]:
+        await callback.message.answer(
+            "\n".join(
+                [
+                    title("Wallet Charge Action"),
+                    f"Transaction ID: {item.id}",
+                    f"Buyer ID: {item.owner_id}",
+                    f"Amount: {item.amount:,.0f}",
+                ]
+            ),
+            reply_markup=admin_wallet_charge_actions(item.id),
+        )
 
 
 async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerContextService) -> None:
@@ -1005,6 +1112,18 @@ async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerCon
         "\n".join([title("Open Tickets"), section("Tickets", rows)]),
         reply_markup=seller_admin_menu(),
     )
+    for item in tickets[:5]:
+        await callback.message.answer(
+            "\n".join(
+                [
+                    title("Ticket Action"),
+                    f"Ticket ID: {item.id}",
+                    f"Subject: {item.subject}",
+                    f"Status: {status_label(item.status)}",
+                ]
+            ),
+            reply_markup=admin_ticket_actions(item.id),
+        )
 
 
 def _format_report(title: str, report: dict[str, float | int]) -> str:

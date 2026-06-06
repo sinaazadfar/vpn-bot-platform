@@ -136,3 +136,39 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
             [("Home", build_callback("s", "home"))],
         ]
     )
+
+
+def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Approve", build_callback("s", "pay_ok", payment_id)),
+                ("Payments", build_callback("s", "admin_payments")),
+            ],
+            [("Admin Home", build_callback("s", "admin"))],
+        ]
+    )
+
+
+def admin_wallet_charge_actions(transaction_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Approve", build_callback("s", "wallet_ok", transaction_id)),
+                ("Wallet Charges", build_callback("s", "admin_wallet")),
+            ],
+            [("Admin Home", build_callback("s", "admin"))],
+        ]
+    )
+
+
+def admin_ticket_actions(ticket_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Close", build_callback("s", "ticket_close", ticket_id)),
+                ("Tickets", build_callback("s", "admin_tickets")),
+            ],
+            [("Admin Home", build_callback("s", "admin"))],
+        ]
+    )
