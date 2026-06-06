@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vpn_platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-vpn_platform}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      - postgres
+    profiles: ["migrate"]
+
+  master-bot:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    environment:
+      APP_ROLE: master_bot
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "api.telegram.org:${TELEGRAM_API_IP:-149.154.167.220}"
+    command: ["python", "-m", "vpn_bot_platform.master_bot.main"]
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    environment:
+      APP_ROLE: worker
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
+    command: ["python", "-m", "vpn_bot_platform.workers.provisioning"]
+    extra_hosts:
+      - "api.telegram.org:${TELEGRAM_API_IP:-149.154.167.220}"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  seller-bot:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: ${SELLER_RUNTIME_IMAGE:-vpn-bot-platform-seller:latest}
+    env_file: .env
+    environment:
+      APP_ROLE: seller_bot
+      SELLER_BOT_ID: ${SELLER_BOT_ID:-}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
+    extra_hosts:
+      - "api.telegram.org:${TELEGRAM_API_IP:-149.154.167.220}"
+    command: ["python", "-m", "vpn_bot_platform.seller_bot.main"]
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres-backup:
+    profiles: ["backup"]
+    image: postgres:16
+    env_file: .env
+    volumes:
+      - ./backups/postgres:/backups
+    depends_on:
+      - postgres
+    command:
+      - sh
+      - -c
+      - >
+        pg_dump -h postgres -U "$${POSTGRES_USER:-vpn_platform}" "$${POSTGRES_DB:-vpn_platform}"
+        | gzip > "/backups/postgres-$$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+
+volumes:
+  pgdata:

@@ -1,0 +1,97 @@
+# Deploy To Server-04
+
+Production target:
+
+```bash
+ssh server-04
+```
+
+App path:
+
+```bash
+/opt/vpn-bot-platform
+```
+
+## First-Time Setup
+
+Run on `server-04`:
+
+```bash
+sudo mkdir -p /opt/vpn-bot-platform
+sudo chown "$USER:$USER" /opt/vpn-bot-platform
+cd /opt/vpn-bot-platform
+git clone <REPO_URL> .
+cp .env.example .env
+```
+
+Edit `.env` on the server and set production values:
+
+- `DATABASE_URL=postgresql+asyncpg://vpn_platform:<password>@postgres:5432/vpn_platform`
+- `POSTGRES_PASSWORD`
+- `FERNET_KEY`
+- `MASTER_BOT_TOKEN`
+- `SUPER_USER_TELEGRAM_ID`
+- `CARD_TO_CARD_INSTRUCTIONS`
+- Marzban/trial settings as needed
+
+Generate `FERNET_KEY`:
+
+```bash
+python - <<'PY'
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+PY
+```
+
+## Manual Deploy
+
+From your local machine or a self-hosted runner that has `ssh server-04` configured:
+
+```bash
+ssh server-04 "APP_DIR=/opt/vpn-bot-platform DEPLOY_BRANCH=main sh /opt/vpn-bot-platform/deploy/deploy.sh"
+```
+
+Deploy script actions:
+
+- Fetches and resets to `origin/main`.
+- Builds `master-bot`, `worker`, and seller runtime images.
+- Runs `alembic upgrade head`.
+- Restarts `master-bot` and `worker`.
+- Rebuilds the seller runtime image.
+- Restarts seller bot containers that were previously in `running` state.
+
+## Postgres Backups
+
+Manual backup on `server-04`:
+
+```bash
+APP_DIR=/opt/vpn-bot-platform BACKUP_DIR=/opt/vpn-bot-platform/backups/postgres \
+  sh /opt/vpn-bot-platform/deploy/backup-postgres.sh
+```
+
+Optional cron entry:
+
+```cron
+15 3 * * * APP_DIR=/opt/vpn-bot-platform BACKUP_DIR=/opt/vpn-bot-platform/backups/postgres sh /opt/vpn-bot-platform/deploy/backup-postgres.sh
+```
+
+Backups are written as gzip SQL dumps and files older than 14 days are removed.
+
+## GitHub Actions
+
+The deploy job is configured for a self-hosted runner because it uses the SSH alias directly:
+
+```bash
+ssh server-04
+```
+
+Required GitHub secret:
+
+- `DEPLOY_APP_DIR=/opt/vpn-bot-platform`
+
+The self-hosted runner must have:
+
+- SSH config containing the `server-04` alias.
+- Docker and Docker Compose available.
+- Git available.
+- Access to the repository origin.
