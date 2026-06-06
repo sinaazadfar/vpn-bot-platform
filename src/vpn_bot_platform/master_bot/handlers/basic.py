@@ -5,7 +5,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import Message
 
-from vpn_bot_platform.common.models import DiscountType
+from vpn_bot_platform.common.models import DiscountType, ResellerStatus
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
@@ -22,6 +22,9 @@ async def start(message: Message) -> None:
                 "Commands:",
                 "/admin - show owner menu",
                 "/add_reseller <telegram_id> <display_name>",
+                "/rename_reseller <telegram_id> <display_name>",
+                "/set_reseller_status <telegram_id> <active|suspended|disabled>",
+                "/disable_reseller <telegram_id>",
                 "/list_resellers",
                 "/add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>",
                 "/add_panel_token <name> <base_url> <token>",
@@ -56,6 +59,9 @@ async def admin_menu(message: Message) -> None:
                 "",
                 "Phase 2 MVP commands:",
                 "/add_reseller <telegram_id> <display_name>",
+                "/rename_reseller <telegram_id> <display_name>",
+                "/set_reseller_status <telegram_id> <active|suspended|disabled>",
+                "/disable_reseller <telegram_id>",
                 "/list_resellers",
                 "/add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>",
                 "/add_panel_token <name> <base_url> <token>",
@@ -99,6 +105,89 @@ async def add_reseller(
     status = "already existed" if registered.existed else "created"
     await message.answer(
         f"Reseller {status}.\nID: {registered.reseller.id}\nName: {registered.reseller.display_name}"
+    )
+
+
+@router.message(Command("rename_reseller"))
+async def rename_reseller(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    args = (command.args or "").strip().split(maxsplit=1)
+    if len(args) != 2 or not args[0].isdigit():
+        await message.answer("Usage: /rename_reseller <telegram_id> <display_name>")
+        return
+    try:
+        reseller = await reseller_service.rename_reseller(
+            reseller_telegram_id=int(args[0]),
+            display_name=args[1].strip(),
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError as exc:
+        if str(exc) == "reseller_not_found":
+            await message.answer("Reseller not found.")
+            return
+        raise
+    await message.answer(
+        f"Reseller renamed.\nID: {reseller.id}\nName: {reseller.display_name}\nStatus: {reseller.status}"
+    )
+
+
+@router.message(Command("set_reseller_status"))
+async def set_reseller_status(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    args = (command.args or "").strip().split(maxsplit=1)
+    if len(args) != 2 or not args[0].isdigit():
+        await message.answer("Usage: /set_reseller_status <telegram_id> <active|suspended|disabled>")
+        return
+    try:
+        status = ResellerStatus(args[1].strip())
+    except ValueError:
+        await message.answer("Status must be active, suspended, or disabled.")
+        return
+    try:
+        reseller = await reseller_service.set_reseller_status(
+            reseller_telegram_id=int(args[0]),
+            status=status,
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError as exc:
+        if str(exc) == "reseller_not_found":
+            await message.answer("Reseller not found.")
+            return
+        raise
+    await message.answer(
+        f"Reseller status updated.\nID: {reseller.id}\nName: {reseller.display_name}\nStatus: {reseller.status}"
+    )
+
+
+@router.message(Command("disable_reseller"))
+async def disable_reseller(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    telegram_id = (command.args or "").strip()
+    if not telegram_id.isdigit():
+        await message.answer("Usage: /disable_reseller <telegram_id>")
+        return
+    try:
+        reseller = await reseller_service.set_reseller_status(
+            reseller_telegram_id=int(telegram_id),
+            status=ResellerStatus.DISABLED,
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError as exc:
+        if str(exc) == "reseller_not_found":
+            await message.answer("Reseller not found.")
+            return
+        raise
+    await message.answer(
+        f"Reseller disabled.\nID: {reseller.id}\nName: {reseller.display_name}"
     )
 
 

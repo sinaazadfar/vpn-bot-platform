@@ -36,12 +36,14 @@ from vpn_bot_platform.common.repositories import (
     list_marzban_panels,
     list_resellers,
     update_seller_runtime_state,
+    update_reseller_profile,
     upsert_telegram_user,
 )
 from vpn_bot_platform.common.models import (
     AuditActorType,
     MarzbanPanel,
     Reseller,
+    ResellerStatus,
     ResellerPanelAssignment,
     SellerBot,
     SellerBotStatus,
@@ -159,6 +161,62 @@ class ResellerService:
     async def list_resellers(self) -> list[Reseller]:
         async with session_scope() as session:
             return await list_resellers(session)
+
+    async def rename_reseller(
+        self,
+        *,
+        reseller_telegram_id: int,
+        display_name: str,
+        actor_telegram_id: int | None = None,
+    ) -> Reseller:
+        async with session_scope() as session:
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            await update_reseller_profile(session, reseller=reseller, display_name=display_name)
+            await record_audit_log(
+                session,
+                action="reseller.rename",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="reseller",
+                target_id=reseller.id,
+                metadata={"telegram_user_id": reseller_telegram_id, "display_name": display_name},
+            )
+            await session.flush()
+            return reseller
+
+    async def set_reseller_status(
+        self,
+        *,
+        reseller_telegram_id: int,
+        status: ResellerStatus,
+        actor_telegram_id: int | None = None,
+    ) -> Reseller:
+        async with session_scope() as session:
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            await update_reseller_profile(session, reseller=reseller, status=status.value)
+            await record_audit_log(
+                session,
+                action="reseller.status_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="reseller",
+                target_id=reseller.id,
+                metadata={"telegram_user_id": reseller_telegram_id, "status": status.value},
+            )
+            await session.flush()
+            return reseller
 
     async def register_marzban_panel(
         self,

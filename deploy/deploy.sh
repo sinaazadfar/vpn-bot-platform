@@ -11,3 +11,4 @@ docker compose --profile migrate up --force-recreate --abort-on-container-exit m
 docker compose up -d master-bot worker
 docker compose build seller-bot
 APP_DIR="$APP_DIR" sh "$APP_DIR/deploy/restart-sellers.sh"
+APP_DIR="$APP_DIR" sh "$APP_DIR/deploy/healthcheck.sh"

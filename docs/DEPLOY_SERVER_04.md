@@ -59,6 +59,7 @@ Deploy script actions:
 - Restarts `master-bot` and `worker`.
 - Rebuilds the seller runtime image.
 - Restarts seller bot containers that were previously in `running` state.
+- Runs `deploy/healthcheck.sh`.
 
 ## Postgres Backups
 
@@ -69,7 +70,13 @@ APP_DIR=/opt/vpn-bot-platform BACKUP_DIR=/opt/vpn-bot-platform/backups/postgres 
   sh /opt/vpn-bot-platform/deploy/backup-postgres.sh
 ```
 
-Optional cron entry:
+Preferred systemd timer:
+
+```bash
+APP_DIR=/opt/vpn-bot-platform sh /opt/vpn-bot-platform/deploy/install-backup-timer.sh
+```
+
+Optional cron entry if systemd timers are not desired:
 
 ```cron
 15 3 * * * APP_DIR=/opt/vpn-bot-platform BACKUP_DIR=/opt/vpn-bot-platform/backups/postgres sh /opt/vpn-bot-platform/deploy/backup-postgres.sh
@@ -95,3 +102,16 @@ The self-hosted runner must have:
 - Docker and Docker Compose available.
 - Git available.
 - Access to the repository origin.
+
+## Bot Update Mode
+
+Production currently uses polling. Webhook mode is deferred until a stable HTTPS domain/subdomain is assigned. See `docs/WEBHOOK_MODE.md`.
+
+## Production Verification
+
+After deploy:
+
+```bash
+APP_DIR=/opt/vpn-bot-platform sh /opt/vpn-bot-platform/deploy/healthcheck.sh
+cd /opt/vpn-bot-platform && docker compose ps
+```

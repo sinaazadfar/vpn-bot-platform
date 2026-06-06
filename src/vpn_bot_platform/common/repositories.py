@@ -97,6 +97,20 @@ async def list_resellers(session: AsyncSession) -> list[Reseller]:
     return list(result.scalars().all())
 
 
+async def update_reseller_profile(
+    session: AsyncSession,
+    *,
+    reseller: Reseller,
+    display_name: str | None = None,
+    status: str | None = None,
+) -> Reseller:
+    if display_name is not None:
+        reseller.display_name = display_name
+    if status is not None:
+        reseller.status = status
+    return reseller
+
+
 async def create_marzban_panel(
     session: AsyncSession,
     *,

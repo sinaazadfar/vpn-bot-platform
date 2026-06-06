@@ -7,10 +7,10 @@
 - [x] Identify server deployment reference: `my-servers`.
 - [x] Create clean platform folder and AI handoff docs.
 - [x] Confirm which server will host the master platform. Target: `server-04`.
-- [ ] Confirm domain/subdomain for bot webhook mode if webhooks are preferred.
-- [ ] Confirm whether bots should use polling first or webhook first.
+- [x] Confirm domain/subdomain for bot webhook mode if webhooks are preferred.
+- [x] Confirm whether bots should use polling first or webhook first.
 
-Recommended first choice: polling for MVP, webhook later.
+Decision: use polling for production MVP on `server-04`. Webhook mode is deferred until a stable HTTPS domain/subdomain is assigned.
 
 ## Phase 1 - Foundation
 
@@ -26,7 +26,7 @@ Deliverable: tests pass locally and schema can migrate on Postgres.
 ## Phase 2 - Master Bot MVP
 
 - [x] Super user authentication by Telegram ID.
-- [ ] Add/edit/disable reseller admins. Initial add/list commands exist.
+- [x] Add/edit/disable reseller admins. Initial add/list commands exist.
 - [x] Register seller bot token manually.
 - [x] Store encrypted seller token.
 - [x] Assign Marzban panel credentials.

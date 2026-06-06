@@ -5,6 +5,7 @@ from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
+from vpn_bot_platform.common.models import ResellerStatus
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 
@@ -34,6 +35,16 @@ async def test_register_reseller_and_seller_bot() -> None:
             panel_id=panel.id,
             marzban_admin_username="reseller_admin",
         )
+        renamed = await service.rename_reseller(
+            reseller_telegram_id=12345,
+            display_name="Renamed Reseller",
+            actor_telegram_id=999,
+        )
+        disabled = await service.set_reseller_status(
+            reseller_telegram_id=12345,
+            status=ResellerStatus.DISABLED,
+            actor_telegram_id=999,
+        )
     finally:
         await dispose_engine()
 
@@ -45,3 +56,5 @@ async def test_register_reseller_and_seller_bot() -> None:
     assert panel.token_encrypted != "panel-token"
     assert assignment.reseller_id == registered.reseller.id
     assert assignment.panel_id == panel.id
+    assert renamed.display_name == "Renamed Reseller"
+    assert disabled.status == "disabled"
