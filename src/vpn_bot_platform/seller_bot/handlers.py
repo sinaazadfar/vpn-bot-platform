@@ -16,6 +16,8 @@ from vpn_bot_platform.common.ui.keyboards import (
     seller_buyer_menu,
     seller_section_menu,
     service_actions,
+    support_menu,
+    wallet_charge_menu,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
 from vpn_bot_platform.seller_bot.forced_join import missing_required_chats
@@ -111,10 +113,87 @@ async def seller_menu_callback(
             filename=f"{service.marzban_username}.png",
         )
         await callback.message.answer_photo(qr_file, caption=f"QR Code\nService: {service.id}")
+    elif action.action == "service_sub":
+        if not action.value:
+            await callback.answer("Service is missing.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=action.value,
+        )
+        if service is None or not service.subscription_url:
+            await callback.answer("Subscription is not available.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Subscription"),
+                    f"Service: {service.marzban_username}",
+                    f"Service ID: {service.id}",
+                    "",
+                    service.subscription_url,
+                ]
+            ),
+            reply_markup=service_actions(service.id),
+        )
+    elif action.action == "renew":
+        if not action.value:
+            await callback.answer("Service is missing.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=action.value,
+        )
+        if service is None:
+            await callback.answer("Service not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            await _renewal_text(seller_context, service_id=service.id),
+            reply_markup=service_actions(service.id),
+        )
     elif action.action == "wallet":
         await callback.message.edit_text(
             await _wallet_text(seller_context, buyer_telegram_id=callback.from_user.id),
-            reply_markup=seller_section_menu("wallet"),
+            reply_markup=wallet_charge_menu(),
+        )
+    elif action.action == "wallet_add":
+        if not action.value:
+            await callback.answer("Amount is missing.", show_alert=True)
+            return
+        try:
+            amount = float(action.value)
+            charge = await seller_context.request_wallet_charge(
+                buyer_telegram_id=callback.from_user.id,
+                amount=amount,
+            )
+        except ValueError:
+            await callback.answer("Invalid wallet charge.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Wallet Charge Request"),
+                    f"Transaction ID: {charge.transaction.id}",
+                    f"Amount: {charge.transaction.amount:,.0f}",
+                    "",
+                    charge.instructions,
+                ]
+            ),
+            reply_markup=wallet_charge_menu(),
+        )
+    elif action.action == "wallet_custom":
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Custom Wallet Charge"),
+                    "Use this command with your amount:",
+                    "",
+                    "/charge_wallet <amount>",
+                ]
+            ),
+            reply_markup=wallet_charge_menu(),
         )
     elif action.action == "trial":
         try:
@@ -138,7 +217,24 @@ async def seller_menu_callback(
     elif action.action == "support":
         await callback.message.edit_text(
             _shortcut_text("Support", ["/ticket <subject> | <message>", "/my_tickets", "/reply_ticket"]),
-            reply_markup=seller_section_menu("support"),
+            reply_markup=support_menu(),
+        )
+    elif action.action == "tickets":
+        await callback.message.edit_text(
+            await _buyer_tickets_text(seller_context, buyer_telegram_id=callback.from_user.id),
+            reply_markup=support_menu(),
+        )
+    elif action.action == "ticket_open":
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Open Ticket"),
+                    "Use this command:",
+                    "",
+                    "/ticket <subject> | <message>",
+                ]
+            ),
+            reply_markup=support_menu(),
         )
     elif action.action == "guides":
         await callback.message.edit_text(
@@ -972,6 +1068,36 @@ async def _services_text(seller_context: SellerContextService, *, buyer_telegram
     return "\n".join([title("My Services"), section("Services", rows)])
 
 
+async def _find_buyer_service(
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+    service_id: str,
+):
+    services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
+    return next((service for service in services if service.id == service_id), None)
+
+
+async def _renewal_text(seller_context: SellerContextService, *, service_id: str) -> str:
+    plans = await seller_context.list_plans()
+    if not plans:
+        return "\n".join([title("Renew Service"), "No active renewal plans are available."])
+    rows = []
+    for plan in plans[:12]:
+        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        rows.append(
+            f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
+        )
+    rows.extend(
+        [
+            "",
+            "Use:",
+            f"/renew {service_id} <plan_id> [coupon]",
+        ]
+    )
+    return "\n".join([title("Renew Service"), section("Plans", rows)])
+
+
 async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
     wallet_info = await seller_context.list_buyer_wallet(buyer_telegram_id=buyer_telegram_id)
     balance = wallet_info.buyer.wallet_balance if wallet_info.buyer else 0
@@ -981,6 +1107,20 @@ async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_i
     ]
     rows.extend(["", "Charge wallet with /charge_wallet <amount>."])
     return "\n".join([title("Wallet"), f"Balance: {balance:,.0f}", "", section("Recent transactions", rows)])
+
+
+async def _buyer_tickets_text(
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+) -> str:
+    tickets = await seller_context.list_my_tickets(buyer_telegram_id=buyer_telegram_id)
+    rows = [
+        f"- {ticket_item.id} | {status_label(ticket_item.status)} | {ticket_item.subject}"
+        for ticket_item in tickets[:12]
+    ]
+    rows.extend(["", "Reply with /reply_ticket <ticket_id> <message>."])
+    return "\n".join([title("My Tickets"), section("Tickets", rows)])
 
 
 def _payment_request_text(payment_request) -> str:

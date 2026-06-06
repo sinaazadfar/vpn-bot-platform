@@ -130,10 +130,45 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
+                ("Subscription", build_callback("s", "service_sub", service_id)),
                 ("QR Code", build_callback("s", "service_qr", service_id)),
+            ],
+            [
                 ("Renew", build_callback("s", "renew", service_id)),
+                ("Services", build_callback("s", "services")),
             ],
             [("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
+def wallet_charge_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("100,000", build_callback("s", "wallet_add", "100000")),
+                ("250,000", build_callback("s", "wallet_add", "250000")),
+            ],
+            [
+                ("500,000", build_callback("s", "wallet_add", "500000")),
+                ("Custom", build_callback("s", "wallet_custom")),
+            ],
+            [("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
+def support_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("My Tickets", build_callback("s", "tickets")),
+                ("Open Ticket", build_callback("s", "ticket_open")),
+            ],
+            [
+                ("Guides", build_callback("s", "guides")),
+                ("Home", build_callback("s", "home")),
+            ],
         ]
     )
 

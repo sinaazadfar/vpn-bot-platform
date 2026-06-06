@@ -321,7 +321,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Status
   - [ ] Subscription link
 - [x] Add service action buttons:
-  - [ ] Get Subscription
+  - [x] Get Subscription
   - [x] QR Code
   - [ ] Renew
   - [ ] Connection Guide
@@ -337,7 +337,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add wallet dashboard:
   - [x] Balance
   - [x] Recent transactions
-  - [ ] Charge wallet
+  - [x] Charge wallet
 - [ ] Add guided wallet charge flow:
   - [ ] Ask amount.
   - [ ] Confirm request.
@@ -363,7 +363,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Ask subject.
   - [ ] Ask message.
   - [ ] Confirm open.
-- [ ] Add ticket list screen.
+- [x] Add ticket list screen.
 - [ ] Add ticket detail screen with recent messages.
 - [ ] Add reply button and FSM.
 - [ ] Keep `/ticket`, `/my_tickets`, and `/reply_ticket` as shortcuts.

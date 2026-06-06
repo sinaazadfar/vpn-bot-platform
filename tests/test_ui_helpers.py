@@ -10,6 +10,8 @@ from vpn_bot_platform.common.ui.keyboards import (
     master_main_menu,
     seller_admin_menu,
     seller_buyer_menu,
+    support_menu,
+    wallet_charge_menu,
 )
 from vpn_bot_platform.common.ui.messages import status_label
 
@@ -33,6 +35,8 @@ def test_main_menus_have_buttons() -> None:
     assert master_main_menu().inline_keyboard
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
+    assert wallet_charge_menu().inline_keyboard
+    assert support_menu().inline_keyboard
 
 
 def test_admin_action_keyboards_fit_callback_limit() -> None:
