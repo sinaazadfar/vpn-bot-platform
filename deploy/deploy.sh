@@ -6,7 +6,7 @@ APP_DIR="${APP_DIR:-/opt/vpn-bot-platform}"
 cd "$APP_DIR"
 git fetch --all --prune
 git reset --hard "origin/${DEPLOY_BRANCH:-main}"
-docker compose build migrate master-bot worker seller-bot
+docker compose --profile migrate build migrate master-bot worker seller-bot
 docker compose --profile migrate up --force-recreate --abort-on-container-exit migrate
 docker compose up -d master-bot worker
 docker compose build seller-bot
