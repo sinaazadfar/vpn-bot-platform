@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from vpn_bot_platform.common.models import DiscountType, ResellerStatus
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
+from vpn_bot_platform.common.ui.callbacks import parse_callback
+from vpn_bot_platform.common.ui.keyboards import (
+    master_main_menu,
+    master_section_menu,
+    reseller_actions,
+)
+from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 router = Router(name="master_basic")
@@ -15,76 +22,102 @@ router = Router(name="master_basic")
 @router.message(CommandStart())
 async def start(message: Message) -> None:
     await message.answer(
-        "\n".join(
-            [
-                "Master bot is running.",
-                "",
-                "Commands:",
-                "/admin - show owner menu",
-                "/add_reseller <telegram_id> <display_name>",
-                "/rename_reseller <telegram_id> <display_name>",
-                "/set_reseller_status <telegram_id> <active|suspended|disabled>",
-                "/disable_reseller <telegram_id>",
-                "/list_resellers",
-                "/add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>",
-                "/add_panel_token <name> <base_url> <token>",
-                "/add_panel_password <name> <base_url> <username> <password>",
-                "/list_panels",
-                "/assign_panel <reseller_telegram_id> <panel_id> [marzban_admin_username]",
-                "/start_seller <seller_bot_id>",
-                "/stop_seller <seller_bot_id>",
-                "/seller_health <seller_bot_id>",
-                "/seller_logs <seller_bot_id>",
-                "/add_global_plan <name> <price> <duration_days> <data_limit_gb|unlimited>",
-                "/add_reseller_plan <reseller_telegram_id> <name> <price> <duration_days> <data_limit_gb|unlimited>",
-                "/list_plans",
-                "/add_discount <code> <percent|fixed> <amount> [max_uses]",
-                "/list_discounts",
-                "/global_broadcast <title> | <message>",
-                "/send_global_broadcast <broadcast_id>",
-                "/global_report [days]",
-                "/set_forced_join <chat_id> [title]",
-                "/list_forced_join",
-            ]
-        )
+        _master_dashboard_text(),
+        reply_markup=master_main_menu(),
     )
 
 
 @router.message(Command("admin"))
 async def admin_menu(message: Message) -> None:
     await message.answer(
-        "\n".join(
-            [
-                "Owner menu",
-                "",
-                "Phase 2 MVP commands:",
-                "/add_reseller <telegram_id> <display_name>",
-                "/rename_reseller <telegram_id> <display_name>",
-                "/set_reseller_status <telegram_id> <active|suspended|disabled>",
-                "/disable_reseller <telegram_id>",
-                "/list_resellers",
-                "/add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>",
-                "/add_panel_token <name> <base_url> <token>",
-                "/add_panel_password <name> <base_url> <username> <password>",
-                "/list_panels",
-                "/assign_panel <reseller_telegram_id> <panel_id> [marzban_admin_username]",
-                "/start_seller <seller_bot_id>",
-                "/stop_seller <seller_bot_id>",
-                "/seller_health <seller_bot_id>",
-                "/seller_logs <seller_bot_id>",
-                "/add_global_plan <name> <price> <duration_days> <data_limit_gb|unlimited>",
-                "/add_reseller_plan <reseller_telegram_id> <name> <price> <duration_days> <data_limit_gb|unlimited>",
-                "/list_plans",
-                "/add_discount <code> <percent|fixed> <amount> [max_uses]",
-                "/list_discounts",
-                "/global_broadcast <title> | <message>",
-                "/send_global_broadcast <broadcast_id>",
-                "/global_report [days]",
-                "/set_forced_join <chat_id> [title]",
-                "/list_forced_join",
-            ]
-        )
+        _master_dashboard_text(),
+        reply_markup=master_main_menu(),
     )
+
+
+@router.callback_query(F.data.startswith("m:"))
+async def master_menu_callback(
+    callback: CallbackQuery,
+    reseller_service: ResellerService,
+) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    action = parse_callback(callback.data or "")
+    if action.action == "home":
+        await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
+    elif action.action == "resellers":
+        await callback.message.edit_text(
+            await _resellers_text(reseller_service),
+            reply_markup=master_section_menu("resellers"),
+        )
+    elif action.action in {"reseller_active", "reseller_suspended", "reseller_disabled"}:
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller action.", show_alert=True)
+            return
+        status = ResellerStatus(action.action.replace("reseller_", ""))
+        try:
+            reseller = await reseller_service.set_reseller_status(
+                reseller_telegram_id=int(action.value),
+                status=status,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Reseller not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Reseller Updated"),
+                    f"Name: {reseller.display_name}",
+                    f"Telegram: {reseller.telegram_user_id}",
+                    f"Status: {status_label(reseller.status)}",
+                ]
+            ),
+            reply_markup=reseller_actions(reseller.telegram_user_id),
+        )
+    elif action.action == "seller_bots":
+        await callback.message.edit_text(
+            _shortcut_text("Seller Bots", ["/add_seller_bot", "/start_seller", "/stop_seller", "/seller_health", "/seller_logs"]),
+            reply_markup=master_section_menu("seller_bots"),
+        )
+    elif action.action == "panels":
+        await callback.message.edit_text(
+            await _panels_text(reseller_service),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "plans":
+        await callback.message.edit_text(
+            await _plans_text(reseller_service),
+            reply_markup=master_section_menu("plans"),
+        )
+    elif action.action == "discounts":
+        await callback.message.edit_text(
+            await _discounts_text(reseller_service),
+            reply_markup=master_section_menu("discounts"),
+        )
+    elif action.action == "reports":
+        report = await reseller_service.global_report(days=1)
+        await callback.message.edit_text(
+            _format_report("Global Report - Today", report),
+            reply_markup=master_section_menu("reports"),
+        )
+    elif action.action == "broadcasts":
+        await callback.message.edit_text(
+            _shortcut_text("Broadcasts", ["/global_broadcast", "/send_global_broadcast"]),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+    elif action.action == "settings":
+        await callback.message.edit_text(
+            _shortcut_text("Settings", ["/set_forced_join", "/list_forced_join"]),
+            reply_markup=master_section_menu("settings"),
+        )
+    elif action.action == "system":
+        await callback.message.edit_text(
+            _shortcut_text("System", ["/global_report", "/seller_health", "/seller_logs"]),
+            reply_markup=master_section_menu("system"),
+        )
+    await callback.answer()
 
 
 @router.message(Command("add_reseller"))
@@ -467,6 +500,91 @@ async def seller_logs(
 def _telegram_code_block(value: str) -> str:
     escaped = value.replace("```", "`\u200b``")
     return f"```\n{escaped}\n```"
+
+
+def _master_dashboard_text() -> str:
+    return "\n".join(
+        [
+            title("Master Dashboard"),
+            "Use the buttons below for daily operations.",
+            "",
+            section(
+                "Quick commands",
+                [
+                    "- /add_reseller <telegram_id> <display_name>",
+                    "- /add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>",
+                    "- /add_panel_token <name> <base_url> <token>",
+                    "- /global_report [days]",
+                ],
+            ),
+        ]
+    )
+
+
+async def _resellers_text(reseller_service: ResellerService) -> str:
+    resellers = await reseller_service.list_resellers()
+    rows = [
+        (
+            f"- {reseller.display_name} | tg={reseller.telegram_user_id} | "
+            f"{status_label(reseller.status)} | id={short_id(reseller.id)}"
+        )
+        for reseller in resellers[:20]
+    ]
+    rows.extend(
+        [
+            "",
+            "Shortcuts:",
+            "/add_reseller <telegram_id> <display_name>",
+            "/rename_reseller <telegram_id> <display_name>",
+            "/set_reseller_status <telegram_id> <active|suspended|disabled>",
+        ]
+    )
+    return "\n".join([title("Resellers"), section("Latest resellers", rows)])
+
+
+async def _panels_text(reseller_service: ResellerService) -> str:
+    panels = await reseller_service.list_marzban_panels()
+    rows = [
+        f"- {panel.name} | {status_label('active' if panel.is_active else 'disabled')} | id={short_id(panel.id)}"
+        for panel in panels[:20]
+    ]
+    rows.extend(["", "Shortcuts:", "/add_panel_token", "/add_panel_password", "/assign_panel"])
+    return "\n".join([title("Panels"), section("Registered panels", rows)])
+
+
+async def _plans_text(reseller_service: ResellerService) -> str:
+    plans = await reseller_service.list_plans()
+    rows = []
+    for plan in plans[:20]:
+        scope = "global" if plan.reseller_id is None else f"reseller={short_id(plan.reseller_id)}"
+        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        rows.append(f"- {plan.name} | {scope} | {plan.price:,.0f} | {plan.duration_days}d | {traffic}")
+    rows.extend(["", "Shortcuts:", "/add_global_plan", "/add_reseller_plan", "/list_plans"])
+    return "\n".join([title("Plans"), section("Active catalog", rows)])
+
+
+async def _discounts_text(reseller_service: ResellerService) -> str:
+    discounts = await reseller_service.list_discounts()
+    rows = [
+        (
+            f"- {discount.code} | {discount.discount_type} {discount.amount} | "
+            f"used={discount.used_count}/{discount.max_uses or 'unlimited'}"
+        )
+        for discount in discounts[:20]
+    ]
+    rows.extend(["", "Shortcuts:", "/add_discount", "/list_discounts"])
+    return "\n".join([title("Discounts"), section("Discount codes", rows)])
+
+
+def _shortcut_text(name: str, commands: list[str]) -> str:
+    return "\n".join(
+        [
+            title(name),
+            "Button flow for this area is staged. Use these shortcuts now:",
+            "",
+            *[f"- {command}" for command in commands],
+        ]
+    )
 
 
 @router.message(Command("add_global_plan"))

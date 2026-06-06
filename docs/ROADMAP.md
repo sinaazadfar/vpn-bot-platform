@@ -105,58 +105,58 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Shared UI Kit
 
-- [ ] Create `src/vpn_bot_platform/common/ui/` package.
-- [ ] Add shared button builders for inline keyboards.
+- [x] Create `src/vpn_bot_platform/common/ui/` package.
+- [x] Add shared button builders for inline keyboards.
 - [ ] Add shared reply keyboard builders for persistent main menus where useful.
-- [ ] Add callback data builders/parsers with short, Telegram-safe callback strings.
-- [ ] Add shared message formatters for titles, sections, IDs, prices, dates, and status rows.
-- [ ] Add common navigation buttons:
-  - [ ] Home
+- [x] Add callback data builders/parsers with short, Telegram-safe callback strings.
+- [x] Add shared message formatters for titles, sections, IDs, prices, dates, and status rows.
+- [x] Add common navigation buttons:
+  - [x] Home
   - [ ] Back
-  - [ ] Refresh
+  - [x] Refresh
   - [ ] Cancel
   - [ ] Confirm
-- [ ] Add common status labels:
-  - [ ] Active
-  - [ ] Suspended
-  - [ ] Disabled
-  - [ ] Pending
-  - [ ] Running
-  - [ ] Stopped
-  - [ ] Error
+- [x] Add common status labels:
+  - [x] Active
+  - [x] Suspended
+  - [x] Disabled
+  - [x] Pending
+  - [x] Running
+  - [x] Stopped
+  - [x] Error
   - [ ] Paid
-  - [ ] Failed
+  - [x] Failed
 - [ ] Add pagination helper for long lists.
 - [ ] Add confirmation keyboard helper for destructive actions.
-- [ ] Add tests for keyboard builders and callback parsing.
+- [x] Add tests for keyboard builders and callback parsing.
 
 ### Master Bot Main Menu
 
-- [ ] Replace `/start` response with a button dashboard.
-- [ ] Keep `/admin` as an alias for the same dashboard.
-- [ ] Add top-level master menu buttons:
-  - [ ] Resellers
-  - [ ] Seller Bots
-  - [ ] Panels
-  - [ ] Plans
-  - [ ] Discounts
-  - [ ] Broadcasts
-  - [ ] Reports
-  - [ ] Settings
-  - [ ] System
-- [ ] Add callback handlers for every top-level menu.
-- [ ] Add a persistent "Home" action from every submenu.
-- [ ] Add tests for top-level menu routing.
+- [x] Replace `/start` response with a button dashboard.
+- [x] Keep `/admin` as an alias for the same dashboard.
+- [x] Add top-level master menu buttons:
+  - [x] Resellers
+  - [x] Seller Bots
+  - [x] Panels
+  - [x] Plans
+  - [x] Discounts
+  - [x] Broadcasts
+  - [x] Reports
+  - [x] Settings
+  - [x] System
+- [x] Add callback handlers for every top-level menu.
+- [x] Add a persistent "Home" action from every submenu.
+- [x] Add tests for top-level menu routing.
 
 ### Master Bot Reseller UX
 
 - [ ] Add reseller list screen with pagination.
 - [ ] Add reseller detail screen with status, Telegram ID, wallet balance, and seller bot count.
-- [ ] Add reseller action buttons:
+- [x] Add reseller action buttons:
   - [ ] Rename
-  - [ ] Activate
-  - [ ] Suspend
-  - [ ] Disable
+  - [x] Activate
+  - [x] Suspend
+  - [x] Disable
   - [ ] Seller Bots
   - [ ] Plans
   - [ ] Panel Assignments
@@ -279,23 +279,23 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Seller Bot Buyer Main Menu
 
-- [ ] Replace buyer `/start` text with a button dashboard.
-- [ ] Add buyer top-level buttons:
-  - [ ] Buy VPN
-  - [ ] My Services
+- [x] Replace buyer `/start` text with a button dashboard.
+- [x] Add buyer top-level buttons:
+  - [x] Buy VPN
+  - [x] My Services
   - [ ] Renew
-  - [ ] Wallet
-  - [ ] Trial
-  - [ ] Support
-  - [ ] Guides
+  - [x] Wallet
+  - [x] Trial
+  - [x] Support
+  - [x] Guides
 - [ ] Add persistent reply keyboard for buyer shortcuts if it does not clutter admin usage.
 - [ ] Add forced-join blocked screen with required chat buttons.
-- [ ] Add tests for buyer dashboard keyboard.
+- [x] Add tests for buyer dashboard keyboard.
 
 ### Seller Bot Buyer Purchase UX
 
-- [ ] Add plan list screen with one card/message per plan or compact paginated list.
-- [ ] Add `Buy` button for each plan.
+- [x] Add plan list screen with one card/message per plan or compact paginated list.
+- [x] Add `Buy` button for each plan.
 - [ ] Add coupon step:
   - [ ] Enter coupon.
   - [ ] Skip coupon.
@@ -313,16 +313,16 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Seller Bot Services And Renewal UX
 
-- [ ] Add service list screen with active/inactive labels.
+- [x] Add service list screen with active/inactive labels.
 - [ ] Add service detail screen:
   - [ ] Username
   - [ ] Traffic limit
   - [ ] Expiry
   - [ ] Status
   - [ ] Subscription link
-- [ ] Add service action buttons:
+- [x] Add service action buttons:
   - [ ] Get Subscription
-  - [ ] QR Code
+  - [x] QR Code
   - [ ] Renew
   - [ ] Connection Guide
 - [ ] Add guided renewal flow:
@@ -334,9 +334,9 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Seller Bot Wallet UX
 
-- [ ] Add wallet dashboard:
-  - [ ] Balance
-  - [ ] Recent transactions
+- [x] Add wallet dashboard:
+  - [x] Balance
+  - [x] Recent transactions
   - [ ] Charge wallet
 - [ ] Add guided wallet charge flow:
   - [ ] Ask amount.
@@ -347,18 +347,18 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Seller Bot Trial UX
 
-- [ ] Add trial screen showing availability and limits.
-- [ ] Add request trial button.
-- [ ] Add trial result screen with subscription and QR actions.
-- [ ] Add clear already-used state.
+- [x] Add trial screen showing availability and limits.
+- [x] Add request trial button.
+- [x] Add trial result screen with subscription and QR actions.
+- [x] Add clear already-used state.
 - [ ] Keep `/trial` as shortcut.
 
 ### Seller Bot Support UX
 
-- [ ] Add support dashboard:
-  - [ ] Open Ticket
-  - [ ] My Tickets
-  - [ ] Connection Guides
+- [x] Add support dashboard:
+  - [x] Open Ticket
+  - [x] My Tickets
+  - [x] Connection Guides
 - [ ] Add ticket creation FSM:
   - [ ] Ask subject.
   - [ ] Ask message.
@@ -370,24 +370,24 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Seller Bot Reseller Admin UX
 
-- [ ] Replace `/admin` response with admin dashboard buttons.
-- [ ] Add admin top-level buttons:
-  - [ ] Pending Payments
+- [x] Replace `/admin` response with admin dashboard buttons.
+- [x] Add admin top-level buttons:
+  - [x] Pending Payments
   - [ ] Provision Orders
-  - [ ] Wallet Charges
-  - [ ] Tickets
-  - [ ] Broadcast
-  - [ ] Sales Report
+  - [x] Wallet Charges
+  - [x] Tickets
+  - [x] Broadcast
+  - [x] Sales Report
   - [ ] Customers
   - [ ] Plans
-- [ ] Add pending payment list screen.
+- [x] Add pending payment list screen.
 - [ ] Add payment detail screen with approve/reject buttons.
 - [ ] Add provision order screen with confirm button.
 - [ ] Add wallet charge list and approve button.
 - [ ] Add ticket admin list/detail/reply/close buttons.
 - [ ] Add reseller broadcast compose FSM with preview/confirm.
 - [ ] Add sales report preset buttons:
-  - [ ] Today
+  - [x] Today
   - [ ] 7 days
   - [ ] 30 days
   - [ ] Custom

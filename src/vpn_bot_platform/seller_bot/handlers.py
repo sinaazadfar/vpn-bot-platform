@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from vpn_bot_platform.common.qr import make_qr_png_bytes
+from vpn_bot_platform.common.ui.callbacks import parse_callback
+from vpn_bot_platform.common.ui.keyboards import (
+    plan_buy_button,
+    seller_admin_menu,
+    seller_buyer_menu,
+    seller_section_menu,
+    service_actions,
+)
+from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
 from vpn_bot_platform.seller_bot.forced_join import missing_required_chats
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
 from vpn_bot_platform.seller_bot.services import SellerContextService
@@ -19,6 +28,147 @@ async def start(message: Message, seller_context: SellerContextService) -> None:
         return
     if await _blocked_by_forced_join(message):
         return
+    profile = await seller_context.register_buyer(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+        language_code=message.from_user.language_code,
+    )
+    await message.answer(
+        _buyer_dashboard_text(seller_name=profile.seller_bot.name, reseller_name=profile.reseller.display_name),
+        reply_markup=seller_buyer_menu(),
+    )
+
+
+@router.callback_query(F.data.startswith("s:"))
+async def seller_menu_callback(
+    callback: CallbackQuery,
+    seller_context: SellerContextService,
+    provisioning_service: ProvisioningService,
+) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    action = parse_callback(callback.data or "")
+    if action.action == "home":
+        profile = await seller_context.register_buyer(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+            last_name=callback.from_user.last_name,
+            language_code=callback.from_user.language_code,
+        )
+        await callback.message.edit_text(
+            _buyer_dashboard_text(
+                seller_name=profile.seller_bot.name,
+                reseller_name=profile.reseller.display_name,
+            ),
+            reply_markup=seller_buyer_menu(),
+        )
+    elif action.action == "plans":
+        await callback.message.edit_text(
+            await _plans_text(seller_context),
+            reply_markup=seller_section_menu("plans"),
+        )
+    elif action.action == "buy":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        try:
+            payment_request = await seller_context.request_card_to_card_payment(
+                buyer_telegram_id=callback.from_user.id,
+                plan_id=action.value,
+            )
+        except ValueError as exc:
+            if str(exc) == "plan_not_found":
+                await callback.answer("Plan not found.", show_alert=True)
+                return
+            raise
+        await callback.message.edit_text(
+            _payment_request_text(payment_request),
+            reply_markup=seller_section_menu("plans"),
+        )
+    elif action.action == "services":
+        await callback.message.edit_text(
+            await _services_text(seller_context, buyer_telegram_id=callback.from_user.id),
+            reply_markup=seller_section_menu("services"),
+        )
+    elif action.action == "service_qr":
+        if not action.value:
+            await callback.answer("Service is missing.", show_alert=True)
+            return
+        services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
+        service = next((item for item in services if item.id == action.value), None)
+        if service is None or not service.subscription_url:
+            await callback.answer("Subscription is not available.", show_alert=True)
+            return
+        qr_file = BufferedInputFile(
+            make_qr_png_bytes(service.subscription_url),
+            filename=f"{service.marzban_username}.png",
+        )
+        await callback.message.answer_photo(qr_file, caption=f"QR Code\nService: {service.id}")
+    elif action.action == "wallet":
+        await callback.message.edit_text(
+            await _wallet_text(seller_context, buyer_telegram_id=callback.from_user.id),
+            reply_markup=seller_section_menu("wallet"),
+        )
+    elif action.action == "trial":
+        try:
+            service = await provisioning_service.provision_trial(
+                buyer_telegram_id=callback.from_user.id,
+                username=callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                last_name=callback.from_user.last_name,
+                language_code=callback.from_user.language_code,
+            )
+        except ValueError as exc:
+            await callback.message.edit_text(
+                _trial_error_text(str(exc)),
+                reply_markup=seller_section_menu("trial"),
+            )
+        else:
+            await callback.message.edit_text(
+                _service_created_text("Trial VPN service created.", service),
+                reply_markup=seller_section_menu("trial"),
+            )
+    elif action.action == "support":
+        await callback.message.edit_text(
+            _shortcut_text("Support", ["/ticket <subject> | <message>", "/my_tickets", "/reply_ticket"]),
+            reply_markup=seller_section_menu("support"),
+        )
+    elif action.action == "guides":
+        await callback.message.edit_text(
+            _shortcut_text("Connection Guides", ["Use your subscription link in V2RayNG, Streisand, Hiddify, or Nekobox."]),
+            reply_markup=seller_section_menu("guides"),
+        )
+    elif action.action == "admin":
+        await _show_admin_dashboard(callback, seller_context)
+    elif action.action == "admin_payments":
+        await _show_admin_payments(callback, seller_context)
+    elif action.action == "admin_wallet":
+        await _show_admin_wallet(callback, seller_context)
+    elif action.action == "admin_tickets":
+        await _show_admin_tickets(callback, seller_context)
+    elif action.action == "admin_report":
+        try:
+            report = await seller_context.sales_report(admin_telegram_id=callback.from_user.id, days=1)
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _format_report("Sales Report - Today", report),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "admin_broadcast":
+        await callback.message.edit_text(
+            _shortcut_text("Broadcast", ["/broadcast <title> | <message>", "/send_broadcast <broadcast_id>"]),
+            reply_markup=seller_admin_menu(),
+        )
+    await callback.answer()
+
+
+async def _send_legacy_start(message: Message, seller_context: SellerContextService) -> None:
     profile = await seller_context.register_buyer(
         telegram_id=message.from_user.id,
         username=message.from_user.username,
@@ -68,6 +218,11 @@ async def plans(message: Message, seller_context: SellerContextService) -> None:
             f"- {plan.name}: {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
         )
     await message.answer("\n".join(lines))
+    for plan in available_plans[:5]:
+        await message.answer(
+            f"{plan.name}\nAmount: {plan.price:,.0f}\nDuration: {plan.duration_days} days",
+            reply_markup=plan_buy_button(plan.id),
+        )
 
 
 @router.message(Command("my_services"))
@@ -97,6 +252,10 @@ async def my_services(message: Message, seller_context: SellerContextService) ->
             ]
         )
     await message.answer("\n".join(lines))
+    await message.answer(
+        "Service actions",
+        reply_markup=service_actions(services[0].id),
+    )
 
 
 @router.message(Command("wallet"))
@@ -679,6 +838,175 @@ def _parse_days(raw: str | None) -> int:
     return max(1, min(days, 365))
 
 
+def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:
+    return "\n".join(
+        [
+            title(seller_name),
+            f"Seller: {reseller_name}",
+            "",
+            "Choose an action below.",
+            "",
+            section(
+                "Shortcuts",
+                [
+                    "- /plans",
+                    "- /my_services",
+                    "- /wallet",
+                    "- /trial",
+                    "- /admin",
+                ],
+            ),
+        ]
+    )
+
+
+async def _plans_text(seller_context: SellerContextService) -> str:
+    plans = await seller_context.list_plans()
+    if not plans:
+        return "\n".join([title("Buy VPN"), "No active plans are available yet."])
+    rows = []
+    for plan in plans[:12]:
+        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        rows.append(
+            f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={short_id(plan.id)}"
+        )
+    rows.extend(["", "Tap Buy on a plan message, or use /buy <plan_id> [coupon]."])
+    return "\n".join([title("Buy VPN"), section("Available plans", rows)])
+
+
+async def _services_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
+    services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
+    if not services:
+        return "\n".join([title("My Services"), "You do not have any VPN services yet."])
+    rows = []
+    for service in services[:12]:
+        traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
+        expire = service.expire_at.date().isoformat() if service.expire_at else "Unlimited"
+        rows.append(
+            f"- {service.marzban_username} | {status_label('active' if service.is_active else 'disabled')} | "
+            f"{traffic} | expires={expire} | id={short_id(service.id)}"
+        )
+    rows.extend(["", "Use /my_services for full subscription links."])
+    return "\n".join([title("My Services"), section("Services", rows)])
+
+
+async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
+    wallet_info = await seller_context.list_buyer_wallet(buyer_telegram_id=buyer_telegram_id)
+    balance = wallet_info.buyer.wallet_balance if wallet_info.buyer else 0
+    rows = [
+        f"- {transaction.transaction_type} | {status_label(transaction.status)} | {transaction.amount:,.0f}"
+        for transaction in wallet_info.transactions[:8]
+    ]
+    rows.extend(["", "Charge wallet with /charge_wallet <amount>."])
+    return "\n".join([title("Wallet"), f"Balance: {balance:,.0f}", "", section("Recent transactions", rows)])
+
+
+def _payment_request_text(payment_request) -> str:
+    plan = payment_request.plan
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Payment Request"),
+            f"Order ID: {payment_request.order.id}",
+            f"Payment ID: {payment_request.payment.id}",
+            f"Plan: {plan.name}",
+            f"Amount: {payment_request.payment.amount:,.0f}",
+            f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            "",
+            payment_request.instructions,
+            "",
+            "After approval, your VPN service will be provisioned.",
+        ]
+    )
+
+
+def _service_created_text(header: str, service) -> str:
+    return "\n".join(
+        [
+            title(header),
+            f"Service ID: {service.id}",
+            f"Username: {service.marzban_username}",
+            f"Traffic: {service.data_limit_gb or 'Unlimited'} GB",
+            f"Expires: {service.expire_at.isoformat() if service.expire_at else 'Unlimited'}",
+            f"Subscription: {service.subscription_url or '-'}",
+        ]
+    )
+
+
+def _trial_error_text(error: str) -> str:
+    messages = {
+        "trial_disabled": "Trial accounts are disabled right now.",
+        "trial_already_used": "You have already used your trial account.",
+        "panel_assignment_not_found": "Trial is not available because no panel is assigned.",
+    }
+    return "\n".join([title("Trial"), messages.get(error, "Trial is not available right now.")])
+
+
+async def _show_admin_dashboard(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        pending = await seller_context.list_pending_payments(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "\n".join(
+            [
+                title("Reseller Admin"),
+                f"Pending payments: {len(pending)}",
+                "",
+                "Choose an admin action below.",
+            ]
+        ),
+        reply_markup=seller_admin_menu(),
+    )
+
+
+async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        pending = await seller_context.list_pending_payments(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    rows = [
+        f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
+        for item in pending[:15]
+    ]
+    rows.extend(["", "Approve with /approve_payment <payment_id>."])
+    await callback.message.edit_text(
+        "\n".join([title("Pending Payments"), section("Payments", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+
+
+async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        pending = await seller_context.list_pending_wallet_charges(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    rows = [f"- tx={item.id} | amount={item.amount:,.0f}" for item in pending[:15]]
+    rows.extend(["", "Approve with /approve_wallet_charge <transaction_id>."])
+    await callback.message.edit_text(
+        "\n".join([title("Wallet Charges"), section("Pending charges", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+
+
+async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        tickets = await seller_context.list_open_tickets(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    rows = [f"- ticket={item.id} | {item.subject}" for item in tickets[:15]]
+    rows.extend(["", "Reply with /admin_reply_ticket <ticket_id> <message>."])
+    await callback.message.edit_text(
+        "\n".join([title("Open Tickets"), section("Tickets", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+
+
 def _format_report(title: str, report: dict[str, float | int]) -> str:
     lines = [title]
     for key, value in report.items():
@@ -688,6 +1016,10 @@ def _format_report(title: str, report: dict[str, float | int]) -> str:
         else:
             lines.append(f"{label}: {value}")
     return "\n".join(lines)
+
+
+def _shortcut_text(name: str, commands: list[str]) -> str:
+    return "\n".join([title(name), *[f"- {command}" for command in commands]])
 
 
 @router.message(Command("apply_renewal"))
