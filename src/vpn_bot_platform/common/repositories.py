@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
+import json
+
 from sqlalchemy import select
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +14,8 @@ from vpn_bot_platform.common.models import (
     Broadcast,
     BroadcastRecipient,
     BroadcastStatus,
+    AuditActorType,
+    AuditLog,
     DiscountCode,
     DiscountType,
     MarzbanPanel,
@@ -18,10 +23,13 @@ from vpn_bot_platform.common.models import (
     OrderStatus,
     OrderType,
     Payment,
+    PaymentGateway,
+    PaymentGatewayStatus,
     PaymentStatus,
     PlatformSetting,
     Plan,
     PlanScope,
+    RateLimitBucket,
     Reseller,
     ResellerPanelAssignment,
     SettingScope,
@@ -125,11 +133,15 @@ async def assign_panel_to_reseller(
     reseller_id: str,
     panel_id: str,
     marzban_admin_username: str | None = None,
+    priority: int = 100,
+    weight: int = 1,
 ) -> ResellerPanelAssignment:
     assignment = ResellerPanelAssignment(
         reseller_id=reseller_id,
         panel_id=panel_id,
         marzban_admin_username=marzban_admin_username,
+        priority=priority,
+        weight=weight,
     )
     session.add(assignment)
     return assignment
@@ -488,11 +500,38 @@ async def get_primary_panel_assignment(
         .join(MarzbanPanel, ResellerPanelAssignment.panel_id == MarzbanPanel.id)
         .where(
             ResellerPanelAssignment.reseller_id == reseller_id,
+            ResellerPanelAssignment.is_active.is_(True),
             MarzbanPanel.is_active.is_(True),
         )
-        .order_by(ResellerPanelAssignment.created_at.asc())
+        .order_by(
+            ResellerPanelAssignment.priority.asc(),
+            ResellerPanelAssignment.weight.desc(),
+            ResellerPanelAssignment.created_at.asc(),
+        )
     )
     return result.first()
+
+
+async def list_active_panel_assignments(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+) -> list[tuple[ResellerPanelAssignment, MarzbanPanel]]:
+    result = await session.execute(
+        select(ResellerPanelAssignment, MarzbanPanel)
+        .join(MarzbanPanel, ResellerPanelAssignment.panel_id == MarzbanPanel.id)
+        .where(
+            ResellerPanelAssignment.reseller_id == reseller_id,
+            ResellerPanelAssignment.is_active.is_(True),
+            MarzbanPanel.is_active.is_(True),
+        )
+        .order_by(
+            ResellerPanelAssignment.priority.asc(),
+            ResellerPanelAssignment.weight.desc(),
+            ResellerPanelAssignment.created_at.asc(),
+        )
+    )
+    return list(result.all())
 
 
 async def create_vpn_service(
@@ -1058,3 +1097,116 @@ async def get_global_setting(
         )
     )
     return result.scalar_one_or_none()
+
+
+async def record_audit_log(
+    session: AsyncSession,
+    *,
+    action: str,
+    actor_type: AuditActorType,
+    actor_telegram_id: int | None = None,
+    reseller_id: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    metadata: dict | None = None,
+) -> AuditLog:
+    audit_log = AuditLog(
+        action=action,
+        actor_type=actor_type.value,
+        actor_telegram_id=actor_telegram_id,
+        reseller_id=reseller_id,
+        target_type=target_type,
+        target_id=target_id,
+        metadata_json=json.dumps(metadata, sort_keys=True) if metadata else None,
+    )
+    session.add(audit_log)
+    return audit_log
+
+
+async def consume_rate_limit_token(
+    session: AsyncSession,
+    *,
+    scope: str,
+    identity: str,
+    bucket_key: str,
+    limit: int,
+    window_seconds: int,
+    now: dt.datetime | None = None,
+) -> tuple[bool, int]:
+    current_time = now or utcnow()
+    reset_at = current_time + dt.timedelta(seconds=window_seconds)
+    result = await session.execute(
+        select(RateLimitBucket).where(
+            RateLimitBucket.scope == scope,
+            RateLimitBucket.identity == identity,
+            RateLimitBucket.bucket_key == bucket_key,
+        )
+    )
+    bucket = result.scalar_one_or_none()
+    if bucket is None:
+        bucket = RateLimitBucket(
+            scope=scope,
+            identity=identity,
+            bucket_key=bucket_key,
+            count=1,
+            reset_at=reset_at,
+        )
+        session.add(bucket)
+        return True, limit - 1
+    stored_reset_at = bucket.reset_at
+    if stored_reset_at.tzinfo is None:
+        stored_reset_at = stored_reset_at.replace(tzinfo=dt.UTC)
+    if stored_reset_at <= current_time:
+        bucket.count = 1
+        bucket.reset_at = reset_at
+        return True, limit - 1
+    if bucket.count >= limit:
+        return False, 0
+    bucket.count += 1
+    return True, max(0, limit - bucket.count)
+
+
+async def upsert_payment_gateway(
+    session: AsyncSession,
+    *,
+    provider: str,
+    config_encrypted: str | None,
+    reseller_id: str | None = None,
+    priority: int = 100,
+    status: PaymentGatewayStatus = PaymentGatewayStatus.ACTIVE,
+) -> PaymentGateway:
+    result = await session.execute(
+        select(PaymentGateway).where(
+            PaymentGateway.reseller_id == reseller_id,
+            PaymentGateway.provider == provider,
+        )
+    )
+    gateway = result.scalar_one_or_none()
+    if gateway is None:
+        gateway = PaymentGateway(reseller_id=reseller_id, provider=provider)
+        session.add(gateway)
+    gateway.config_encrypted = config_encrypted
+    gateway.priority = priority
+    gateway.status = status.value
+    return gateway
+
+
+async def get_active_payment_gateway(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    provider: str | None = None,
+) -> PaymentGateway | None:
+    conditions = [
+        PaymentGateway.status == PaymentGatewayStatus.ACTIVE.value,
+        (PaymentGateway.reseller_id == reseller_id) | (PaymentGateway.reseller_id.is_(None)),
+    ]
+    if provider is not None:
+        conditions.append(PaymentGateway.provider == provider)
+    result = await session.execute(
+        select(PaymentGateway)
+        .where(*conditions)
+        .order_by(PaymentGateway.reseller_id.desc().nullslast(), PaymentGateway.priority.asc())
+    )
+    row = result.first()
+    return row[0] if row else None

@@ -13,7 +13,6 @@ from vpn_bot_platform.common.models import Order, Plan, SellerBot, VpnService
 from vpn_bot_platform.common.repositories import (
     create_trial_grant,
     create_vpn_service,
-    get_primary_panel_assignment,
     get_provisioning_order_context,
     get_renewal_order_context,
     get_seller_bot_with_reseller,
@@ -21,8 +20,10 @@ from vpn_bot_platform.common.repositories import (
     get_marzban_panel,
     mark_order_completed,
     mark_order_failed,
+    record_audit_log,
     upsert_buyer,
 )
+from vpn_bot_platform.common.models import AuditActorType
 from vpn_bot_platform.integrations.marzban import (
     MarzbanClient,
     MarzbanCredentials,
@@ -31,6 +32,7 @@ from vpn_bot_platform.integrations.marzban import (
     gb_to_bytes,
     seconds_from_now,
 )
+from vpn_bot_platform.seller_bot.panel_routing import PanelRouter
 
 
 class MarzbanCreateUserClient(Protocol):
@@ -58,11 +60,13 @@ class ProvisioningService:
         settings: Settings,
         secret_box: SecretBox,
         marzban_client_factory: MarzbanClientFactory | None = None,
+        panel_router: PanelRouter | None = None,
     ) -> None:
         self.seller_bot_id = seller_bot_id
         self.settings = settings
         self.secret_box = secret_box
         self.marzban_client_factory = marzban_client_factory or MarzbanClient
+        self.panel_router = panel_router or PanelRouter()
 
     async def provision_order(self, *, admin_telegram_id: int, order_id: str) -> ProvisionedService:
         async with session_scope() as session:
@@ -84,14 +88,14 @@ class ProvisioningService:
                 raise ValueError("order_not_ready")
             order, buyer, plan = context
 
-            assignment_context = await get_primary_panel_assignment(
+            routed_panel = await self.panel_router.choose_panel(
                 session,
                 reseller_id=seller_bot.reseller_id,
             )
-            if assignment_context is None:
+            if routed_panel is None:
                 await mark_order_failed(session, order=order)
                 raise ValueError("panel_assignment_not_found")
-            assignment, panel = assignment_context
+            assignment, panel = routed_panel.assignment, routed_panel.panel
 
             credentials = self._panel_credentials(panel)
             marzban_user = self._build_marzban_user(
@@ -119,6 +123,16 @@ class ProvisioningService:
                 else None,
             )
             await mark_order_completed(session, order=order)
+            await record_audit_log(
+                session,
+                action="vpn_service.provision",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="vpn_service",
+                target_id=vpn_service.id,
+                metadata={"order_id": order.id, "panel_id": panel.id},
+            )
             await session.flush()
             return ProvisionedService(order=order, vpn_service=vpn_service)
 
@@ -164,6 +178,16 @@ class ProvisioningService:
             vpn_service.data_limit_gb = plan.data_limit_gb
             vpn_service.is_active = True
             await mark_order_completed(session, order=order)
+            await record_audit_log(
+                session,
+                action="vpn_service.renew",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="vpn_service",
+                target_id=vpn_service.id,
+                metadata={"order_id": order.id, "panel_id": panel.id},
+            )
             await session.flush()
             return ProvisionedService(order=order, vpn_service=vpn_service)
 
@@ -201,13 +225,13 @@ class ProvisioningService:
             )
             if existing is not None:
                 raise ValueError("trial_already_used")
-            assignment_context = await get_primary_panel_assignment(
+            routed_panel = await self.panel_router.choose_panel(
                 session,
                 reseller_id=seller_bot.reseller_id,
             )
-            if assignment_context is None:
+            if routed_panel is None:
                 raise ValueError("panel_assignment_not_found")
-            assignment, panel = assignment_context
+            assignment, panel = routed_panel.assignment, routed_panel.panel
             expire = seconds_from_now(self.settings.trial_duration_days)
             trial_user = MarzbanUserCreate(
                 username=(

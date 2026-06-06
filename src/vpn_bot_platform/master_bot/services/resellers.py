@@ -31,6 +31,7 @@ from vpn_bot_platform.common.repositories import (
     list_discount_codes,
     list_pending_broadcast_recipients,
     mark_broadcast_sent,
+    record_audit_log,
     set_global_setting,
     list_marzban_panels,
     list_resellers,
@@ -38,6 +39,7 @@ from vpn_bot_platform.common.repositories import (
     upsert_telegram_user,
 )
 from vpn_bot_platform.common.models import (
+    AuditActorType,
     MarzbanPanel,
     Reseller,
     ResellerPanelAssignment,
@@ -49,10 +51,10 @@ from vpn_bot_platform.common.models import (
     Broadcast,
     BroadcastRecipient,
 )
-from vpn_bot_platform.integrations.docker_runtime import (
-    DockerRuntime,
-    SellerRuntimeConfig,
-    seller_container_name,
+from vpn_bot_platform.integrations.docker_runtime import seller_container_name
+from vpn_bot_platform.integrations.runtime_controller import (
+    DockerSellerRuntimeController,
+    SellerRuntimeController,
 )
 
 
@@ -76,9 +78,15 @@ class BroadcastDraft:
 
 
 class ResellerService:
-    def __init__(self, secret_box: SecretBox, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        secret_box: SecretBox,
+        settings: Settings | None = None,
+        runtime_controller: SellerRuntimeController | None = None,
+    ) -> None:
         self.secret_box = secret_box
         self.settings = settings
+        self.runtime_controller = runtime_controller
 
     async def register_reseller(
         self,
@@ -101,6 +109,16 @@ class ResellerService:
                 session,
                 telegram_user_id=telegram_id,
                 display_name=display_name,
+            )
+            await record_audit_log(
+                session,
+                action="reseller.create",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=None,
+                reseller_id=reseller.id,
+                target_type="reseller",
+                target_id=reseller.id,
+                metadata={"telegram_user_id": telegram_id, "display_name": display_name},
             )
             await session.flush()
             return RegisteredReseller(reseller=reseller, existed=False)
@@ -125,6 +143,15 @@ class ResellerService:
                 name=bot_name,
                 token=bot_token,
                 secret_box=self.secret_box,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.register",
+                actor_type=AuditActorType.SUPER_USER,
+                reseller_id=reseller.id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={"reseller_telegram_id": reseller_telegram_id, "bot_name": bot_name},
             )
             await session.flush()
             return seller_bot
@@ -153,6 +180,14 @@ class ResellerService:
                 password=password,
                 token=token,
                 secret_box=self.secret_box,
+            )
+            await record_audit_log(
+                session,
+                action="marzban_panel.create",
+                actor_type=AuditActorType.SUPER_USER,
+                target_type="marzban_panel",
+                target_id=panel.id,
+                metadata={"name": name, "base_url": base_url.rstrip("/")},
             )
             await session.flush()
             return panel
@@ -184,19 +219,22 @@ class ResellerService:
                 panel_id=panel.id,
                 marzban_admin_username=marzban_admin_username,
             )
+            await record_audit_log(
+                session,
+                action="reseller_panel.assign",
+                actor_type=AuditActorType.SUPER_USER,
+                reseller_id=reseller.id,
+                target_type="reseller_panel_assignment",
+                target_id=assignment.id,
+                metadata={"panel_id": panel.id, "reseller_telegram_id": reseller_telegram_id},
+            )
             await session.flush()
             return assignment
 
     async def start_seller_bot(self, *, seller_bot_id: str) -> SellerBot:
         if self.settings is None:
             raise RuntimeError("settings_required")
-        runtime = DockerRuntime(
-            SellerRuntimeConfig(
-                image=self.settings.seller_runtime_image,
-                network=self.settings.seller_docker_network,
-                label_prefix=self.settings.seller_container_label_prefix,
-            )
-        )
+        runtime = self._runtime_controller()
         async with session_scope() as session:
             seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
             if seller_bot is None:
@@ -233,19 +271,22 @@ class ResellerService:
                 container_name=seller_container_name(seller_bot.id),
                 last_error=None,
             )
+            await record_audit_log(
+                session,
+                action="seller_bot.start",
+                actor_type=AuditActorType.SUPER_USER,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={"container_id": container_id},
+            )
             await session.flush()
             return seller_bot
 
     async def stop_seller_bot(self, *, seller_bot_id: str) -> SellerBot:
         if self.settings is None:
             raise RuntimeError("settings_required")
-        runtime = DockerRuntime(
-            SellerRuntimeConfig(
-                image=self.settings.seller_runtime_image,
-                network=self.settings.seller_docker_network,
-                label_prefix=self.settings.seller_container_label_prefix,
-            )
-        )
+        runtime = self._runtime_controller()
         async with session_scope() as session:
             seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
             if seller_bot is None:
@@ -259,11 +300,19 @@ class ResellerService:
                 container_name=seller_bot.container_name,
                 last_error=None,
             )
+            await record_audit_log(
+                session,
+                action="seller_bot.stop",
+                actor_type=AuditActorType.SUPER_USER,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+            )
             await session.flush()
             return seller_bot
 
     async def seller_health(self, *, seller_bot_id: str) -> SellerRuntimeStatus:
-        runtime = self._docker_runtime()
+        runtime = self._runtime_controller()
         async with session_scope() as session:
             seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
             if seller_bot is None:
@@ -272,7 +321,7 @@ class ResellerService:
             return SellerRuntimeStatus(seller_bot=seller_bot, health=health)
 
     async def seller_logs(self, *, seller_bot_id: str, tail: int = 120) -> SellerRuntimeStatus:
-        runtime = self._docker_runtime()
+        runtime = self._runtime_controller()
         async with session_scope() as session:
             seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
             if seller_bot is None:
@@ -296,6 +345,14 @@ class ResellerService:
                 price=price,
                 duration_days=duration_days,
                 data_limit_gb=data_limit_gb,
+            )
+            await record_audit_log(
+                session,
+                action="plan.create_global",
+                actor_type=AuditActorType.SUPER_USER,
+                target_type="plan",
+                target_id=plan.id,
+                metadata={"name": name, "price": price},
             )
             await session.flush()
             return plan
@@ -347,6 +404,14 @@ class ResellerService:
                 amount=amount,
                 max_uses=max_uses,
             )
+            await record_audit_log(
+                session,
+                action="discount.create_global",
+                actor_type=AuditActorType.SUPER_USER,
+                target_type="discount_code",
+                target_id=discount.id,
+                metadata={"code": code.upper(), "discount_type": discount_type.value},
+            )
             await session.flush()
             return discount
 
@@ -367,6 +432,15 @@ class ResellerService:
                 title=title,
                 body=body,
                 created_by_telegram_id=admin_telegram_id,
+            )
+            await record_audit_log(
+                session,
+                action="broadcast.create_global",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=admin_telegram_id,
+                target_type="broadcast",
+                target_id=broadcast.id,
+                metadata={"target_count": len(recipients)},
             )
             await session.flush()
             return BroadcastDraft(broadcast=broadcast, recipients=recipients)
@@ -429,16 +503,12 @@ class ResellerService:
             setting = await get_global_setting(session, key=FORCED_JOIN_CHATS_KEY)
             return decode_forced_join_chats(setting.value if setting else None)
 
-    def _docker_runtime(self) -> DockerRuntime:
+    def _runtime_controller(self) -> SellerRuntimeController:
         if self.settings is None:
             raise RuntimeError("settings_required")
-        return DockerRuntime(
-            SellerRuntimeConfig(
-                image=self.settings.seller_runtime_image,
-                network=self.settings.seller_docker_network,
-                label_prefix=self.settings.seller_container_label_prefix,
-            )
-        )
+        if self.runtime_controller is not None:
+            return self.runtime_controller
+        return DockerSellerRuntimeController.from_settings(self.settings)
 
     def _seller_environment(self, *, seller_bot_id: str, token: str) -> dict[str, str]:
         if self.settings is None:

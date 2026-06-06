@@ -80,10 +80,19 @@ Production target: deploy to `server-04` at `/opt/vpn-bot-platform` using `ssh s
 
 ## Phase 6 - Hardening
 
-- [ ] Audit log for sensitive actions.
-- [ ] Rate limits for bot actions.
-- [ ] Runtime-controller service instead of raw Docker socket in master bot.
-- [ ] Payment gateway adapters.
-- [ ] Multi-panel routing.
-- [ ] Monitoring and alerting.
-- [ ] Disaster recovery runbook.
+- [x] Audit log for sensitive actions.
+- [x] Rate limits for bot actions.
+- [x] Runtime-controller service instead of raw Docker socket in master bot.
+- [x] Payment gateway adapters.
+- [x] Multi-panel routing.
+- [x] Monitoring and alerting.
+- [x] Disaster recovery runbook.
+
+Hardening notes:
+
+- Audit entries are stored in `audit_logs` for seller runtime changes, payment approvals, wallet approvals, ticket admin actions, broadcasts, plan/discount changes, and panel registration/assignment.
+- Bot command rate limits use `rate_limit_buckets` and `BOT_RATE_LIMIT_PER_MINUTE`.
+- Master services now depend on a `SellerRuntimeController` interface; Docker remains the current implementation.
+- Payment requests use adapter interfaces, with card-to-card as the default adapter.
+- Provisioning uses `PanelRouter` with active assignment priority/weight fields.
+- Monitoring and disaster recovery docs live in `docs/MONITORING.md` and `docs/DISASTER_RECOVERY.md`.

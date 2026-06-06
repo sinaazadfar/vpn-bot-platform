@@ -10,6 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from vpn_bot_platform.common.config import get_settings
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, init_engine
+from vpn_bot_platform.common.rate_limit import RateLimitConfig, RateLimitMiddleware
 from vpn_bot_platform.seller_bot.handlers import router as seller_router
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
 from vpn_bot_platform.seller_bot.services import SellerContextService
@@ -30,6 +31,14 @@ async def run() -> None:
         await create_all()
 
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.middleware(
+        RateLimitMiddleware(
+            RateLimitConfig(
+                scope=f"seller_bot:{settings.seller_bot_id}",
+                limit=settings.bot_rate_limit_per_minute,
+            )
+        )
+    )
     dp.include_router(seller_router)
     seller_context = SellerContextService(settings.seller_bot_id, settings)
     provisioning_service = ProvisioningService(

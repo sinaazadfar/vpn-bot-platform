@@ -108,6 +108,18 @@ class SettingScope(StrEnum):
     RESELLER = "reseller"
 
 
+class AuditActorType(StrEnum):
+    SUPER_USER = "super_user"
+    RESELLER_ADMIN = "reseller_admin"
+    BUYER = "buyer"
+    SYSTEM = "system"
+
+
+class PaymentGatewayStatus(StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
 class TelegramUser(Base):
     __tablename__ = "telegram_users"
 
@@ -184,6 +196,9 @@ class ResellerPanelAssignment(Base):
     reseller_id: Mapped[str] = mapped_column(ForeignKey("resellers.id"), index=True)
     panel_id: Mapped[str] = mapped_column(ForeignKey("marzban_panels.id"), index=True)
     marzban_admin_username: Mapped[str | None] = mapped_column(String(128))
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    weight: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -371,3 +386,51 @@ class PlatformSetting(Base):
         default=utcnow,
         onupdate=utcnow,
     )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_actor", "actor_type", "actor_telegram_id"),
+        Index("ix_audit_logs_reseller_action", "reseller_id", "action"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
+    reseller_id: Mapped[str | None] = mapped_column(ForeignKey("resellers.id"), index=True)
+    action: Mapped[str] = mapped_column(String(96), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(64))
+    target_id: Mapped[str | None] = mapped_column(String(128))
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RateLimitBucket(Base):
+    __tablename__ = "rate_limit_buckets"
+    __table_args__ = (Index("ix_rate_limit_buckets_identity", "scope", "identity", "bucket_key", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    scope: Mapped[str] = mapped_column(String(32))
+    identity: Mapped[str] = mapped_column(String(128))
+    bucket_key: Mapped[str] = mapped_column(String(80))
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    reset_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class PaymentGateway(Base):
+    __tablename__ = "payment_gateways"
+    __table_args__ = (Index("ix_payment_gateways_scope_provider", "reseller_id", "provider", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    reseller_id: Mapped[str | None] = mapped_column(ForeignKey("resellers.id"), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(48))
+    status: Mapped[str] = mapped_column(String(24), default=PaymentGatewayStatus.ACTIVE.value)
+    config_encrypted: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

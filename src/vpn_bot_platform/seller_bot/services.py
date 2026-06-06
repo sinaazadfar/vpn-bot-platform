@@ -6,6 +6,7 @@ import datetime as dt
 from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.db import session_scope
 from vpn_bot_platform.common.models import (
+    AuditActorType,
     Buyer,
     Broadcast,
     BroadcastRecipient,
@@ -46,11 +47,16 @@ from vpn_bot_platform.common.repositories import (
     list_pending_broadcast_recipients,
     mark_broadcast_sent,
     reseller_sales_report,
+    record_audit_log,
     list_wallet_transactions_for_buyer,
     increment_discount_usage,
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     upsert_buyer,
+)
+from vpn_bot_platform.integrations.payments import (
+    PaymentGatewayRegistry,
+    default_payment_registry,
 )
 
 
@@ -107,9 +113,22 @@ class BroadcastDraft:
 
 
 class SellerContextService:
-    def __init__(self, seller_bot_id: str, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        seller_bot_id: str,
+        settings: Settings | None = None,
+        payment_gateways: PaymentGatewayRegistry | None = None,
+    ) -> None:
         self.seller_bot_id = seller_bot_id
         self.settings = settings
+        instructions = (
+            settings.card_to_card_instructions
+            if settings is not None
+            else "Send the card-to-card receipt to support for approval."
+        )
+        self.payment_gateways = payment_gateways or default_payment_registry(
+            card_to_card_instructions=instructions,
+        )
 
     async def register_buyer(
         self,
@@ -198,16 +217,16 @@ class SellerContextService:
             )
             increment_discount_usage(discount)
             await session.flush()
-            instructions = (
-                self.settings.card_to_card_instructions
-                if self.settings is not None
-                else "Send the card-to-card receipt to support for approval."
+            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                amount=amount,
+                description=f"order:{order.id}",
+                buyer_telegram_id=buyer_telegram_id,
             )
             return PaymentRequest(
                 order=order,
                 payment=payment,
                 plan=plan,
-                instructions=instructions,
+                instructions=intent.instructions,
             )
 
     async def request_renewal_payment(
@@ -261,12 +280,12 @@ class SellerContextService:
             )
             increment_discount_usage(discount)
             await session.flush()
-            instructions = (
-                self.settings.card_to_card_instructions
-                if self.settings is not None
-                else "Send the card-to-card receipt to support for approval."
+            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                amount=amount,
+                description=f"renewal:{order.id}",
+                buyer_telegram_id=buyer_telegram_id,
             )
-            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=instructions)
+            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=intent.instructions)
 
     async def list_pending_payments(self, *, admin_telegram_id: int) -> list[PendingPayment]:
         async with session_scope() as session:
@@ -309,6 +328,16 @@ class SellerContextService:
             if approved is None:
                 raise ValueError("payment_not_found")
             payment, order = approved
+            await record_audit_log(
+                session,
+                action="payment.approve",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="payment",
+                target_id=payment.id,
+                metadata={"order_id": order.id, "amount": float(payment.amount)},
+            )
             await session.flush()
             return ApprovedPayment(payment=payment, order=order)
 
@@ -354,12 +383,12 @@ class SellerContextService:
                 note="card_to_card wallet charge",
             )
             await session.flush()
-            instructions = (
-                self.settings.card_to_card_instructions
-                if self.settings is not None
-                else "Send the card-to-card receipt to support for approval."
+            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                amount=amount,
+                description=f"wallet_charge:{transaction.id}",
+                buyer_telegram_id=buyer_telegram_id,
             )
-            return WalletChargeRequest(transaction=transaction, instructions=instructions)
+            return WalletChargeRequest(transaction=transaction, instructions=intent.instructions)
 
     async def list_buyer_wallet(self, *, buyer_telegram_id: int) -> BuyerWallet:
         async with session_scope() as session:
@@ -417,6 +446,16 @@ class SellerContextService:
             if approved is None:
                 raise ValueError("wallet_charge_not_found")
             transaction, _buyer = approved
+            await record_audit_log(
+                session,
+                action="wallet_charge.approve",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="wallet_transaction",
+                target_id=transaction.id,
+                metadata={"amount": float(transaction.amount)},
+            )
             await session.flush()
             return WalletChargeRequest(transaction=transaction, instructions="")
 
@@ -516,6 +555,15 @@ class SellerContextService:
                 sender_telegram_id=admin_telegram_id,
                 body=body,
             )
+            await record_audit_log(
+                session,
+                action="ticket.admin_reply",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="ticket",
+                target_id=ticket.id,
+            )
             await session.flush()
             return TicketThread(ticket=ticket, messages=await list_ticket_messages(session, ticket_id=ticket.id))
 
@@ -561,6 +609,15 @@ class SellerContextService:
             if ticket is None:
                 raise ValueError("ticket_not_found")
             await close_ticket(session, ticket=ticket)
+            await record_audit_log(
+                session,
+                action="ticket.close",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="ticket",
+                target_id=ticket.id,
+            )
             await session.flush()
             return ticket
 
@@ -585,6 +642,16 @@ class SellerContextService:
                 title=title,
                 body=body,
                 created_by_telegram_id=admin_telegram_id,
+            )
+            await record_audit_log(
+                session,
+                action="broadcast.create_reseller",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="broadcast",
+                target_id=broadcast.id,
+                metadata={"target_count": len(recipients)},
             )
             await session.flush()
             return BroadcastDraft(broadcast=broadcast, recipients=recipients)

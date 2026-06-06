@@ -10,6 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from vpn_bot_platform.common.config import get_settings
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, init_engine
+from vpn_bot_platform.common.rate_limit import RateLimitConfig, RateLimitMiddleware
 from vpn_bot_platform.master_bot.filters import SuperUserFilter
 from vpn_bot_platform.master_bot.handlers.basic import router as basic_router
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
@@ -32,6 +33,11 @@ async def run() -> None:
     reseller_service = ResellerService(SecretBox(settings.fernet_key), settings)
 
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.middleware(
+        RateLimitMiddleware(
+            RateLimitConfig(scope="master_bot", limit=settings.bot_rate_limit_per_minute)
+        )
+    )
     basic_router.message.filter(SuperUserFilter(settings))
     dp.include_router(basic_router)
 
