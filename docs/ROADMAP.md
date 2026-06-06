@@ -96,3 +96,332 @@ Hardening notes:
 - Payment requests use adapter interfaces, with card-to-card as the default adapter.
 - Provisioning uses `PanelRouter` with active assignment priority/weight fields.
 - Monitoring and disaster recovery docs live in `docs/MONITORING.md` and `docs/DISASTER_RECOVERY.md`.
+
+## Phase 7 - Button-First User Experience
+
+Goal: make both Telegram bots usable through guided menus and buttons, while keeping slash commands as power-user/admin shortcuts.
+
+Telegram UI note: Telegram bots cannot render arbitrary button colors in normal chat messages. The UX should use inline/reply keyboards, consistent emoji/status symbols, message formatting, media/QR assets, and clear navigation to create a polished visual system.
+
+### Shared UI Kit
+
+- [ ] Create `src/vpn_bot_platform/common/ui/` package.
+- [ ] Add shared button builders for inline keyboards.
+- [ ] Add shared reply keyboard builders for persistent main menus where useful.
+- [ ] Add callback data builders/parsers with short, Telegram-safe callback strings.
+- [ ] Add shared message formatters for titles, sections, IDs, prices, dates, and status rows.
+- [ ] Add common navigation buttons:
+  - [ ] Home
+  - [ ] Back
+  - [ ] Refresh
+  - [ ] Cancel
+  - [ ] Confirm
+- [ ] Add common status labels:
+  - [ ] Active
+  - [ ] Suspended
+  - [ ] Disabled
+  - [ ] Pending
+  - [ ] Running
+  - [ ] Stopped
+  - [ ] Error
+  - [ ] Paid
+  - [ ] Failed
+- [ ] Add pagination helper for long lists.
+- [ ] Add confirmation keyboard helper for destructive actions.
+- [ ] Add tests for keyboard builders and callback parsing.
+
+### Master Bot Main Menu
+
+- [ ] Replace `/start` response with a button dashboard.
+- [ ] Keep `/admin` as an alias for the same dashboard.
+- [ ] Add top-level master menu buttons:
+  - [ ] Resellers
+  - [ ] Seller Bots
+  - [ ] Panels
+  - [ ] Plans
+  - [ ] Discounts
+  - [ ] Broadcasts
+  - [ ] Reports
+  - [ ] Settings
+  - [ ] System
+- [ ] Add callback handlers for every top-level menu.
+- [ ] Add a persistent "Home" action from every submenu.
+- [ ] Add tests for top-level menu routing.
+
+### Master Bot Reseller UX
+
+- [ ] Add reseller list screen with pagination.
+- [ ] Add reseller detail screen with status, Telegram ID, wallet balance, and seller bot count.
+- [ ] Add reseller action buttons:
+  - [ ] Rename
+  - [ ] Activate
+  - [ ] Suspend
+  - [ ] Disable
+  - [ ] Seller Bots
+  - [ ] Plans
+  - [ ] Panel Assignments
+- [ ] Add guided FSM flow for adding a reseller:
+  - [ ] Ask Telegram ID.
+  - [ ] Ask display name.
+  - [ ] Confirm before create.
+  - [ ] Show created reseller detail.
+- [ ] Add guided FSM flow for renaming a reseller.
+- [ ] Add confirm dialog for suspend/disable.
+- [ ] Add audit log entries for button-based reseller changes.
+- [ ] Keep slash commands:
+  - [ ] `/add_reseller`
+  - [ ] `/rename_reseller`
+  - [ ] `/set_reseller_status`
+  - [ ] `/disable_reseller`
+  - [ ] `/list_resellers`
+
+### Master Bot Seller Bot UX
+
+- [ ] Add seller bot list screen with status labels.
+- [ ] Add seller bot detail screen:
+  - [ ] Name
+  - [ ] Reseller
+  - [ ] Status
+  - [ ] Container name
+  - [ ] Last error
+  - [ ] Health
+- [ ] Add seller bot action buttons:
+  - [ ] Register New Bot
+  - [ ] Start
+  - [ ] Stop
+  - [ ] Restart
+  - [ ] Health
+  - [ ] Logs
+  - [ ] Disable
+- [ ] Add guided FSM flow for registering seller bot token:
+  - [ ] Select reseller.
+  - [ ] Ask bot name.
+  - [ ] Ask token.
+  - [ ] Validate token format.
+  - [ ] Confirm registration.
+  - [ ] Optionally start immediately.
+- [ ] Add log viewer with truncated Telegram-safe code block and refresh button.
+- [ ] Keep slash commands for power users.
+
+### Master Bot Panel UX
+
+- [ ] Add panel list screen with active/disabled status.
+- [ ] Add panel detail screen:
+  - [ ] Name
+  - [ ] Base URL
+  - [ ] Auth type
+  - [ ] Active status
+  - [ ] Assignment count
+- [ ] Add panel action buttons:
+  - [ ] Add Token Panel
+  - [ ] Add Password Panel
+  - [ ] Assign To Reseller
+  - [ ] Disable Panel
+  - [ ] Test Connection
+- [ ] Add guided FSM flow for token panel registration.
+- [ ] Add guided FSM flow for password panel registration.
+- [ ] Add guided FSM flow for assignment:
+  - [ ] Select reseller.
+  - [ ] Select panel.
+  - [ ] Ask optional Marzban admin username.
+  - [ ] Ask priority.
+  - [ ] Ask weight.
+  - [ ] Confirm assignment.
+- [ ] Add priority/weight editing buttons for multi-panel routing.
+
+### Master Bot Plans And Discounts UX
+
+- [ ] Add global/reseller plan list screen.
+- [ ] Add plan detail screen.
+- [ ] Add guided FSM flow for creating global plan.
+- [ ] Add guided FSM flow for creating reseller plan.
+- [ ] Add plan enable/disable buttons.
+- [ ] Add discount list screen.
+- [ ] Add discount detail screen.
+- [ ] Add guided FSM flow for creating discount:
+  - [ ] Ask code.
+  - [ ] Ask percent/fixed.
+  - [ ] Ask amount.
+  - [ ] Ask max uses.
+  - [ ] Confirm.
+- [ ] Add discount enable/disable buttons.
+
+### Master Bot Broadcasts, Reports, Settings, And System UX
+
+- [ ] Add broadcast compose FSM:
+  - [ ] Ask title.
+  - [ ] Ask message.
+  - [ ] Preview.
+  - [ ] Confirm send.
+- [ ] Add global broadcast history screen.
+- [ ] Add report menu:
+  - [ ] Today
+  - [ ] Last 7 days
+  - [ ] Last 30 days
+  - [ ] Custom days
+- [ ] Add settings menu:
+  - [ ] Forced join settings
+  - [ ] Rate limit settings
+  - [ ] Trial settings
+  - [ ] Payment instructions
+- [ ] Add forced join guided flow:
+  - [ ] Add required chat.
+  - [ ] List required chats.
+  - [ ] Remove required chat.
+- [ ] Add system menu:
+  - [ ] Healthcheck
+  - [ ] Deploy version
+  - [ ] Backup timer status
+  - [ ] Recent audit logs
+  - [ ] Recent errors
+- [ ] Add button action for reading recent audit logs from `audit_logs`.
+- [ ] Add button action for showing backup timer status on `server-04` where available.
+
+### Seller Bot Buyer Main Menu
+
+- [ ] Replace buyer `/start` text with a button dashboard.
+- [ ] Add buyer top-level buttons:
+  - [ ] Buy VPN
+  - [ ] My Services
+  - [ ] Renew
+  - [ ] Wallet
+  - [ ] Trial
+  - [ ] Support
+  - [ ] Guides
+- [ ] Add persistent reply keyboard for buyer shortcuts if it does not clutter admin usage.
+- [ ] Add forced-join blocked screen with required chat buttons.
+- [ ] Add tests for buyer dashboard keyboard.
+
+### Seller Bot Buyer Purchase UX
+
+- [ ] Add plan list screen with one card/message per plan or compact paginated list.
+- [ ] Add `Buy` button for each plan.
+- [ ] Add coupon step:
+  - [ ] Enter coupon.
+  - [ ] Skip coupon.
+  - [ ] Validate coupon.
+  - [ ] Show discounted amount.
+- [ ] Add payment instruction screen:
+  - [ ] Order ID
+  - [ ] Payment ID
+  - [ ] Amount
+  - [ ] Instructions
+  - [ ] Support/contact button
+- [ ] Add order status button.
+- [ ] Add receipt-upload placeholder flow for future automated proof review.
+- [ ] Keep `/buy <plan_id> [coupon]` as shortcut.
+
+### Seller Bot Services And Renewal UX
+
+- [ ] Add service list screen with active/inactive labels.
+- [ ] Add service detail screen:
+  - [ ] Username
+  - [ ] Traffic limit
+  - [ ] Expiry
+  - [ ] Status
+  - [ ] Subscription link
+- [ ] Add service action buttons:
+  - [ ] Get Subscription
+  - [ ] QR Code
+  - [ ] Renew
+  - [ ] Connection Guide
+- [ ] Add guided renewal flow:
+  - [ ] Select service.
+  - [ ] Select plan.
+  - [ ] Optional coupon.
+  - [ ] Confirm payment request.
+- [ ] Keep `/my_services` and `/renew` as shortcuts.
+
+### Seller Bot Wallet UX
+
+- [ ] Add wallet dashboard:
+  - [ ] Balance
+  - [ ] Recent transactions
+  - [ ] Charge wallet
+- [ ] Add guided wallet charge flow:
+  - [ ] Ask amount.
+  - [ ] Confirm request.
+  - [ ] Show card-to-card instructions.
+- [ ] Add transaction detail screen.
+- [ ] Keep `/wallet` and `/charge_wallet` as shortcuts.
+
+### Seller Bot Trial UX
+
+- [ ] Add trial screen showing availability and limits.
+- [ ] Add request trial button.
+- [ ] Add trial result screen with subscription and QR actions.
+- [ ] Add clear already-used state.
+- [ ] Keep `/trial` as shortcut.
+
+### Seller Bot Support UX
+
+- [ ] Add support dashboard:
+  - [ ] Open Ticket
+  - [ ] My Tickets
+  - [ ] Connection Guides
+- [ ] Add ticket creation FSM:
+  - [ ] Ask subject.
+  - [ ] Ask message.
+  - [ ] Confirm open.
+- [ ] Add ticket list screen.
+- [ ] Add ticket detail screen with recent messages.
+- [ ] Add reply button and FSM.
+- [ ] Keep `/ticket`, `/my_tickets`, and `/reply_ticket` as shortcuts.
+
+### Seller Bot Reseller Admin UX
+
+- [ ] Replace `/admin` response with admin dashboard buttons.
+- [ ] Add admin top-level buttons:
+  - [ ] Pending Payments
+  - [ ] Provision Orders
+  - [ ] Wallet Charges
+  - [ ] Tickets
+  - [ ] Broadcast
+  - [ ] Sales Report
+  - [ ] Customers
+  - [ ] Plans
+- [ ] Add pending payment list screen.
+- [ ] Add payment detail screen with approve/reject buttons.
+- [ ] Add provision order screen with confirm button.
+- [ ] Add wallet charge list and approve button.
+- [ ] Add ticket admin list/detail/reply/close buttons.
+- [ ] Add reseller broadcast compose FSM with preview/confirm.
+- [ ] Add sales report preset buttons:
+  - [ ] Today
+  - [ ] 7 days
+  - [ ] 30 days
+  - [ ] Custom
+- [ ] Keep seller admin slash commands as shortcuts.
+
+### FSM And Navigation Architecture
+
+- [ ] Add FSM state groups for master reseller flows.
+- [ ] Add FSM state groups for master seller bot flows.
+- [ ] Add FSM state groups for master panel flows.
+- [ ] Add FSM state groups for master plan/discount/broadcast/settings flows.
+- [ ] Add FSM state groups for seller purchase/renew/wallet/ticket flows.
+- [ ] Add central cancel handler.
+- [ ] Add stale-state recovery: Home/Cancel should clear state.
+- [ ] Add permission checks to every callback handler.
+- [ ] Add callback data size tests.
+- [ ] Add tests for critical FSM transitions.
+
+### Visual Polish Rules
+
+- [ ] Use concise titles and sections instead of long paragraphs.
+- [ ] Keep IDs visible but compact.
+- [ ] Use consistent status icons and labels.
+- [ ] Use confirmation screens for destructive actions.
+- [ ] Use message edits for menu navigation where possible to reduce chat spam.
+- [ ] Use new messages for important receipts, QR codes, and final confirmations.
+- [ ] Truncate logs and long broadcasts safely.
+- [ ] Avoid exposing secrets in any UI screen or log output.
+
+### Phase 7 Deliverables
+
+- [ ] Master bot can be operated mostly through buttons.
+- [ ] Seller buyer flows can be operated mostly through buttons.
+- [ ] Seller admin flows can be operated mostly through buttons.
+- [ ] Existing slash commands still work.
+- [ ] Tests cover keyboard builders, callback parsing, permission checks, and critical FSM flows.
+- [ ] Production deploy verifies the new button UX starts without polling/runtime errors.
