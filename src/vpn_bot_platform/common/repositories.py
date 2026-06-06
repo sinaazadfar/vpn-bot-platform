@@ -222,6 +222,11 @@ async def list_seller_bots_by_status(
     return list(result.scalars().all())
 
 
+async def list_seller_bots(session: AsyncSession) -> list[SellerBot]:
+    result = await session.execute(select(SellerBot).order_by(SellerBot.created_at.desc()))
+    return list(result.scalars().all())
+
+
 async def update_seller_runtime_state(
     session: AsyncSession,
     *,

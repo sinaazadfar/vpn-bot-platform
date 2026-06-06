@@ -11,6 +11,8 @@ from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     master_main_menu,
     master_section_menu,
+    master_seller_bot_actions,
+    reseller_card_actions,
     reseller_actions,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
@@ -51,6 +53,18 @@ async def master_menu_callback(
             await _resellers_text(reseller_service),
             reply_markup=master_section_menu("resellers"),
         )
+        for reseller in (await reseller_service.list_resellers())[:5]:
+            await callback.message.answer(
+                "\n".join(
+                    [
+                        title("Reseller Action"),
+                        f"Name: {reseller.display_name}",
+                        f"Telegram: {reseller.telegram_user_id}",
+                        f"Status: {status_label(reseller.status)}",
+                    ]
+                ),
+                reply_markup=reseller_card_actions(reseller.telegram_user_id),
+            )
     elif action.action in {"reseller_active", "reseller_suspended", "reseller_disabled"}:
         if not action.value or not action.value.isdigit():
             await callback.answer("Invalid reseller action.", show_alert=True)
@@ -78,9 +92,80 @@ async def master_menu_callback(
         )
     elif action.action == "seller_bots":
         await callback.message.edit_text(
-            _shortcut_text("Seller Bots", ["/add_seller_bot", "/start_seller", "/stop_seller", "/seller_health", "/seller_logs"]),
+            await _seller_bots_text(reseller_service),
             reply_markup=master_section_menu("seller_bots"),
         )
+        for seller_bot in (await reseller_service.list_seller_bots())[:5]:
+            await callback.message.answer(
+                "\n".join(
+                    [
+                        title("Seller Bot Action"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Status: {status_label(seller_bot.status)}",
+                        f"Container: {seller_bot.container_name or '-'}",
+                    ]
+                ),
+                reply_markup=master_seller_bot_actions(seller_bot.id),
+            )
+    elif action.action in {"seller_start", "seller_stop", "seller_health", "seller_logs"}:
+        if not action.value:
+            await callback.answer("Seller bot is missing.", show_alert=True)
+            return
+        try:
+            if action.action == "seller_start":
+                seller_bot = await reseller_service.start_seller_bot(seller_bot_id=action.value)
+                text = "\n".join(
+                    [
+                        title("Seller Bot Started"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Status: {status_label(seller_bot.status)}",
+                    ]
+                )
+            elif action.action == "seller_stop":
+                seller_bot = await reseller_service.stop_seller_bot(seller_bot_id=action.value)
+                text = "\n".join(
+                    [
+                        title("Seller Bot Stopped"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Status: {status_label(seller_bot.status)}",
+                    ]
+                )
+            elif action.action == "seller_health":
+                runtime_status = await reseller_service.seller_health(seller_bot_id=action.value)
+                seller_bot = runtime_status.seller_bot
+                text = "\n".join(
+                    [
+                        title("Seller Bot Health"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Status: {status_label(seller_bot.status)}",
+                        f"Health: {runtime_status.health}",
+                        f"Last error: {seller_bot.last_error or '-'}",
+                    ]
+                )
+            else:
+                runtime_status = await reseller_service.seller_logs(seller_bot_id=action.value)
+                seller_bot = runtime_status.seller_bot
+                logs = (runtime_status.logs or "").strip() or "(no logs)"
+                text = "\n".join(
+                    [
+                        title("Seller Bot Logs"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        "",
+                        _telegram_code_block(logs[-2500:]),
+                    ]
+                )
+        except ValueError:
+            await callback.answer("Seller bot not found.", show_alert=True)
+            return
+        except RuntimeError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await callback.message.edit_text(text, reply_markup=master_seller_bot_actions(action.value))
     elif action.action == "panels":
         await callback.message.edit_text(
             await _panels_text(reseller_service),
@@ -550,6 +635,19 @@ async def _panels_text(reseller_service: ResellerService) -> str:
     ]
     rows.extend(["", "Shortcuts:", "/add_panel_token", "/add_panel_password", "/assign_panel"])
     return "\n".join([title("Panels"), section("Registered panels", rows)])
+
+
+async def _seller_bots_text(reseller_service: ResellerService) -> str:
+    seller_bots = await reseller_service.list_seller_bots()
+    rows = [
+        (
+            f"- {seller_bot.name} | {status_label(seller_bot.status)} | "
+            f"id={short_id(seller_bot.id)} | container={seller_bot.container_name or '-'}"
+        )
+        for seller_bot in seller_bots[:20]
+    ]
+    rows.extend(["", "Shortcuts:", "/add_seller_bot", "/start_seller", "/stop_seller"])
+    return "\n".join([title("Seller Bots"), section("Registered bots", rows)])
 
 
 async def _plans_text(reseller_service: ResellerService) -> str:

@@ -177,7 +177,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Master Bot Seller Bot UX
 
-- [ ] Add seller bot list screen with status labels.
+- [x] Add seller bot list screen with status labels.
 - [ ] Add seller bot detail screen:
   - [ ] Name
   - [ ] Reseller
@@ -185,13 +185,13 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Container name
   - [ ] Last error
   - [ ] Health
-- [ ] Add seller bot action buttons:
+- [x] Add seller bot action buttons:
   - [ ] Register New Bot
-  - [ ] Start
-  - [ ] Stop
+  - [x] Start
+  - [x] Stop
   - [ ] Restart
-  - [ ] Health
-  - [ ] Logs
+  - [x] Health
+  - [x] Logs
   - [ ] Disable
 - [ ] Add guided FSM flow for registering seller bot token:
   - [ ] Select reseller.

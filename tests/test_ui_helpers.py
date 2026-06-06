@@ -8,6 +8,8 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_ticket_actions,
     admin_wallet_charge_actions,
     master_main_menu,
+    master_seller_bot_actions,
+    reseller_card_actions,
     seller_admin_menu,
     seller_buyer_menu,
     support_menu,
@@ -33,6 +35,8 @@ def test_callback_rejects_too_long_data() -> None:
 
 def test_main_menus_have_buttons() -> None:
     assert master_main_menu().inline_keyboard
+    assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
+    assert reseller_card_actions(12345).inline_keyboard
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
     assert wallet_charge_menu().inline_keyboard

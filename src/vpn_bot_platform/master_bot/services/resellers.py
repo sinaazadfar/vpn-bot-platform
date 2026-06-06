@@ -30,6 +30,7 @@ from vpn_bot_platform.common.repositories import (
     list_all_plans,
     list_discount_codes,
     list_pending_broadcast_recipients,
+    list_seller_bots,
     mark_broadcast_sent,
     record_audit_log,
     set_global_setting,
@@ -161,6 +162,10 @@ class ResellerService:
     async def list_resellers(self) -> list[Reseller]:
         async with session_scope() as session:
             return await list_resellers(session)
+
+    async def list_seller_bots(self) -> list[SellerBot]:
+        async with session_scope() as session:
+            return await list_seller_bots(session)
 
     async def rename_reseller(
         self,
