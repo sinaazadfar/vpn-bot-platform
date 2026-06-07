@@ -359,10 +359,10 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Open Ticket
   - [x] My Tickets
   - [x] Connection Guides
-- [ ] Add ticket creation FSM:
-  - [ ] Ask subject.
-  - [ ] Ask message.
-  - [ ] Confirm open.
+- [x] Add ticket creation FSM:
+  - [x] Ask subject.
+  - [x] Ask message.
+  - [x] Confirm open.
 - [x] Add ticket list screen.
 - [ ] Add ticket detail screen with recent messages.
 - [ ] Add reply button and FSM.

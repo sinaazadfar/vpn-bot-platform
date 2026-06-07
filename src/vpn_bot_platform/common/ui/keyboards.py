@@ -368,6 +368,7 @@ def support_menu() -> InlineKeyboardMarkup:
             ],
             [
                 ("Guides", build_callback("s", "guides")),
+                ("Cancel", build_callback("s", "ticket_cancel")),
                 ("Home", build_callback("s", "home")),
             ],
         ]

@@ -3,6 +3,8 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.exceptions import TelegramAPIError
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from vpn_bot_platform.common.qr import make_qr_png_bytes
@@ -12,6 +14,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
+    confirm_keyboard,
     plan_buy_button,
     seller_admin_menu,
     seller_buyer_menu,
@@ -29,10 +32,22 @@ from vpn_bot_platform.seller_bot.services import SellerContextService
 router = Router(name="seller_basic")
 
 
+class TicketCreateStates(StatesGroup):
+    subject = State()
+    body = State()
+    confirm = State()
+
+
 @router.message(CommandStart())
-async def start(message: Message, seller_context: SellerContextService) -> None:
+async def start(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext | None = None,
+) -> None:
     if message.from_user is None:
         return
+    if state is not None:
+        await state.clear()
     if await _blocked_by_forced_join(message):
         return
     profile = await seller_context.register_buyer(
@@ -124,6 +139,7 @@ async def seller_reply_menu_alias(
 @router.callback_query(F.data.startswith("s:"))
 async def seller_menu_callback(
     callback: CallbackQuery,
+    state: FSMContext,
     seller_context: SellerContextService,
     provisioning_service: ProvisioningService,
 ) -> None:
@@ -132,6 +148,7 @@ async def seller_menu_callback(
         return
     action = parse_callback(callback.data or "")
     if action.action == "home":
+        await state.clear()
         profile = await seller_context.register_buyer(
             telegram_id=callback.from_user.id,
             username=callback.from_user.username,
@@ -304,15 +321,52 @@ async def seller_menu_callback(
             reply_markup=support_menu(),
         )
     elif action.action == "ticket_open":
+        await state.clear()
+        await state.set_state(TicketCreateStates.subject)
         await callback.message.edit_text(
             "\n".join(
                 [
                     title("Open Ticket"),
-                    "Send one message with this format:",
+                    "Send the ticket subject.",
                     "",
-                    "/ticket <subject> | <message>",
+                    "Example: Cannot connect on Android",
                 ]
             ),
+            reply_markup=support_menu(),
+        )
+    elif action.action == "ticket_create":
+        data = await state.get_data()
+        subject = str(data.get("ticket_subject") or "").strip()
+        body = str(data.get("ticket_body") or "").strip()
+        if not subject or not body:
+            await callback.answer("Ticket draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            thread = await seller_context.open_ticket(
+                buyer_telegram_id=callback.from_user.id,
+                subject=subject,
+                body=body,
+            )
+        except ValueError as exc:
+            await callback.answer(f"Could not open ticket: {exc}", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Ticket Opened"),
+                    f"Ticket ID: {thread.ticket.id}",
+                    f"Subject: {thread.ticket.subject}",
+                    f"Status: {status_label(thread.ticket.status)}",
+                ]
+            ),
+            reply_markup=support_menu(),
+        )
+    elif action.action == "ticket_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Ticket Canceled"), "No ticket was created."]),
             reply_markup=support_menu(),
         )
     elif action.action == "guides":
@@ -468,6 +522,70 @@ async def seller_menu_callback(
             reply_markup=seller_admin_menu(),
         )
     await callback.answer()
+
+
+@router.message(TicketCreateStates.subject)
+async def ticket_create_subject(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    subject = (message.text or "").strip()
+    if not subject or subject.startswith("/"):
+        await message.answer(
+            "\n".join([title("Open Ticket"), "Send a short subject, not a command."]),
+            reply_markup=support_menu(),
+        )
+        return
+    await state.update_data(ticket_subject=subject[:160])
+    await state.set_state(TicketCreateStates.body)
+    await message.answer(
+        "\n".join(
+            [
+                title("Open Ticket"),
+                "Now send the message for support.",
+                "",
+                "Include device, app, and error details if possible.",
+            ]
+        ),
+        reply_markup=support_menu(),
+    )
+
+
+@router.message(TicketCreateStates.body)
+async def ticket_create_body(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    body = (message.text or "").strip()
+    if not body or body.startswith("/"):
+        await message.answer(
+            "\n".join([title("Open Ticket"), "Send the support message, not a command."]),
+            reply_markup=support_menu(),
+        )
+        return
+    await state.update_data(ticket_body=body)
+    await state.set_state(TicketCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Ticket"),
+                f"Subject: {data.get('ticket_subject')}",
+                "",
+                str(data.get("ticket_body")),
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="s",
+            confirm_action="ticket_create",
+            cancel_action="ticket_cancel",
+        ),
+    )
+
+
+@router.message(TicketCreateStates.confirm)
+async def ticket_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Ticket"), "Use Confirm or Cancel below the preview."])
+    )
 
 
 async def _send_legacy_start(message: Message, seller_context: SellerContextService) -> None:
