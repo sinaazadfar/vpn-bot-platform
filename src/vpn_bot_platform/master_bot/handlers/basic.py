@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shlex
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
@@ -19,6 +21,13 @@ from vpn_bot_platform.common.ui.messages import section, short_id, status_label,
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 router = Router(name="master_basic")
+
+
+def _parse_args(raw: str | None) -> list[str]:
+    try:
+        return shlex.split(raw or "")
+    except ValueError:
+        return []
 
 
 @router.message(CommandStart())
@@ -211,14 +220,15 @@ async def add_reseller(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=1)
-    if len(args) != 2 or not args[0].isdigit():
+    args = _parse_args(command.args)
+    if len(args) < 2 or not args[0].isdigit():
         await message.answer("Usage: /add_reseller <telegram_id> <display_name>")
         return
+    display_name = " ".join(args[1:]).strip()
 
     registered = await reseller_service.register_reseller(
         telegram_id=int(args[0]),
-        display_name=args[1].strip(),
+        display_name=display_name,
     )
     status = "already existed" if registered.existed else "created"
     await message.answer(
@@ -232,14 +242,15 @@ async def rename_reseller(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=1)
-    if len(args) != 2 or not args[0].isdigit():
+    args = _parse_args(command.args)
+    if len(args) < 2 or not args[0].isdigit():
         await message.answer("Usage: /rename_reseller <telegram_id> <display_name>")
         return
+    display_name = " ".join(args[1:]).strip()
     try:
         reseller = await reseller_service.rename_reseller(
             reseller_telegram_id=int(args[0]),
-            display_name=args[1].strip(),
+            display_name=display_name,
             actor_telegram_id=message.from_user.id if message.from_user else None,
         )
     except ValueError as exc:
@@ -258,7 +269,7 @@ async def set_reseller_status(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=1)
+    args = _parse_args(command.args)
     if len(args) != 2 or not args[0].isdigit():
         await message.answer("Usage: /set_reseller_status <telegram_id> <active|suspended|disabled>")
         return
@@ -330,7 +341,7 @@ async def add_seller_bot(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=2)
+    args = _parse_args(command.args)
     if len(args) != 3 or not args[0].isdigit():
         await message.answer("Usage: /add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>")
         return
@@ -365,7 +376,7 @@ async def add_panel_token(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=2)
+    args = _parse_args(command.args)
     if len(args) != 3:
         await message.answer("Usage: /add_panel_token <name> <base_url> <token>")
         return
@@ -384,7 +395,7 @@ async def add_panel_password(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=3)
+    args = _parse_args(command.args)
     if len(args) != 4:
         await message.answer("Usage: /add_panel_password <name> <base_url> <username> <password>")
         return
@@ -417,7 +428,7 @@ async def assign_panel(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=2)
+    args = _parse_args(command.args)
     if len(args) < 2 or not args[0].isdigit():
         await message.answer("Usage: /assign_panel <reseller_telegram_id> <panel_id> [marzban_admin_username]")
         return
@@ -691,7 +702,7 @@ async def add_global_plan(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=3)
+    args = _parse_args(command.args)
     if len(args) != 4:
         await message.answer("Usage: /add_global_plan <name> <price> <duration_days> <data_limit_gb|unlimited>")
         return
@@ -715,7 +726,7 @@ async def add_reseller_plan(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=4)
+    args = _parse_args(command.args)
     if len(args) != 5 or not args[0].isdigit():
         await message.answer("Usage: /add_reseller_plan <reseller_telegram_id> <name> <price> <duration_days> <data_limit_gb|unlimited>")
         return
@@ -774,7 +785,7 @@ async def add_discount(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=3)
+    args = _parse_args(command.args)
     if len(args) < 3:
         await message.answer("Usage: /add_discount <code> <percent|fixed> <amount> [max_uses]")
         return
@@ -926,7 +937,7 @@ async def set_forced_join(
     command: CommandObject,
     reseller_service: ResellerService,
 ) -> None:
-    args = (command.args or "").strip().split(maxsplit=1)
+    args = _parse_args(command.args)
     if not args:
         await message.answer("Usage: /set_forced_join <chat_id> [title]")
         return
