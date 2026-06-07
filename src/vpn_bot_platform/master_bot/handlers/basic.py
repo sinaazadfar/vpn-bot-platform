@@ -8,12 +8,14 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from aiogram.utils.token import TokenValidationError, validate_token
 
 from vpn_bot_platform.common.models import DiscountType, ResellerStatus
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     confirm_keyboard,
+    inline_keyboard,
     master_main_menu,
     master_section_menu,
     master_seller_bot_actions,
@@ -29,6 +31,13 @@ router = Router(name="master_basic")
 class ResellerCreateStates(StatesGroup):
     telegram_id = State()
     display_name = State()
+    confirm = State()
+
+
+class SellerBotCreateStates(StatesGroup):
+    reseller = State()
+    name = State()
+    token = State()
     confirm = State()
 
 
@@ -303,6 +312,78 @@ async def master_menu_callback(
             ),
             reply_markup=master_section_menu("resellers"),
         )
+    elif action.action == "guide_add_seller_bot":
+        await state.clear()
+        resellers = await reseller_service.list_resellers()
+        if not resellers:
+            await callback.message.edit_text(
+                "\n".join([title("Add Seller Bot"), "Create a reseller first."]),
+                reply_markup=master_section_menu("seller_bots"),
+            )
+            return
+        await state.set_state(SellerBotCreateStates.reseller)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Seller Bot"),
+                    "Select the reseller who owns this bot.",
+                ]
+            ),
+            reply_markup=_reseller_select_keyboard(resellers[:10]),
+        )
+    elif action.action == "sellerbot_reseller":
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller.", show_alert=True)
+            return
+        await state.update_data(sellerbot_reseller_telegram_id=int(action.value))
+        await state.set_state(SellerBotCreateStates.name)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Seller Bot"),
+                    "Send the seller bot display name.",
+                    "",
+                    "Example: Sina Azad",
+                ]
+            ),
+            reply_markup=master_section_menu("seller_bots"),
+        )
+    elif action.action == "sellerbot_create":
+        data = await state.get_data()
+        reseller_telegram_id = data.get("sellerbot_reseller_telegram_id")
+        bot_name = str(data.get("sellerbot_name") or "").strip()
+        bot_token = str(data.get("sellerbot_token") or "").strip()
+        if not reseller_telegram_id or not bot_name or not bot_token:
+            await callback.answer("Seller bot draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            seller_bot = await reseller_service.register_seller_bot(
+                reseller_telegram_id=int(reseller_telegram_id),
+                bot_name=bot_name,
+                bot_token=bot_token,
+            )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Seller Bot Registered"),
+                    f"ID: {seller_bot.id}",
+                    f"Name: {seller_bot.name}",
+                    f"Status: {status_label(seller_bot.status)}",
+                ]
+            ),
+            reply_markup=master_seller_bot_actions(seller_bot.id),
+        )
+    elif action.action == "sellerbot_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Seller Bot Canceled"), "No seller bot was registered."]),
+            reply_markup=master_section_menu("seller_bots"),
+        )
     elif action.action == "reseller_create":
         data = await state.get_data()
         telegram_id = data.get("reseller_telegram_id")
@@ -399,6 +480,75 @@ async def reseller_create_display_name(message: Message, state: FSMContext) -> N
 async def reseller_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Reseller"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(SellerBotCreateStates.reseller)
+async def sellerbot_create_waiting_for_reseller(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Add Seller Bot"), "Select a reseller using the buttons."])
+    )
+
+
+@router.message(SellerBotCreateStates.name)
+async def sellerbot_create_name(message: Message, state: FSMContext) -> None:
+    bot_name = (message.text or "").strip()
+    if not bot_name or bot_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send a display name, not a command."]),
+            reply_markup=master_section_menu("seller_bots"),
+        )
+        return
+    await state.update_data(sellerbot_name=bot_name[:128])
+    await state.set_state(SellerBotCreateStates.token)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Send the Telegram bot token from BotFather.",
+                "",
+                "The token will be encrypted and will not be shown back.",
+            ]
+        ),
+        reply_markup=master_section_menu("seller_bots"),
+    )
+
+
+@router.message(SellerBotCreateStates.token)
+async def sellerbot_create_token(message: Message, state: FSMContext) -> None:
+    bot_token = (message.text or "").strip()
+    try:
+        validate_token(bot_token)
+    except TokenValidationError as exc:
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), f"Invalid token: {exc}", "Send a valid BotFather token."]),
+            reply_markup=master_section_menu("seller_bots"),
+        )
+        return
+    await state.update_data(sellerbot_token=bot_token)
+    await state.set_state(SellerBotCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Seller Bot"),
+                f"Reseller Telegram: {data.get('sellerbot_reseller_telegram_id')}",
+                f"Bot name: {data.get('sellerbot_name')}",
+                "Token: valid and hidden",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="sellerbot_create",
+            cancel_action="sellerbot_cancel",
+        ),
+    )
+
+
+@router.message(SellerBotCreateStates.confirm)
+async def sellerbot_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Seller Bot"), "Use Confirm or Cancel below the preview."])
     )
 
 
@@ -855,6 +1005,20 @@ async def _resellers_text(reseller_service: ResellerService) -> str:
         ]
     )
     return "\n".join([title("Resellers"), section("Latest resellers", rows)])
+
+
+def _reseller_select_keyboard(resellers):
+    rows = [
+        [(reseller.display_name, f"m:sellerbot_reseller:{reseller.telegram_user_id}")]
+        for reseller in resellers
+    ]
+    rows.append(
+        [
+            ("Cancel", "m:sellerbot_cancel"),
+            ("Home", "m:home"),
+        ]
+    )
+    return inline_keyboard(rows)
 
 
 async def _panels_text(reseller_service: ResellerService) -> str:

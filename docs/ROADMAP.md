@@ -186,19 +186,19 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Last error
   - [ ] Health
 - [x] Add seller bot action buttons:
-  - [ ] Register New Bot
+  - [x] Register New Bot
   - [x] Start
   - [x] Stop
   - [ ] Restart
   - [x] Health
   - [x] Logs
-  - [ ] Disable
-- [ ] Add guided FSM flow for registering seller bot token:
-  - [ ] Select reseller.
-  - [ ] Ask bot name.
-  - [ ] Ask token.
-  - [ ] Validate token format.
-  - [ ] Confirm registration.
+  - [x] Disable
+- [x] Add guided FSM flow for registering seller bot token:
+  - [x] Select reseller.
+  - [x] Ask bot name.
+  - [x] Ask token.
+  - [x] Validate token format.
+  - [x] Confirm registration.
   - [ ] Optionally start immediately.
 - [ ] Add log viewer with truncated Telegram-safe code block and refresh button.
 - [ ] Keep slash commands for power users.
@@ -396,7 +396,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### FSM And Navigation Architecture
 
 - [x] Add FSM state groups for master reseller flows.
-- [ ] Add FSM state groups for master seller bot flows.
+- [x] Add FSM state groups for master seller bot flows.
 - [ ] Add FSM state groups for master panel flows.
 - [ ] Add FSM state groups for master plan/discount/broadcast/settings flows.
 - [ ] Add FSM state groups for seller purchase/renew/wallet/ticket flows.
