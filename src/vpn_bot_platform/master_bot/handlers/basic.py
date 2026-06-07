@@ -47,6 +47,12 @@ class SellerBotCreateStates(StatesGroup):
     confirm = State()
 
 
+class GlobalBroadcastCreateStates(StatesGroup):
+    title = State()
+    body = State()
+    confirm = State()
+
+
 def _parse_args(raw: str | None) -> list[str]:
     try:
         return shlex.split(raw or "")
@@ -354,6 +360,52 @@ async def master_menu_callback(
                 "Create a draft first, then send it after review.",
                 ["/global_broadcast <title> | <message>", "/send_global_broadcast <broadcast_id>"],
             ),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+    elif action.action == "guide_global_broadcast":
+        await state.clear()
+        await state.set_state(GlobalBroadcastCreateStates.title)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Create Broadcast"),
+                    "Send the broadcast title.",
+                    "",
+                    "Example: New plans are available",
+                ]
+            ),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+    elif action.action == "broadcast_create":
+        data = await state.get_data()
+        broadcast_title = str(data.get("broadcast_title") or "").strip()
+        broadcast_body = str(data.get("broadcast_body") or "").strip()
+        if not broadcast_title or not broadcast_body:
+            await callback.answer("Broadcast draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        draft = await reseller_service.create_global_broadcast(
+            admin_telegram_id=callback.from_user.id,
+            title=broadcast_title,
+            body=broadcast_body,
+        )
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Broadcast Draft Created"),
+                    f"ID: {draft.broadcast.id}",
+                    f"Targets: {len(draft.recipients)}",
+                    "",
+                    "Use Send Broadcast when you are ready to deliver it.",
+                ]
+            ),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+    elif action.action == "broadcast_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Broadcast Canceled"), "No broadcast draft was created."]),
             reply_markup=master_section_menu("broadcasts"),
         )
     elif action.action == "settings":
@@ -747,6 +799,66 @@ async def sellerbot_create_token(message: Message, state: FSMContext) -> None:
 async def sellerbot_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Seller Bot"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(GlobalBroadcastCreateStates.title)
+async def broadcast_create_title(message: Message, state: FSMContext) -> None:
+    broadcast_title = (message.text or "").strip()
+    if not broadcast_title or broadcast_title.startswith("/"):
+        await message.answer(
+            "\n".join([title("Create Broadcast"), "Send a title, not a command."]),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+        return
+    await state.update_data(broadcast_title=broadcast_title[:160])
+    await state.set_state(GlobalBroadcastCreateStates.body)
+    await message.answer(
+        "\n".join(
+            [
+                title("Create Broadcast"),
+                "Send the message body.",
+                "",
+                "This will be previewed before any draft is created.",
+            ]
+        ),
+        reply_markup=master_section_menu("broadcasts"),
+    )
+
+
+@router.message(GlobalBroadcastCreateStates.body)
+async def broadcast_create_body(message: Message, state: FSMContext) -> None:
+    broadcast_body = (message.text or "").strip()
+    if not broadcast_body or broadcast_body.startswith("/"):
+        await message.answer(
+            "\n".join([title("Create Broadcast"), "Send a message body, not a command."]),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+        return
+    await state.update_data(broadcast_body=broadcast_body[:3500])
+    await state.set_state(GlobalBroadcastCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Broadcast Draft"),
+                f"Title: {data.get('broadcast_title')}",
+                "",
+                str(data.get("broadcast_body")),
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="broadcast_create",
+            cancel_action="broadcast_cancel",
+        ),
+    )
+
+
+@router.message(GlobalBroadcastCreateStates.confirm)
+async def broadcast_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Broadcast Draft"), "Use Confirm or Cancel below the preview."])
     )
 
 

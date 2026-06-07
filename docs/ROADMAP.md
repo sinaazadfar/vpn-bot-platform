@@ -253,9 +253,10 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### Master Bot Broadcasts, Reports, Settings, And System UX
 
 - [ ] Add broadcast compose FSM:
-  - [ ] Ask title.
-  - [ ] Ask message.
-  - [ ] Preview.
+  - [x] Ask title.
+  - [x] Ask message.
+  - [x] Preview.
+  - [x] Confirm draft creation.
   - [ ] Confirm send.
 - [ ] Add global broadcast history screen.
 - [ ] Add report menu:
