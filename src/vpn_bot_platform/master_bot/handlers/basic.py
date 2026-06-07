@@ -131,15 +131,74 @@ async def master_menu_callback(
                 ),
                 reply_markup=reseller_card_actions(reseller.telegram_user_id),
             )
-    elif action.action in {"reseller_active", "reseller_suspended", "reseller_disabled"}:
+    elif action.action in {"reseller_suspended", "reseller_disabled"}:
         if not action.value or not action.value.isdigit():
             await callback.answer("Invalid reseller action.", show_alert=True)
             return
-        status = ResellerStatus(action.action.replace("reseller_", ""))
+        status = action.action.replace("reseller_", "")
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Confirm Reseller Status"),
+                    f"Telegram: {action.value}",
+                    f"New status: {status_label(status)}",
+                    "",
+                    "Confirm only if this reseller should lose normal selling access.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="m",
+                confirm_action="reseller_status_apply",
+                cancel_action="reseller_status_cancel",
+                value=f"{status}-{action.value}",
+            ),
+        )
+    elif action.action == "reseller_status_cancel":
+        await callback.message.edit_text(
+            "\n".join([title("Status Canceled"), "No reseller status was changed."]),
+            reply_markup=master_section_menu("resellers"),
+        )
+    elif action.action == "reseller_status_apply":
+        if not action.value or "-" not in action.value:
+            await callback.answer("Invalid reseller action.", show_alert=True)
+            return
+        raw_status, raw_telegram_id = action.value.split("-", maxsplit=1)
+        if not raw_telegram_id.isdigit():
+            await callback.answer("Invalid reseller action.", show_alert=True)
+            return
+        try:
+            status = ResellerStatus(raw_status)
+        except ValueError:
+            await callback.answer("Invalid reseller status.", show_alert=True)
+            return
+        try:
+            reseller = await reseller_service.set_reseller_status(
+                reseller_telegram_id=int(raw_telegram_id),
+                status=status,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Reseller not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Reseller Updated"),
+                    f"Name: {reseller.display_name}",
+                    f"Telegram: {reseller.telegram_user_id}",
+                    f"Status: {status_label(reseller.status)}",
+                ]
+            ),
+            reply_markup=reseller_actions(reseller.telegram_user_id),
+        )
+    elif action.action == "reseller_active":
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller action.", show_alert=True)
+            return
         try:
             reseller = await reseller_service.set_reseller_status(
                 reseller_telegram_id=int(action.value),
-                status=status,
+                status=ResellerStatus.ACTIVE,
                 actor_telegram_id=callback.from_user.id,
             )
         except ValueError:

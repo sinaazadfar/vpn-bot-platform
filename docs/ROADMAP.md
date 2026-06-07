@@ -170,7 +170,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Ask new display name.
   - [x] Confirm before update.
   - [x] Show updated reseller action screen.
-- [ ] Add confirm dialog for suspend/disable.
+- [x] Add confirm dialog for suspend/disable.
 - [x] Add audit log entries for button-based reseller changes.
 - [ ] Keep slash commands:
   - [ ] `/add_reseller`
