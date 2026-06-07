@@ -319,17 +319,17 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### Seller Bot Services And Renewal UX
 
 - [x] Add service list screen with active/inactive labels.
-- [ ] Add service detail screen:
-  - [ ] Username
-  - [ ] Traffic limit
-  - [ ] Expiry
-  - [ ] Status
-  - [ ] Subscription link
+- [x] Add service detail screen:
+  - [x] Username
+  - [x] Traffic limit
+  - [x] Expiry
+  - [x] Status
+  - [x] Subscription link
 - [x] Add service action buttons:
   - [x] Get Subscription
   - [x] QR Code
   - [ ] Renew
-  - [ ] Connection Guide
+  - [x] Connection Guide
 - [ ] Add guided renewal flow:
   - [ ] Select service.
   - [ ] Select plan.

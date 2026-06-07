@@ -228,6 +228,22 @@ async def seller_menu_callback(
             await _services_text(seller_context, buyer_telegram_id=callback.from_user.id),
             reply_markup=seller_section_menu("services"),
         )
+    elif action.action == "service_detail":
+        if not action.value:
+            await callback.answer("Service is missing.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=action.value,
+        )
+        if service is None:
+            await callback.answer("Service not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _service_detail_text(service),
+            reply_markup=service_actions(service.id),
+        )
     elif action.action == "service_qr":
         if not action.value:
             await callback.answer("Service is missing.", show_alert=True)
@@ -264,6 +280,22 @@ async def seller_menu_callback(
                     service.subscription_url,
                 ]
             ),
+            reply_markup=service_actions(service.id),
+        )
+    elif action.action == "service_guide":
+        if not action.value:
+            await callback.answer("Service is missing.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=action.value,
+        )
+        if service is None:
+            await callback.answer("Service not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _service_guide_text(service.id),
             reply_markup=service_actions(service.id),
         )
     elif action.action == "renew":
@@ -1510,6 +1542,39 @@ async def _find_buyer_service(
 ):
     services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
     return next((service for service in services if service.id == service_id), None)
+
+
+def _service_detail_text(service) -> str:
+    traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
+    expire = service.expire_at.isoformat() if service.expire_at else "Unlimited"
+    subscription = service.subscription_url or "-"
+    return "\n".join(
+        [
+            title("Service Detail"),
+            f"Username: {service.marzban_username}",
+            f"Traffic: {traffic}",
+            f"Expires: {expire}",
+            f"Status: {status_label('active' if service.is_active else 'disabled')}",
+            f"Service ID: {service.id}",
+            "",
+            "Subscription:",
+            subscription,
+        ]
+    )
+
+
+def _service_guide_text(service_id: str) -> str:
+    return "\n".join(
+        [
+            title("Connection Guide"),
+            f"Service ID: {service_id}",
+            "",
+            "1. Copy the subscription link from Subscription.",
+            "2. Open Hiddify, V2RayNG, Streisand, or Nekobox.",
+            "3. Add a new profile from clipboard or subscription URL.",
+            "4. Update subscriptions, then connect.",
+        ]
+    )
 
 
 async def _renewal_text(seller_context: SellerContextService, *, service_id: str) -> str:

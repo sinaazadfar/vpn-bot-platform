@@ -348,13 +348,14 @@ def plan_buy_button(plan_id: str) -> InlineKeyboardMarkup:
 def service_actions(service_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
+            [("Details", build_callback("s", "service_detail", service_id))],
             [
                 ("Subscription", build_callback("s", "service_sub", service_id)),
                 ("QR Code", build_callback("s", "service_qr", service_id)),
             ],
             [
                 ("Renew", build_callback("s", "renew", service_id)),
-                ("Services", build_callback("s", "services")),
+                ("Guide", build_callback("s", "service_guide", service_id)),
             ],
             [("Back", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
         ]
