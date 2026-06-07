@@ -11,10 +11,15 @@ from vpn_bot_platform.common.ui.keyboards import (
     confirm_keyboard,
     master_main_menu,
     master_reply_menu,
+    master_section_menu,
     master_seller_bot_actions,
     paginate,
     pagination_row,
+    plan_buy_button,
+    reseller_actions,
     reseller_card_actions,
+    seller_section_menu,
+    service_actions,
     seller_admin_reply_menu,
     seller_admin_menu,
     seller_buyer_reply_menu,
@@ -24,6 +29,13 @@ from vpn_bot_platform.common.ui.keyboards import (
     wallet_charge_menu,
 )
 from vpn_bot_platform.common.ui.messages import status_label
+
+
+def _assert_callback_data_fits(keyboard) -> None:
+    for row in keyboard.inline_keyboard:
+        for button in row:
+            assert button.callback_data is not None
+            assert len(button.callback_data.encode("utf-8")) <= 64
 
 
 def test_callback_round_trip() -> None:
@@ -55,19 +67,38 @@ def test_main_menus_have_buttons() -> None:
     assert seller_admin_reply_menu().keyboard
 
 
-def test_admin_action_keyboards_fit_callback_limit() -> None:
+def test_inline_keyboards_fit_callback_limit() -> None:
     uuid = "12345678-1234-1234-1234-123456789abc"
 
     for keyboard in (
+        master_main_menu(),
+        master_section_menu("resellers"),
+        master_section_menu("seller_bots"),
+        master_section_menu("panels"),
+        master_section_menu("plans"),
+        master_section_menu("discounts"),
+        master_section_menu("broadcasts"),
+        master_section_menu("settings"),
+        master_section_menu("system"),
+        reseller_actions(123456789),
+        reseller_card_actions(123456789),
+        master_seller_bot_actions(uuid),
+        seller_buyer_menu(),
+        seller_admin_menu(),
+        seller_report_menu(),
+        seller_section_menu("wallet"),
+        plan_buy_button(uuid),
+        service_actions(uuid),
+        wallet_charge_menu(),
+        support_menu(),
         admin_payment_actions(uuid),
         admin_order_actions(uuid),
+        admin_order_actions(uuid, renewal=True),
         admin_wallet_charge_actions(uuid),
         admin_ticket_actions(uuid),
+        confirm_keyboard(scope="m", confirm_action="ok", cancel_action="cancel", value=uuid),
     ):
-        for row in keyboard.inline_keyboard:
-            for button in row:
-                assert button.callback_data is not None
-                assert len(button.callback_data.encode("utf-8")) <= 64
+        _assert_callback_data_fits(keyboard)
 
 
 def test_confirm_keyboard_has_confirm_and_cancel() -> None:
