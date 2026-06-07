@@ -153,7 +153,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Add reseller list screen with pagination.
 - [ ] Add reseller detail screen with status, Telegram ID, wallet balance, and seller bot count.
 - [x] Add reseller action buttons:
-  - [ ] Rename
+  - [x] Rename
   - [x] Activate
   - [x] Suspend
   - [x] Disable
@@ -165,9 +165,13 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Ask display name.
   - [x] Confirm before create.
   - [x] Show created reseller detail.
-- [ ] Add guided FSM flow for renaming a reseller.
+- [x] Add guided FSM flow for renaming a reseller:
+  - [x] Select reseller by button.
+  - [x] Ask new display name.
+  - [x] Confirm before update.
+  - [x] Show updated reseller action screen.
 - [ ] Add confirm dialog for suspend/disable.
-- [ ] Add audit log entries for button-based reseller changes.
+- [x] Add audit log entries for button-based reseller changes.
 - [ ] Keep slash commands:
   - [ ] `/add_reseller`
   - [ ] `/rename_reseller`

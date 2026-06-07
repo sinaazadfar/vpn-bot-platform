@@ -34,6 +34,12 @@ class ResellerCreateStates(StatesGroup):
     confirm = State()
 
 
+class ResellerRenameStates(StatesGroup):
+    reseller = State()
+    display_name = State()
+    confirm = State()
+
+
 class SellerBotCreateStates(StatesGroup):
     reseller = State()
     name = State()
@@ -312,6 +318,81 @@ async def master_menu_callback(
             ),
             reply_markup=master_section_menu("resellers"),
         )
+    elif action.action == "guide_rename_reseller":
+        await state.clear()
+        resellers = await reseller_service.list_resellers()
+        if not resellers:
+            await callback.message.edit_text(
+                "\n".join([title("Rename Reseller"), "Create a reseller first."]),
+                reply_markup=master_section_menu("resellers"),
+            )
+            return
+        await state.set_state(ResellerRenameStates.reseller)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Rename Reseller"),
+                    "Select the reseller you want to rename.",
+                ]
+            ),
+            reply_markup=_reseller_select_keyboard(
+                resellers[:10],
+                action_name="reseller_rename_select",
+                cancel_action="reseller_rename_cancel",
+            ),
+        )
+    elif action.action == "reseller_rename_select":
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller.", show_alert=True)
+            return
+        await state.update_data(rename_reseller_telegram_id=int(action.value))
+        await state.set_state(ResellerRenameStates.display_name)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Rename Reseller"),
+                    "Send the new display name.",
+                    "",
+                    "Example: Sina Azad",
+                ]
+            ),
+            reply_markup=master_section_menu("resellers"),
+        )
+    elif action.action == "reseller_rename":
+        data = await state.get_data()
+        telegram_id = data.get("rename_reseller_telegram_id")
+        display_name = str(data.get("rename_reseller_display_name") or "").strip()
+        if not telegram_id or not display_name:
+            await callback.answer("Rename draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            reseller = await reseller_service.rename_reseller(
+                reseller_telegram_id=int(telegram_id),
+                display_name=display_name,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Reseller not found.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Reseller Renamed"),
+                    f"Name: {reseller.display_name}",
+                    f"Telegram: {reseller.telegram_user_id}",
+                    f"Status: {status_label(reseller.status)}",
+                ]
+            ),
+            reply_markup=reseller_actions(reseller.telegram_user_id),
+        )
+    elif action.action == "reseller_rename_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Rename Canceled"), "No reseller was changed."]),
+            reply_markup=master_section_menu("resellers"),
+        )
     elif action.action == "guide_add_seller_bot":
         await state.clear()
         resellers = await reseller_service.list_resellers()
@@ -329,7 +410,11 @@ async def master_menu_callback(
                     "Select the reseller who owns this bot.",
                 ]
             ),
-            reply_markup=_reseller_select_keyboard(resellers[:10]),
+            reply_markup=_reseller_select_keyboard(
+                resellers[:10],
+                action_name="sellerbot_reseller",
+                cancel_action="sellerbot_cancel",
+            ),
         )
     elif action.action == "sellerbot_reseller":
         if not action.value or not action.value.isdigit():
@@ -480,6 +565,48 @@ async def reseller_create_display_name(message: Message, state: FSMContext) -> N
 async def reseller_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Reseller"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(ResellerRenameStates.reseller)
+async def reseller_rename_waiting_for_reseller(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Rename Reseller"), "Select a reseller using the buttons."])
+    )
+
+
+@router.message(ResellerRenameStates.display_name)
+async def reseller_rename_display_name(message: Message, state: FSMContext) -> None:
+    display_name = (message.text or "").strip()
+    if not display_name or display_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Rename Reseller"), "Send a display name, not a command."]),
+            reply_markup=master_section_menu("resellers"),
+        )
+        return
+    await state.update_data(rename_reseller_display_name=display_name[:128])
+    await state.set_state(ResellerRenameStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Rename"),
+                f"Telegram: {data.get('rename_reseller_telegram_id')}",
+                f"New name: {data.get('rename_reseller_display_name')}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="reseller_rename",
+            cancel_action="reseller_rename_cancel",
+        ),
+    )
+
+
+@router.message(ResellerRenameStates.confirm)
+async def reseller_rename_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Rename"), "Use Confirm or Cancel below the preview."])
     )
 
 
@@ -1007,14 +1134,14 @@ async def _resellers_text(reseller_service: ResellerService) -> str:
     return "\n".join([title("Resellers"), section("Latest resellers", rows)])
 
 
-def _reseller_select_keyboard(resellers):
+def _reseller_select_keyboard(resellers, *, action_name: str, cancel_action: str):
     rows = [
-        [(reseller.display_name, f"m:sellerbot_reseller:{reseller.telegram_user_id}")]
+        [(reseller.display_name, f"m:{action_name}:{reseller.telegram_user_id}")]
         for reseller in resellers
     ]
     rows.append(
         [
-            ("Cancel", "m:sellerbot_cancel"),
+            ("Cancel", f"m:{cancel_action}"),
             ("Home", "m:home"),
         ]
     )

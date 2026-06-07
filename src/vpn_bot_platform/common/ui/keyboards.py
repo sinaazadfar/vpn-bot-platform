@@ -242,6 +242,9 @@ def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
+                ("Rename", build_callback("m", "reseller_rename_select", value)),
+            ],
+            [
                 ("Activate", build_callback("m", "reseller_active", value)),
                 ("Suspend", build_callback("m", "reseller_suspended", value)),
                 ("Disable", build_callback("m", "reseller_disabled", value)),
