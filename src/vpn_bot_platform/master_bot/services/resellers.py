@@ -388,6 +388,70 @@ class ResellerService:
             await session.flush()
             return seller_bot
 
+    async def restart_seller_bot(self, *, seller_bot_id: str) -> SellerBot:
+        if self.settings is None:
+            raise RuntimeError("settings_required")
+        runtime = self._runtime_controller()
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            token = self.secret_box.decrypt(seller_bot.token_encrypted)
+            if not token:
+                await update_seller_runtime_state(
+                    session,
+                    seller_bot=seller_bot,
+                    status=SellerBotStatus.ERROR,
+                    last_error="seller token cannot be decrypted",
+                )
+                raise ValueError("seller_token_unavailable")
+            try:
+                validate_token(token)
+            except TokenValidationError as exc:
+                await update_seller_runtime_state(
+                    session,
+                    seller_bot=seller_bot,
+                    status=SellerBotStatus.ERROR,
+                    container_id=None,
+                    container_name=None,
+                    last_error=f"invalid seller token: {exc}",
+                )
+                raise ValueError("seller_token_invalid") from exc
+            env = self._seller_environment(seller_bot_id=seller_bot.id, token=token)
+            try:
+                container_id = runtime.start_seller(
+                    seller_bot_id=seller_bot.id,
+                    environment=env,
+                    container_id=seller_bot.container_id,
+                )
+            except Exception as exc:
+                await update_seller_runtime_state(
+                    session,
+                    seller_bot=seller_bot,
+                    status=SellerBotStatus.ERROR,
+                    last_error=str(exc),
+                )
+                raise
+            await update_seller_runtime_state(
+                session,
+                seller_bot=seller_bot,
+                status=SellerBotStatus.RUNNING,
+                container_id=container_id,
+                container_name=seller_container_name(seller_bot.id),
+                last_error=None,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.restart",
+                actor_type=AuditActorType.SUPER_USER,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={"container_id": container_id},
+            )
+            await session.flush()
+            return seller_bot
+
     async def disable_seller_bot(self, *, seller_bot_id: str) -> SellerBot:
         if self.settings is None:
             raise RuntimeError("settings_required")

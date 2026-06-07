@@ -262,6 +262,7 @@ def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
                 ("Start", build_callback("m", "seller_start", seller_bot_id)),
                 ("Stop", build_callback("m", "seller_stop", seller_bot_id)),
             ],
+            [("Restart", build_callback("m", "seller_restart", seller_bot_id))],
             [
                 ("Health", build_callback("m", "seller_health", seller_bot_id)),
                 ("Logs", build_callback("m", "seller_logs", seller_bot_id)),

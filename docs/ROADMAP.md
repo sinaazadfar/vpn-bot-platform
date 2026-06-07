@@ -193,7 +193,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Register New Bot
   - [x] Start
   - [x] Stop
-  - [ ] Restart
+  - [x] Restart
   - [x] Health
   - [x] Logs
   - [x] Disable

@@ -238,7 +238,7 @@ async def master_menu_callback(
                 ),
                 reply_markup=master_seller_bot_actions(seller_bot.id),
             )
-    elif action.action in {"seller_start", "seller_stop", "seller_health", "seller_logs", "seller_disable"}:
+    elif action.action in {"seller_start", "seller_stop", "seller_restart", "seller_health", "seller_logs", "seller_disable"}:
         if not action.value:
             await callback.answer("Seller bot is missing.", show_alert=True)
             return
@@ -251,6 +251,17 @@ async def master_menu_callback(
                         f"Name: {seller_bot.name}",
                         f"ID: {seller_bot.id}",
                         f"Status: {status_label(seller_bot.status)}",
+                    ]
+                )
+            elif action.action == "seller_restart":
+                seller_bot = await reseller_service.restart_seller_bot(seller_bot_id=action.value)
+                text = "\n".join(
+                    [
+                        title("Seller Bot Restarted"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Status: {status_label(seller_bot.status)}",
+                        f"Container: {seller_bot.container_name or '-'}",
                     ]
                 )
             elif action.action == "seller_stop":
