@@ -218,12 +218,12 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Assignment count
 - [ ] Add panel action buttons:
   - [x] Add Token Panel
-  - [ ] Add Password Panel
+  - [x] Add Password Panel
   - [ ] Assign To Reseller
   - [ ] Disable Panel
   - [ ] Test Connection
 - [x] Add guided FSM flow for token panel registration.
-- [ ] Add guided FSM flow for password panel registration.
+- [x] Add guided FSM flow for password panel registration.
 - [ ] Add guided FSM flow for assignment:
   - [ ] Select reseller.
   - [ ] Select panel.
