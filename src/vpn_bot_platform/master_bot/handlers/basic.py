@@ -104,7 +104,12 @@ async def master_menu_callback(
             await _seller_bots_text(reseller_service),
             reply_markup=master_section_menu("seller_bots"),
         )
-        for seller_bot in (await reseller_service.list_seller_bots())[:5]:
+        active_seller_bots = [
+            seller_bot
+            for seller_bot in await reseller_service.list_seller_bots()
+            if seller_bot.status != "disabled"
+        ]
+        for seller_bot in active_seller_bots[:5]:
             await callback.message.answer(
                 "\n".join(
                     [
@@ -117,7 +122,7 @@ async def master_menu_callback(
                 ),
                 reply_markup=master_seller_bot_actions(seller_bot.id),
             )
-    elif action.action in {"seller_start", "seller_stop", "seller_health", "seller_logs"}:
+    elif action.action in {"seller_start", "seller_stop", "seller_health", "seller_logs", "seller_disable"}:
         if not action.value:
             await callback.answer("Seller bot is missing.", show_alert=True)
             return
@@ -140,6 +145,17 @@ async def master_menu_callback(
                         f"Name: {seller_bot.name}",
                         f"ID: {seller_bot.id}",
                         f"Status: {status_label(seller_bot.status)}",
+                    ]
+                )
+            elif action.action == "seller_disable":
+                seller_bot = await reseller_service.disable_seller_bot(seller_bot_id=action.value)
+                text = "\n".join(
+                    [
+                        title("Seller Bot Disabled"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Status: {status_label(seller_bot.status)}",
+                        f"Last error: {seller_bot.last_error or '-'}",
                     ]
                 )
             elif action.action == "seller_health":
@@ -169,7 +185,7 @@ async def master_menu_callback(
                     ]
                 )
         except ValueError:
-            await callback.answer("Seller bot not found.", show_alert=True)
+            await callback.answer("Seller bot not found or token is invalid.", show_alert=True)
             return
         except RuntimeError as exc:
             await callback.answer(str(exc), show_alert=True)
@@ -480,6 +496,9 @@ async def start_seller(
         if str(exc) == "seller_token_unavailable":
             await message.answer("Seller token cannot be decrypted.")
             return
+        if str(exc) == "seller_token_invalid":
+            await message.answer("Seller token is invalid. Disable this seller bot and register a fresh token.")
+            return
         raise
     except RuntimeError as exc:
         await message.answer(f"Could not start seller bot: {exc}")
@@ -523,6 +542,37 @@ async def stop_seller(
                 f"ID: {seller_bot.id}",
                 f"Container: {seller_bot.container_name or '-'}",
                 f"Status: {seller_bot.status}",
+            ]
+        )
+    )
+
+
+@router.message(Command("disable_seller"))
+async def disable_seller(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    seller_bot_id = (command.args or "").strip()
+    if not seller_bot_id:
+        await message.answer("Usage: /disable_seller <seller_bot_id>")
+        return
+
+    try:
+        seller_bot = await reseller_service.disable_seller_bot(seller_bot_id=seller_bot_id)
+    except ValueError as exc:
+        if str(exc) == "seller_bot_not_found":
+            await message.answer("Seller bot not found.")
+            return
+        raise
+
+    await message.answer(
+        "\n".join(
+            [
+                "Seller bot disabled.",
+                f"ID: {seller_bot.id}",
+                f"Status: {seller_bot.status}",
+                f"Last error: {seller_bot.last_error or '-'}",
             ]
         )
     )
@@ -649,7 +699,11 @@ async def _panels_text(reseller_service: ResellerService) -> str:
 
 
 async def _seller_bots_text(reseller_service: ResellerService) -> str:
-    seller_bots = await reseller_service.list_seller_bots()
+    seller_bots = [
+        seller_bot
+        for seller_bot in await reseller_service.list_seller_bots()
+        if seller_bot.status != "disabled"
+    ]
     rows = [
         (
             f"- {seller_bot.name} | {status_label(seller_bot.status)} | "
@@ -657,7 +711,7 @@ async def _seller_bots_text(reseller_service: ResellerService) -> str:
         )
         for seller_bot in seller_bots[:20]
     ]
-    rows.extend(["", "Shortcuts:", "/add_seller_bot", "/start_seller", "/stop_seller"])
+    rows.extend(["", "Shortcuts:", "/add_seller_bot", "/start_seller", "/stop_seller", "/disable_seller"])
     return "\n".join([title("Seller Bots"), section("Registered bots", rows)])
 
 

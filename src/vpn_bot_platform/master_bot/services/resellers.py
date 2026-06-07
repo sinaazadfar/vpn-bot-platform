@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 import datetime as dt
 
+from aiogram.utils.token import TokenValidationError, validate_token
+
 from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import session_scope
@@ -311,6 +313,18 @@ class ResellerService:
                     last_error="seller token cannot be decrypted",
                 )
                 raise ValueError("seller_token_unavailable")
+            try:
+                validate_token(token)
+            except TokenValidationError as exc:
+                await update_seller_runtime_state(
+                    session,
+                    seller_bot=seller_bot,
+                    status=SellerBotStatus.ERROR,
+                    container_id=None,
+                    container_name=None,
+                    last_error=f"invalid seller token: {exc}",
+                )
+                raise ValueError("seller_token_invalid") from exc
             env = self._seller_environment(seller_bot_id=seller_bot.id, token=token)
             try:
                 container_id = runtime.start_seller(
@@ -366,6 +380,34 @@ class ResellerService:
             await record_audit_log(
                 session,
                 action="seller_bot.stop",
+                actor_type=AuditActorType.SUPER_USER,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+            )
+            await session.flush()
+            return seller_bot
+
+    async def disable_seller_bot(self, *, seller_bot_id: str) -> SellerBot:
+        if self.settings is None:
+            raise RuntimeError("settings_required")
+        runtime = self._runtime_controller()
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            runtime.stop_seller(container_id=seller_bot.container_id)
+            await update_seller_runtime_state(
+                session,
+                seller_bot=seller_bot,
+                status=SellerBotStatus.DISABLED,
+                container_id=None,
+                container_name=None,
+                last_error="disabled by super user",
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.disable",
                 actor_type=AuditActorType.SUPER_USER,
                 reseller_id=seller_bot.reseller_id,
                 target_type="seller_bot",
