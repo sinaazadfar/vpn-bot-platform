@@ -14,6 +14,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
+    buyer_ticket_actions,
     confirm_keyboard,
     plan_buy_button,
     seller_admin_menu,
@@ -37,6 +38,11 @@ class TicketCreateStates(StatesGroup):
     subject = State()
     body = State()
     confirm = State()
+
+
+class TicketReplyStates(StatesGroup):
+    buyer_body = State()
+    admin_body = State()
 
 
 class WalletChargeStates(StatesGroup):
@@ -412,6 +418,54 @@ async def seller_menu_callback(
             await _buyer_tickets_text(seller_context, buyer_telegram_id=callback.from_user.id),
             reply_markup=support_menu(),
         )
+        for ticket_item in (await seller_context.list_my_tickets(buyer_telegram_id=callback.from_user.id))[:5]:
+            await callback.message.answer(
+                _ticket_card_text(ticket_item),
+                reply_markup=buyer_ticket_actions(ticket_item.id),
+            )
+    elif action.action == "ticket_detail":
+        if not action.value:
+            await callback.answer("Ticket is missing.", show_alert=True)
+            return
+        try:
+            thread = await seller_context.get_buyer_ticket_thread(
+                buyer_telegram_id=callback.from_user.id,
+                ticket_id=action.value,
+            )
+        except ValueError:
+            await callback.answer("Ticket not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _ticket_thread_text(thread),
+            reply_markup=buyer_ticket_actions(thread.ticket.id),
+        )
+    elif action.action == "ticket_reply":
+        if not action.value:
+            await callback.answer("Ticket is missing.", show_alert=True)
+            return
+        try:
+            thread = await seller_context.get_buyer_ticket_thread(
+                buyer_telegram_id=callback.from_user.id,
+                ticket_id=action.value,
+            )
+        except ValueError:
+            await callback.answer("Ticket not found.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(reply_ticket_id=thread.ticket.id)
+        await state.set_state(TicketReplyStates.buyer_body)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Reply To Ticket"),
+                    f"Ticket ID: {thread.ticket.id}",
+                    f"Subject: {thread.ticket.subject}",
+                    "",
+                    "Send your reply message.",
+                ]
+            ),
+            reply_markup=buyer_ticket_actions(thread.ticket.id),
+        )
     elif action.action == "ticket_open":
         await state.clear()
         await state.set_state(TicketCreateStates.subject)
@@ -478,6 +532,55 @@ async def seller_menu_callback(
         await _show_admin_wallet(callback, seller_context)
     elif action.action == "admin_tickets":
         await _show_admin_tickets(callback, seller_context)
+    elif action.action == "admin_ticket_detail":
+        if not action.value:
+            await callback.answer("Ticket is missing.", show_alert=True)
+            return
+        try:
+            thread = await seller_context.get_admin_ticket_thread(
+                admin_telegram_id=callback.from_user.id,
+                ticket_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Ticket not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _ticket_thread_text(thread),
+            reply_markup=admin_ticket_actions(thread.ticket.id),
+        )
+    elif action.action == "admin_ticket_reply":
+        if not action.value:
+            await callback.answer("Ticket is missing.", show_alert=True)
+            return
+        try:
+            thread = await seller_context.get_admin_ticket_thread(
+                admin_telegram_id=callback.from_user.id,
+                ticket_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Ticket not found.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(reply_ticket_id=thread.ticket.id)
+        await state.set_state(TicketReplyStates.admin_body)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Admin Reply"),
+                    f"Ticket ID: {thread.ticket.id}",
+                    f"Subject: {thread.ticket.subject}",
+                    "",
+                    "Send the reply for this customer.",
+                ]
+            ),
+            reply_markup=admin_ticket_actions(thread.ticket.id),
+        )
     elif action.action == "admin_report":
         days = 1
         if action.value:
@@ -767,6 +870,80 @@ async def ticket_create_body(message: Message, state: FSMContext) -> None:
 async def ticket_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Ticket"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(TicketReplyStates.buyer_body)
+async def buyer_ticket_reply_body(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    body = (message.text or "").strip()
+    if not body:
+        await message.answer("Send a non-empty reply message.")
+        return
+    data = await state.get_data()
+    ticket_id = str(data.get("reply_ticket_id") or "").strip()
+    if not ticket_id:
+        await state.clear()
+        await message.answer("Ticket reply draft expired.", reply_markup=support_menu())
+        return
+    try:
+        thread = await seller_context.reply_ticket_as_buyer(
+            buyer_telegram_id=message.from_user.id,
+            ticket_id=ticket_id,
+            body=body,
+        )
+    except ValueError:
+        await state.clear()
+        await message.answer("Ticket not found.", reply_markup=support_menu())
+        return
+    await state.clear()
+    await message.answer(
+        _ticket_thread_text(thread),
+        reply_markup=buyer_ticket_actions(thread.ticket.id),
+    )
+
+
+@router.message(TicketReplyStates.admin_body)
+async def admin_ticket_reply_body(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    body = (message.text or "").strip()
+    if not body:
+        await message.answer("Send a non-empty reply message.")
+        return
+    data = await state.get_data()
+    ticket_id = str(data.get("reply_ticket_id") or "").strip()
+    if not ticket_id:
+        await state.clear()
+        await message.answer("Ticket reply draft expired.", reply_markup=seller_admin_menu())
+        return
+    try:
+        thread = await seller_context.reply_ticket_as_admin(
+            admin_telegram_id=message.from_user.id,
+            ticket_id=ticket_id,
+            body=body,
+        )
+    except PermissionError:
+        await state.clear()
+        await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
+        return
+    except ValueError:
+        await state.clear()
+        await message.answer("Ticket not found.", reply_markup=seller_admin_menu())
+        return
+    await state.clear()
+    await message.answer(
+        _ticket_thread_text(thread),
+        reply_markup=admin_ticket_actions(thread.ticket.id),
     )
 
 
@@ -1612,8 +1789,37 @@ async def _buyer_tickets_text(
         f"- {ticket_item.id} | {status_label(ticket_item.status)} | {ticket_item.subject}"
         for ticket_item in tickets[:12]
     ]
-    rows.extend(["", "Open tickets from the Support menu. To reply, send one message with ticket ID and text."])
+    rows.extend(["", "Tap a ticket card to view details or reply."])
     return "\n".join([title("My Tickets"), section("Tickets", rows)])
+
+
+def _ticket_card_text(ticket_item) -> str:
+    return "\n".join(
+        [
+            title("Ticket"),
+            f"Ticket ID: {ticket_item.id}",
+            f"Subject: {ticket_item.subject}",
+            f"Status: {status_label(ticket_item.status)}",
+        ]
+    )
+
+
+def _ticket_thread_text(thread) -> str:
+    rows = [
+        title("Ticket Detail"),
+        f"Ticket ID: {thread.ticket.id}",
+        f"Subject: {thread.ticket.subject}",
+        f"Status: {status_label(thread.ticket.status)}",
+        "",
+        "Recent messages:",
+    ]
+    for message in thread.messages[-6:]:
+        sender = "Admin" if message.sender_type == "admin" else "Buyer"
+        body = " ".join((message.body or "").split())
+        if len(body) > 260:
+            body = f"{body[:257]}..."
+        rows.append(f"- {sender}: {body}")
+    return "\n".join(rows)
 
 
 def _payment_request_text(payment_request) -> str:

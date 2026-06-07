@@ -271,12 +271,37 @@ async def master_menu_callback(
                 ),
                 reply_markup=master_seller_bot_actions(seller_bot.id),
             )
-    elif action.action in {"seller_start", "seller_stop", "seller_restart", "seller_health", "seller_logs", "seller_disable"}:
+    elif action.action in {
+        "seller_detail",
+        "seller_start",
+        "seller_stop",
+        "seller_restart",
+        "seller_health",
+        "seller_logs",
+        "seller_disable",
+    }:
         if not action.value:
             await callback.answer("Seller bot is missing.", show_alert=True)
             return
         try:
-            if action.action == "seller_start":
+            if action.action == "seller_detail":
+                runtime_status = await reseller_service.seller_health(seller_bot_id=action.value)
+                seller_bot = runtime_status.seller_bot
+                resellers = await reseller_service.list_resellers()
+                reseller = next((item for item in resellers if item.id == seller_bot.reseller_id), None)
+                text = "\n".join(
+                    [
+                        title("Seller Bot Detail"),
+                        f"Name: {seller_bot.name}",
+                        f"ID: {seller_bot.id}",
+                        f"Reseller: {reseller.display_name if reseller else short_id(seller_bot.reseller_id)}",
+                        f"Status: {status_label(seller_bot.status)}",
+                        f"Container: {seller_bot.container_name or '-'}",
+                        f"Health: {runtime_status.health}",
+                        f"Last error: {seller_bot.last_error or '-'}",
+                    ]
+                )
+            elif action.action == "seller_start":
                 seller_bot = await reseller_service.start_seller_bot(seller_bot_id=action.value)
                 text = "\n".join(
                     [

@@ -182,13 +182,13 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### Master Bot Seller Bot UX
 
 - [x] Add seller bot list screen with status labels.
-- [ ] Add seller bot detail screen:
-  - [ ] Name
-  - [ ] Reseller
-  - [ ] Status
-  - [ ] Container name
-  - [ ] Last error
-  - [ ] Health
+- [x] Add seller bot detail screen:
+  - [x] Name
+  - [x] Reseller
+  - [x] Status
+  - [x] Container name
+  - [x] Last error
+  - [x] Health
 - [x] Add seller bot action buttons:
   - [x] Register New Bot
   - [x] Start
@@ -369,8 +369,8 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Ask message.
   - [x] Confirm open.
 - [x] Add ticket list screen.
-- [ ] Add ticket detail screen with recent messages.
-- [ ] Add reply button and FSM.
+- [x] Add ticket detail screen with recent messages.
+- [x] Add reply button and FSM.
 - [ ] Keep `/ticket`, `/my_tickets`, and `/reply_ticket` as shortcuts.
 
 ### Seller Bot Reseller Admin UX
@@ -389,7 +389,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Add payment detail screen with approve/reject buttons.
 - [ ] Add provision order screen with confirm button.
 - [x] Add wallet charge list and approve button.
-- [ ] Add ticket admin list/detail/reply/close buttons.
+- [x] Add ticket admin list/detail/reply/close buttons.
 - [x] Add reseller broadcast compose FSM with preview/confirm.
 - [ ] Add sales report preset buttons:
   - [x] Today

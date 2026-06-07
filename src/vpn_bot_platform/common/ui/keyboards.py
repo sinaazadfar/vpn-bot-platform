@@ -258,6 +258,7 @@ def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
 def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
+            [("Details", build_callback("m", "seller_detail", seller_bot_id))],
             [
                 ("Start", build_callback("m", "seller_start", seller_bot_id)),
                 ("Stop", build_callback("m", "seller_stop", seller_bot_id)),
@@ -395,6 +396,18 @@ def support_menu() -> InlineKeyboardMarkup:
     )
 
 
+def buyer_ticket_actions(ticket_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Details", build_callback("s", "ticket_detail", ticket_id)),
+                ("Reply", build_callback("s", "ticket_reply", ticket_id)),
+            ],
+            [("Back", build_callback("s", "tickets")), ("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
 def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
@@ -436,6 +449,10 @@ def admin_wallet_charge_actions(transaction_id: str) -> InlineKeyboardMarkup:
 def admin_ticket_actions(ticket_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
+            [
+                ("Details", build_callback("s", "admin_ticket_detail", ticket_id)),
+                ("Reply", build_callback("s", "admin_ticket_reply", ticket_id)),
+            ],
             [
                 ("Close", build_callback("s", "ticket_close", ticket_id)),
                 ("Tickets", build_callback("s", "admin_tickets")),

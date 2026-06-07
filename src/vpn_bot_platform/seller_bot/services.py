@@ -581,6 +581,32 @@ class SellerContextService:
                 telegram_id=buyer_telegram_id,
             )
 
+    async def get_buyer_ticket_thread(
+        self,
+        *,
+        buyer_telegram_id: int,
+        ticket_id: str,
+    ) -> TicketThread:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            ticket = await get_ticket_for_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+                ticket_id=ticket_id,
+            )
+            if ticket is None:
+                raise ValueError("ticket_not_found")
+            return TicketThread(
+                ticket=ticket,
+                messages=await list_ticket_messages(session, ticket_id=ticket.id),
+            )
+
     async def list_open_tickets(self, *, admin_telegram_id: int) -> list[Ticket]:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
@@ -591,6 +617,32 @@ class SellerContextService:
                 raise ValueError("seller_bot_not_found")
             self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
             return await list_open_tickets_for_reseller(session, reseller_id=seller_bot.reseller_id)
+
+    async def get_admin_ticket_thread(
+        self,
+        *,
+        admin_telegram_id: int,
+        ticket_id: str,
+    ) -> TicketThread:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            ticket = await get_ticket_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                ticket_id=ticket_id,
+            )
+            if ticket is None:
+                raise ValueError("ticket_not_found")
+            return TicketThread(
+                ticket=ticket,
+                messages=await list_ticket_messages(session, ticket_id=ticket.id),
+            )
 
     async def close_ticket(self, *, admin_telegram_id: int, ticket_id: str) -> Ticket:
         async with session_scope() as session:
