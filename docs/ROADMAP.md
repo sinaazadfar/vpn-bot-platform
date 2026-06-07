@@ -390,7 +390,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Add provision order screen with confirm button.
 - [x] Add wallet charge list and approve button.
 - [ ] Add ticket admin list/detail/reply/close buttons.
-- [ ] Add reseller broadcast compose FSM with preview/confirm.
+- [x] Add reseller broadcast compose FSM with preview/confirm.
 - [ ] Add sales report preset buttons:
   - [x] Today
   - [x] 7 days

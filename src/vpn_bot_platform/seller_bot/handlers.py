@@ -44,6 +44,12 @@ class WalletChargeStates(StatesGroup):
     confirm = State()
 
 
+class SellerBroadcastCreateStates(StatesGroup):
+    title = State()
+    body = State()
+    confirm = State()
+
+
 @router.message(CommandStart())
 async def start(
     message: Message,
@@ -436,12 +442,54 @@ async def seller_menu_callback(
             reply_markup=seller_report_menu(),
         )
     elif action.action == "admin_broadcast":
+        await state.clear()
+        await state.set_state(SellerBroadcastCreateStates.title)
         await callback.message.edit_text(
-            _guided_text(
-                "Broadcast",
-                "Create a broadcast draft, review it, then send it.",
-                ["/broadcast <title> | <message>", "/send_broadcast <broadcast_id>"],
+            "\n".join(
+                [
+                    title("Create Broadcast"),
+                    "Send the broadcast title for your customers.",
+                    "",
+                    "Example: New plans are available",
+                ]
             ),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "broadcast_create":
+        data = await state.get_data()
+        broadcast_title = str(data.get("seller_broadcast_title") or "").strip()
+        broadcast_body = str(data.get("seller_broadcast_body") or "").strip()
+        if not broadcast_title or not broadcast_body:
+            await callback.answer("Broadcast draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            draft = await seller_context.create_broadcast(
+                admin_telegram_id=callback.from_user.id,
+                title=broadcast_title,
+                body=broadcast_body,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await state.clear()
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Broadcast Draft Created"),
+                    f"ID: {draft.broadcast.id}",
+                    f"Targets: {len(draft.recipients)}",
+                    "",
+                    "Use /send_broadcast with this ID when you are ready to deliver it.",
+                ]
+            ),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "broadcast_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Broadcast Canceled"), "No broadcast draft was created."]),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "pay_ok":
@@ -662,6 +710,70 @@ async def ticket_create_body(message: Message, state: FSMContext) -> None:
 async def ticket_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Ticket"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(SellerBroadcastCreateStates.title)
+async def seller_broadcast_create_title(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    broadcast_title = (message.text or "").strip()
+    if not broadcast_title or broadcast_title.startswith("/"):
+        await message.answer(
+            "\n".join([title("Create Broadcast"), "Send a title, not a command."]),
+            reply_markup=seller_admin_menu(),
+        )
+        return
+    await state.update_data(seller_broadcast_title=broadcast_title[:160])
+    await state.set_state(SellerBroadcastCreateStates.body)
+    await message.answer(
+        "\n".join(
+            [
+                title("Create Broadcast"),
+                "Send the message body.",
+                "",
+                "This will be previewed before any draft is created.",
+            ]
+        ),
+        reply_markup=seller_admin_menu(),
+    )
+
+
+@router.message(SellerBroadcastCreateStates.body)
+async def seller_broadcast_create_body(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    broadcast_body = (message.text or "").strip()
+    if not broadcast_body or broadcast_body.startswith("/"):
+        await message.answer(
+            "\n".join([title("Create Broadcast"), "Send a message body, not a command."]),
+            reply_markup=seller_admin_menu(),
+        )
+        return
+    await state.update_data(seller_broadcast_body=broadcast_body[:3500])
+    await state.set_state(SellerBroadcastCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Broadcast Draft"),
+                f"Title: {data.get('seller_broadcast_title')}",
+                "",
+                str(data.get("seller_broadcast_body")),
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="s",
+            confirm_action="broadcast_create",
+            cancel_action="broadcast_cancel",
+        ),
+    )
+
+
+@router.message(SellerBroadcastCreateStates.confirm)
+async def seller_broadcast_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Broadcast Draft"), "Use Confirm or Cancel below the preview."])
     )
 
 
