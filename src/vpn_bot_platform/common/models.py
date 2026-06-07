@@ -411,7 +411,7 @@ class RateLimitBucket(Base):
     __table_args__ = (Index("ix_rate_limit_buckets_identity", "scope", "identity", "bucket_key", unique=True),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    scope: Mapped[str] = mapped_column(String(32))
+    scope: Mapped[str] = mapped_column(String(96))
     identity: Mapped[str] = mapped_column(String(128))
     bucket_key: Mapped[str] = mapped_column(String(80))
     count: Mapped[int] = mapped_column(Integer, default=0)
