@@ -62,6 +62,7 @@ class DockerRuntime:
 
         container = self.client.containers.run(
             self.config.image,
+            command=["python", "-m", "vpn_bot_platform.seller_bot.main"],
             detach=True,
             name=name,
             environment=environment,
@@ -111,4 +112,3 @@ class DockerRuntime:
 
 def seller_container_name(seller_bot_id: str) -> str:
     return f"seller-{seller_bot_id}"
-
