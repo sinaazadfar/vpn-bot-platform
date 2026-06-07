@@ -39,14 +39,66 @@ def master_main_menu() -> InlineKeyboardMarkup:
 
 
 def master_section_menu(section: str) -> InlineKeyboardMarkup:
-    return inline_keyboard(
-        [
+    rows: list[list[tuple[str, str]]] = []
+    if section == "resellers":
+        rows.append(
             [
-                ("Refresh", build_callback("m", section)),
-                ("Home", build_callback("m", "home")),
+                ("Add Reseller", build_callback("m", "guide_add_reseller")),
+                ("Rename", build_callback("m", "guide_rename_reseller")),
             ]
+        )
+    elif section == "seller_bots":
+        rows.append(
+            [
+                ("Add Seller Bot", build_callback("m", "guide_add_seller_bot")),
+                ("BotFather", build_callback("m", "guide_botfather")),
+            ]
+        )
+    elif section == "panels":
+        rows.append(
+            [
+                ("Add Token Panel", build_callback("m", "guide_add_panel_token")),
+                ("Add Login Panel", build_callback("m", "guide_add_panel_password")),
+            ]
+        )
+        rows.append([("Assign Panel", build_callback("m", "guide_assign_panel"))])
+    elif section == "plans":
+        rows.append(
+            [
+                ("Add Global Plan", build_callback("m", "guide_add_global_plan")),
+                ("Add Seller Plan", build_callback("m", "guide_add_reseller_plan")),
+            ]
+        )
+    elif section == "discounts":
+        rows.append([("Add Discount", build_callback("m", "guide_add_discount"))])
+    elif section == "broadcasts":
+        rows.append(
+            [
+                ("Create Broadcast", build_callback("m", "guide_global_broadcast")),
+                ("Send Broadcast", build_callback("m", "guide_send_global_broadcast")),
+            ]
+        )
+    elif section == "settings":
+        rows.append(
+            [
+                ("Forced Join", build_callback("m", "guide_set_forced_join")),
+                ("List Forced Join", build_callback("m", "list_forced_join")),
+            ]
+        )
+    elif section == "system":
+        rows.append(
+            [
+                ("Today", build_callback("m", "report_1")),
+                ("7 Days", build_callback("m", "report_7")),
+            ]
+        )
+    rows.append(
+        [
+            ("Refresh", build_callback("m", section)),
+            ("Home", build_callback("m", "home")),
         ]
     )
+    return inline_keyboard(rows)
 
 
 def reseller_actions(telegram_id: int) -> InlineKeyboardMarkup:
@@ -209,6 +261,20 @@ def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
         [
             [
                 ("Approve", build_callback("s", "pay_ok", payment_id)),
+                ("Payments", build_callback("s", "admin_payments")),
+            ],
+            [("Admin Home", build_callback("s", "admin"))],
+        ]
+    )
+
+
+def admin_order_actions(order_id: str, *, renewal: bool = False) -> InlineKeyboardMarkup:
+    action = "apply_renewal" if renewal else "provision_order"
+    label = "Apply Renewal" if renewal else "Provision"
+    return inline_keyboard(
+        [
+            [
+                (label, build_callback("s", action, order_id)),
                 ("Payments", build_callback("s", "admin_payments")),
             ],
             [("Admin Home", build_callback("s", "admin"))],

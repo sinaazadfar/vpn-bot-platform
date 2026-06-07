@@ -212,20 +212,45 @@ async def master_menu_callback(
             _format_report("Global Report - Today", report),
             reply_markup=master_section_menu("reports"),
         )
+    elif action.action in {"report_1", "report_7"}:
+        days = int(action.action.replace("report_", ""))
+        report = await reseller_service.global_report(days=days)
+        await callback.message.edit_text(
+            _format_report(f"Global Report - Last {days} Day(s)", report),
+            reply_markup=master_section_menu("system"),
+        )
     elif action.action == "broadcasts":
         await callback.message.edit_text(
-            _shortcut_text("Broadcasts", ["/global_broadcast", "/send_global_broadcast"]),
+            _button_guide_text(
+                "Broadcasts",
+                "Create a draft first, then send it after review.",
+                ["/global_broadcast <title> | <message>", "/send_global_broadcast <broadcast_id>"],
+            ),
             reply_markup=master_section_menu("broadcasts"),
         )
     elif action.action == "settings":
         await callback.message.edit_text(
-            _shortcut_text("Settings", ["/set_forced_join", "/list_forced_join"]),
+            _button_guide_text(
+                "Settings",
+                "Use these controls for channel and platform configuration.",
+                ["/set_forced_join <chat_id> [title]"],
+            ),
             reply_markup=master_section_menu("settings"),
         )
     elif action.action == "system":
         await callback.message.edit_text(
-            _shortcut_text("System", ["/global_report", "/seller_health", "/seller_logs"]),
+            _button_guide_text("System", "Choose a report range below.", []),
             reply_markup=master_section_menu("system"),
+        )
+    elif action.action == "list_forced_join":
+        await callback.message.edit_text(
+            await _forced_join_text(reseller_service),
+            reply_markup=master_section_menu("settings"),
+        )
+    elif action.action.startswith("guide_"):
+        await callback.message.edit_text(
+            _master_action_guide_text(action.action),
+            reply_markup=_guide_reply_markup(action.action),
         )
     await callback.answer()
 
@@ -679,10 +704,7 @@ async def _resellers_text(reseller_service: ResellerService) -> str:
     rows.extend(
         [
             "",
-            "Shortcuts:",
-            "/add_reseller <telegram_id> <display_name>",
-            "/rename_reseller <telegram_id> <display_name>",
-            "/set_reseller_status <telegram_id> <active|suspended|disabled>",
+            "Use the buttons below to add, rename, activate, suspend, or disable resellers.",
         ]
     )
     return "\n".join([title("Resellers"), section("Latest resellers", rows)])
@@ -694,7 +716,7 @@ async def _panels_text(reseller_service: ResellerService) -> str:
         f"- {panel.name} | {status_label('active' if panel.is_active else 'disabled')} | id={short_id(panel.id)}"
         for panel in panels[:20]
     ]
-    rows.extend(["", "Shortcuts:", "/add_panel_token", "/add_panel_password", "/assign_panel"])
+    rows.extend(["", "Use the buttons below to add or assign panels."])
     return "\n".join([title("Panels"), section("Registered panels", rows)])
 
 
@@ -711,7 +733,7 @@ async def _seller_bots_text(reseller_service: ResellerService) -> str:
         )
         for seller_bot in seller_bots[:20]
     ]
-    rows.extend(["", "Shortcuts:", "/add_seller_bot", "/start_seller", "/stop_seller", "/disable_seller"])
+    rows.extend(["", "Use the buttons below to add or manage seller bots."])
     return "\n".join([title("Seller Bots"), section("Registered bots", rows)])
 
 
@@ -722,7 +744,7 @@ async def _plans_text(reseller_service: ResellerService) -> str:
         scope = "global" if plan.reseller_id is None else f"reseller={short_id(plan.reseller_id)}"
         traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
         rows.append(f"- {plan.name} | {scope} | {plan.price:,.0f} | {plan.duration_days}d | {traffic}")
-    rows.extend(["", "Shortcuts:", "/add_global_plan", "/add_reseller_plan", "/list_plans"])
+    rows.extend(["", "Use the buttons below to add global or seller-specific plans."])
     return "\n".join([title("Plans"), section("Active catalog", rows)])
 
 
@@ -735,19 +757,116 @@ async def _discounts_text(reseller_service: ResellerService) -> str:
         )
         for discount in discounts[:20]
     ]
-    rows.extend(["", "Shortcuts:", "/add_discount", "/list_discounts"])
+    rows.extend(["", "Use the buttons below to create new discount codes."])
     return "\n".join([title("Discounts"), section("Discount codes", rows)])
 
 
-def _shortcut_text(name: str, commands: list[str]) -> str:
-    return "\n".join(
-        [
-            title(name),
-            "Button flow for this area is staged. Use these shortcuts now:",
-            "",
-            *[f"- {command}" for command in commands],
-        ]
+def _button_guide_text(name: str, description: str, examples: list[str]) -> str:
+    rows = [title(name), description]
+    if examples:
+        rows.extend(["", "When text is required, send one message in this format:", *[f"- {item}" for item in examples]])
+    return "\n".join(rows)
+
+
+def _master_action_guide_text(action: str) -> str:
+    guides = {
+        "guide_add_reseller": (
+            "Add Reseller",
+            "Create an admin/reseller account.",
+            ["/add_reseller <telegram_id> <display_name>"],
+        ),
+        "guide_rename_reseller": (
+            "Rename Reseller",
+            "Change a reseller display name.",
+            ["/rename_reseller <telegram_id> <display_name>"],
+        ),
+        "guide_add_seller_bot": (
+            "Add Seller Bot",
+            "Register a reseller bot token. Put bot names with spaces inside quotes.",
+            ['/add_seller_bot <reseller_telegram_id> "Bot Name" <bot_token>'],
+        ),
+        "guide_botfather": (
+            "BotFather",
+            "Create a Telegram bot with BotFather, copy the token, then return here and add it.",
+            ['/add_seller_bot <reseller_telegram_id> "Bot Name" <bot_token>'],
+        ),
+        "guide_add_panel_token": (
+            "Add Panel With Token",
+            "Connect a Marzban panel using an existing admin token.",
+            ["/add_panel_token <name> <base_url> <token>"],
+        ),
+        "guide_add_panel_password": (
+            "Add Panel With Login",
+            "Connect a Marzban panel using username and password.",
+            ["/add_panel_password <name> <base_url> <username> <password>"],
+        ),
+        "guide_assign_panel": (
+            "Assign Panel",
+            "Attach a panel to a reseller.",
+            ["/assign_panel <reseller_telegram_id> <panel_id> [marzban_admin_username]"],
+        ),
+        "guide_add_global_plan": (
+            "Add Global Plan",
+            "Create a base plan visible to sellers.",
+            ["/add_global_plan <name> <price> <duration_days> <data_limit_gb|unlimited>"],
+        ),
+        "guide_add_reseller_plan": (
+            "Add Seller Plan",
+            "Create a custom plan for one reseller.",
+            ["/add_reseller_plan <reseller_telegram_id> <name> <price> <duration_days> <data_limit_gb|unlimited>"],
+        ),
+        "guide_add_discount": (
+            "Add Discount",
+            "Create a percent or fixed discount code.",
+            ["/add_discount <code> <percent|fixed> <amount> [max_uses]"],
+        ),
+        "guide_global_broadcast": (
+            "Create Broadcast",
+            "Draft a message for all known users.",
+            ["/global_broadcast <title> | <message>"],
+        ),
+        "guide_send_global_broadcast": (
+            "Send Broadcast",
+            "Send an already drafted broadcast.",
+            ["/send_global_broadcast <broadcast_id>"],
+        ),
+        "guide_set_forced_join": (
+            "Forced Join",
+            "Require users to join a channel or group before using seller bots.",
+            ["/set_forced_join <chat_id> [title]"],
+        ),
+    }
+    heading, description, examples = guides.get(
+        action,
+        ("Action", "Choose a button from the menu.", []),
     )
+    return _button_guide_text(heading, description, examples)
+
+
+def _guide_reply_markup(action: str):
+    if "reseller" in action and "plan" not in action:
+        return master_section_menu("resellers")
+    if "seller_bot" in action or "botfather" in action:
+        return master_section_menu("seller_bots")
+    if "panel" in action:
+        return master_section_menu("panels")
+    if "plan" in action:
+        return master_section_menu("plans")
+    if "discount" in action:
+        return master_section_menu("discounts")
+    if "broadcast" in action:
+        return master_section_menu("broadcasts")
+    if "forced_join" in action:
+        return master_section_menu("settings")
+    return master_main_menu()
+
+
+async def _forced_join_text(reseller_service: ResellerService) -> str:
+    chats = await reseller_service.get_forced_join_chats()
+    if not chats:
+        return "\n".join([title("Forced Join"), "No forced join chats configured."])
+    rows = [f"- {chat.chat_id} | {chat.title or '-'}" for chat in chats]
+    return "\n".join([title("Forced Join"), section("Required chats", rows)])
 
 
 @router.message(Command("add_global_plan"))

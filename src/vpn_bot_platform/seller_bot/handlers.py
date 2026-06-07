@@ -8,6 +8,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from vpn_bot_platform.common.qr import make_qr_png_bytes
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
+    admin_order_actions,
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -20,6 +21,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     wallet_charge_menu,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
+from vpn_bot_platform.common.models import OrderType
 from vpn_bot_platform.seller_bot.forced_join import missing_required_chats
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
 from vpn_bot_platform.seller_bot.services import SellerContextService
@@ -188,7 +190,7 @@ async def seller_menu_callback(
             "\n".join(
                 [
                     title("Custom Wallet Charge"),
-                    "Use this command with your amount:",
+                    "Send one message with the amount you want to charge:",
                     "",
                     "/charge_wallet <amount>",
                 ]
@@ -216,7 +218,11 @@ async def seller_menu_callback(
             )
     elif action.action == "support":
         await callback.message.edit_text(
-            _shortcut_text("Support", ["/ticket <subject> | <message>", "/my_tickets", "/reply_ticket"]),
+            _guided_text(
+                "Support",
+                "Use the buttons below to see tickets or open a new one.",
+                ["For a new ticket, send: /ticket <subject> | <message>"],
+            ),
             reply_markup=support_menu(),
         )
     elif action.action == "tickets":
@@ -229,7 +235,7 @@ async def seller_menu_callback(
             "\n".join(
                 [
                     title("Open Ticket"),
-                    "Use this command:",
+                    "Send one message with this format:",
                     "",
                     "/ticket <subject> | <message>",
                 ]
@@ -238,7 +244,11 @@ async def seller_menu_callback(
         )
     elif action.action == "guides":
         await callback.message.edit_text(
-            _shortcut_text("Connection Guides", ["Use your subscription link in V2RayNG, Streisand, Hiddify, or Nekobox."]),
+            _guided_text(
+                "Connection Guides",
+                "Use your subscription link in V2RayNG, Streisand, Hiddify, or Nekobox.",
+                [],
+            ),
             reply_markup=seller_section_menu("guides"),
         )
     elif action.action == "admin":
@@ -261,7 +271,11 @@ async def seller_menu_callback(
         )
     elif action.action == "admin_broadcast":
         await callback.message.edit_text(
-            _shortcut_text("Broadcast", ["/broadcast <title> | <message>", "/send_broadcast <broadcast_id>"]),
+            _guided_text(
+                "Broadcast",
+                "Create a broadcast draft, review it, then send it.",
+                ["/broadcast <title> | <message>", "/send_broadcast <broadcast_id>"],
+            ),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "pay_ok":
@@ -279,6 +293,7 @@ async def seller_menu_callback(
         except ValueError:
             await callback.answer("Pending payment not found.", show_alert=True)
             return
+        is_renewal = approved.order.order_type == OrderType.RENEWAL.value
         await callback.message.edit_text(
             "\n".join(
                 [
@@ -286,10 +301,46 @@ async def seller_menu_callback(
                     f"Payment ID: {approved.payment.id}",
                     f"Order ID: {approved.order.id}",
                     f"Order status: {status_label(approved.order.status)}",
-                    "",
-                    f"Provision with /provision_order {approved.order.id}",
                 ]
             ),
+            reply_markup=admin_order_actions(approved.order.id, renewal=is_renewal),
+        )
+    elif action.action == "provision_order":
+        if not action.value:
+            await callback.answer("Order is missing.", show_alert=True)
+            return
+        try:
+            service = await provisioning_service.provision_order(
+                admin_telegram_id=callback.from_user.id,
+                order_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError as exc:
+            await callback.answer(f"Could not provision: {exc}", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _service_created_text("VPN service provisioned.", service),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "apply_renewal":
+        if not action.value:
+            await callback.answer("Order is missing.", show_alert=True)
+            return
+        try:
+            service = await provisioning_service.apply_renewal(
+                admin_telegram_id=callback.from_user.id,
+                order_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError as exc:
+            await callback.answer(f"Could not renew: {exc}", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _service_created_text("VPN service renewed.", service),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "wallet_ok":
@@ -730,19 +781,8 @@ async def admin(message: Message, seller_context: SellerContextService) -> None:
         return
 
     lines = [
-        "Reseller admin panel",
-        "",
-        "Commands:",
-        "/admin - show pending payments",
-        "/approve_payment <payment_id>",
-        "/provision_order <order_id>",
-        "/apply_renewal <order_id>",
-        "/approve_wallet_charge <transaction_id>",
-        "/admin_reply_ticket <ticket_id> <message>",
-        "/close_ticket <ticket_id>",
-        "/broadcast <title> | <message>",
-        "/send_broadcast <broadcast_id>",
-        "/sales_report [days]",
+        title("Reseller Admin"),
+        "Choose an action from the buttons below.",
         "",
         "Pending payments:",
     ]
@@ -769,7 +809,7 @@ async def admin(message: Message, seller_context: SellerContextService) -> None:
         lines.append(
             f"- ticket={ticket_item.id} | subject={ticket_item.subject} | status={ticket_item.status}"
         )
-    await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines), reply_markup=seller_admin_menu())
 
 
 @router.message(Command("approve_payment"))
@@ -1022,18 +1062,7 @@ def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:
             title(seller_name),
             f"Seller: {reseller_name}",
             "",
-            "Choose an action below.",
-            "",
-            section(
-                "Shortcuts",
-                [
-                    "- /plans",
-                    "- /my_services",
-                    "- /wallet",
-                    "- /trial",
-                    "- /admin",
-                ],
-            ),
+            "Choose an action from the buttons below.",
         ]
     )
 
@@ -1048,7 +1077,7 @@ async def _plans_text(seller_context: SellerContextService) -> str:
         rows.append(
             f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={short_id(plan.id)}"
         )
-    rows.extend(["", "Tap Buy on a plan message, or use /buy <plan_id> [coupon]."])
+    rows.extend(["", "Tap Buy on a plan message to start checkout."])
     return "\n".join([title("Buy VPN"), section("Available plans", rows)])
 
 
@@ -1064,7 +1093,7 @@ async def _services_text(seller_context: SellerContextService, *, buyer_telegram
             f"- {service.marzban_username} | {status_label('active' if service.is_active else 'disabled')} | "
             f"{traffic} | expires={expire} | id={short_id(service.id)}"
         )
-    rows.extend(["", "Use /my_services for full subscription links."])
+    rows.extend(["", "Tap a service action message for subscription, QR code, or renewal."])
     return "\n".join([title("My Services"), section("Services", rows)])
 
 
@@ -1088,13 +1117,7 @@ async def _renewal_text(seller_context: SellerContextService, *, service_id: str
         rows.append(
             f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
         )
-    rows.extend(
-        [
-            "",
-            "Use:",
-            f"/renew {service_id} <plan_id> [coupon]",
-        ]
-    )
+    rows.extend(["", f"To renew this service, send: /renew {service_id} <plan_id> [coupon]"])
     return "\n".join([title("Renew Service"), section("Plans", rows)])
 
 
@@ -1105,7 +1128,7 @@ async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_i
         f"- {transaction.transaction_type} | {status_label(transaction.status)} | {transaction.amount:,.0f}"
         for transaction in wallet_info.transactions[:8]
     ]
-    rows.extend(["", "Charge wallet with /charge_wallet <amount>."])
+    rows.extend(["", "Use the amount buttons below, or choose Custom."])
     return "\n".join([title("Wallet"), f"Balance: {balance:,.0f}", "", section("Recent transactions", rows)])
 
 
@@ -1119,7 +1142,7 @@ async def _buyer_tickets_text(
         f"- {ticket_item.id} | {status_label(ticket_item.status)} | {ticket_item.subject}"
         for ticket_item in tickets[:12]
     ]
-    rows.extend(["", "Reply with /reply_ticket <ticket_id> <message>."])
+    rows.extend(["", "Open tickets from the Support menu. To reply, send one message with ticket ID and text."])
     return "\n".join([title("My Tickets"), section("Tickets", rows)])
 
 
@@ -1194,7 +1217,7 @@ async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerCo
         f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
         for item in pending[:15]
     ]
-    rows.extend(["", "Approve with /approve_payment <payment_id>."])
+    rows.extend(["", "Tap an approval button on a payment action card below."])
     await callback.message.edit_text(
         "\n".join([title("Pending Payments"), section("Payments", rows)]),
         reply_markup=seller_admin_menu(),
@@ -1221,7 +1244,7 @@ async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerCont
         await callback.answer("You do not have reseller admin access.", show_alert=True)
         return
     rows = [f"- tx={item.id} | amount={item.amount:,.0f}" for item in pending[:15]]
-    rows.extend(["", "Approve with /approve_wallet_charge <transaction_id>."])
+    rows.extend(["", "Tap an approval button on a wallet charge card below."])
     await callback.message.edit_text(
         "\n".join([title("Wallet Charges"), section("Pending charges", rows)]),
         reply_markup=seller_admin_menu(),
@@ -1247,7 +1270,7 @@ async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerCon
         await callback.answer("You do not have reseller admin access.", show_alert=True)
         return
     rows = [f"- ticket={item.id} | {item.subject}" for item in tickets[:15]]
-    rows.extend(["", "Reply with /admin_reply_ticket <ticket_id> <message>."])
+    rows.extend(["", "Tap Close on a ticket card below, or reply by sending ticket ID and message."])
     await callback.message.edit_text(
         "\n".join([title("Open Tickets"), section("Tickets", rows)]),
         reply_markup=seller_admin_menu(),
@@ -1277,8 +1300,11 @@ def _format_report(title: str, report: dict[str, float | int]) -> str:
     return "\n".join(lines)
 
 
-def _shortcut_text(name: str, commands: list[str]) -> str:
-    return "\n".join([title(name), *[f"- {command}" for command in commands]])
+def _guided_text(name: str, description: str, examples: list[str]) -> str:
+    rows = [title(name), description]
+    if examples:
+        rows.extend(["", "When text is required, send one message in this format:", *[f"- {item}" for item in examples]])
+    return "\n".join(rows)
 
 
 @router.message(Command("apply_renewal"))

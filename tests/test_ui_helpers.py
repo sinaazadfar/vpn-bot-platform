@@ -4,6 +4,7 @@ import pytest
 
 from vpn_bot_platform.common.ui.callbacks import build_callback, parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
+    admin_order_actions,
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -48,6 +49,7 @@ def test_admin_action_keyboards_fit_callback_limit() -> None:
 
     for keyboard in (
         admin_payment_actions(uuid),
+        admin_order_actions(uuid),
         admin_wallet_charge_actions(uuid),
         admin_ticket_actions(uuid),
     ):
