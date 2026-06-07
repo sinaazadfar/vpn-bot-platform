@@ -160,11 +160,11 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Seller Bots
   - [ ] Plans
   - [ ] Panel Assignments
-- [ ] Add guided FSM flow for adding a reseller:
-  - [ ] Ask Telegram ID.
-  - [ ] Ask display name.
-  - [ ] Confirm before create.
-  - [ ] Show created reseller detail.
+- [x] Add guided FSM flow for adding a reseller:
+  - [x] Ask Telegram ID.
+  - [x] Ask display name.
+  - [x] Confirm before create.
+  - [x] Show created reseller detail.
 - [ ] Add guided FSM flow for renaming a reseller.
 - [ ] Add confirm dialog for suspend/disable.
 - [ ] Add audit log entries for button-based reseller changes.
@@ -395,7 +395,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### FSM And Navigation Architecture
 
-- [ ] Add FSM state groups for master reseller flows.
+- [x] Add FSM state groups for master reseller flows.
 - [ ] Add FSM state groups for master seller bot flows.
 - [ ] Add FSM state groups for master panel flows.
 - [ ] Add FSM state groups for master plan/discount/broadcast/settings flows.

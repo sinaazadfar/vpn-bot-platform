@@ -5,12 +5,15 @@ import shlex
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from vpn_bot_platform.common.models import DiscountType, ResellerStatus
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
+    confirm_keyboard,
     master_main_menu,
     master_section_menu,
     master_seller_bot_actions,
@@ -23,6 +26,12 @@ from vpn_bot_platform.master_bot.services.resellers import ResellerService
 router = Router(name="master_basic")
 
 
+class ResellerCreateStates(StatesGroup):
+    telegram_id = State()
+    display_name = State()
+    confirm = State()
+
+
 def _parse_args(raw: str | None) -> list[str]:
     try:
         return shlex.split(raw or "")
@@ -31,7 +40,9 @@ def _parse_args(raw: str | None) -> list[str]:
 
 
 @router.message(CommandStart())
-async def start(message: Message) -> None:
+async def start(message: Message, state: FSMContext | None = None) -> None:
+    if state is not None:
+        await state.clear()
     await message.answer(
         _master_dashboard_text(),
         reply_markup=master_main_menu(),
@@ -39,7 +50,9 @@ async def start(message: Message) -> None:
 
 
 @router.message(Command("admin"))
-async def admin_menu(message: Message) -> None:
+async def admin_menu(message: Message, state: FSMContext | None = None) -> None:
+    if state is not None:
+        await state.clear()
     await message.answer(
         _master_dashboard_text(),
         reply_markup=master_main_menu(),
@@ -76,6 +89,7 @@ async def master_reply_menu_alias(
 @router.callback_query(F.data.startswith("m:"))
 async def master_menu_callback(
     callback: CallbackQuery,
+    state: FSMContext,
     reseller_service: ResellerService,
 ) -> None:
     if callback.message is None:
@@ -83,6 +97,7 @@ async def master_menu_callback(
         return
     action = parse_callback(callback.data or "")
     if action.action == "home":
+        await state.clear()
         await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
     elif action.action == "resellers":
         await callback.message.edit_text(
@@ -274,12 +289,117 @@ async def master_menu_callback(
             await _forced_join_text(reseller_service),
             reply_markup=master_section_menu("settings"),
         )
+    elif action.action == "guide_add_reseller":
+        await state.clear()
+        await state.set_state(ResellerCreateStates.telegram_id)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Reseller"),
+                    "Send the reseller Telegram numeric ID.",
+                    "",
+                    "Example: 252486544",
+                ]
+            ),
+            reply_markup=master_section_menu("resellers"),
+        )
+    elif action.action == "reseller_create":
+        data = await state.get_data()
+        telegram_id = data.get("reseller_telegram_id")
+        display_name = str(data.get("reseller_display_name") or "").strip()
+        if not telegram_id or not display_name:
+            await callback.answer("Reseller draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        registered = await reseller_service.register_reseller(
+            telegram_id=int(telegram_id),
+            display_name=display_name,
+        )
+        await state.clear()
+        status = "already existed" if registered.existed else "created"
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Reseller Created"),
+                    f"Status: {status}",
+                    f"ID: {registered.reseller.id}",
+                    f"Name: {registered.reseller.display_name}",
+                    f"Telegram: {registered.reseller.telegram_user_id}",
+                ]
+            ),
+            reply_markup=reseller_actions(registered.reseller.telegram_user_id),
+        )
+    elif action.action == "reseller_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Reseller Canceled"), "No reseller was created."]),
+            reply_markup=master_section_menu("resellers"),
+        )
     elif action.action.startswith("guide_"):
         await callback.message.edit_text(
             _master_action_guide_text(action.action),
             reply_markup=_guide_reply_markup(action.action),
         )
     await callback.answer()
+
+
+@router.message(ResellerCreateStates.telegram_id)
+async def reseller_create_telegram_id(message: Message, state: FSMContext) -> None:
+    raw_value = (message.text or "").strip()
+    if not raw_value.isdigit():
+        await message.answer(
+            "\n".join([title("Add Reseller"), "Send a numeric Telegram ID."]),
+            reply_markup=master_section_menu("resellers"),
+        )
+        return
+    await state.update_data(reseller_telegram_id=int(raw_value))
+    await state.set_state(ResellerCreateStates.display_name)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Reseller"),
+                "Send the reseller display name.",
+                "",
+                "Example: Sina Azad",
+            ]
+        ),
+        reply_markup=master_section_menu("resellers"),
+    )
+
+
+@router.message(ResellerCreateStates.display_name)
+async def reseller_create_display_name(message: Message, state: FSMContext) -> None:
+    display_name = (message.text or "").strip()
+    if not display_name or display_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Reseller"), "Send a display name, not a command."]),
+            reply_markup=master_section_menu("resellers"),
+        )
+        return
+    await state.update_data(reseller_display_name=display_name[:128])
+    await state.set_state(ResellerCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Reseller"),
+                f"Telegram: {data.get('reseller_telegram_id')}",
+                f"Name: {data.get('reseller_display_name')}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="reseller_create",
+            cancel_action="reseller_cancel",
+        ),
+    )
+
+
+@router.message(ResellerCreateStates.confirm)
+async def reseller_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Reseller"), "Use Confirm or Cancel below the preview."])
+    )
 
 
 @router.message(Command("add_reseller"))
