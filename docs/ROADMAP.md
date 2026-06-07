@@ -405,8 +405,8 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Add FSM state groups for master panel flows.
 - [ ] Add FSM state groups for master plan/discount/broadcast/settings flows.
 - [ ] Add FSM state groups for seller purchase/renew/wallet/ticket flows.
-- [ ] Add central cancel handler.
-- [ ] Add stale-state recovery: Home/Cancel should clear state.
+- [x] Add central cancel handler.
+- [x] Add stale-state recovery: Home/Cancel should clear state.
 - [ ] Add permission checks to every callback handler.
 - [ ] Add callback data size tests.
 - [ ] Add tests for critical FSM transitions.

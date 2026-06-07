@@ -75,6 +75,29 @@ async def start(
     )
 
 
+@router.message(Command("cancel"))
+@router.message(F.text.in_({"Cancel", "cancel"}))
+async def cancel_flow(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    await state.clear()
+    profile = await seller_context.register_buyer(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+        language_code=message.from_user.language_code,
+    )
+    await message.answer(
+        "\n".join([title("Canceled"), "Current flow was cleared.", "", f"Seller: {profile.reseller.display_name}"]),
+        reply_markup=seller_buyer_menu(),
+    )
+
+
 @router.message(
     F.text.in_(
         {
@@ -96,9 +119,11 @@ async def seller_reply_menu_alias(
     message: Message,
     seller_context: SellerContextService,
     provisioning_service: ProvisioningService,
+    state: FSMContext,
 ) -> None:
     if message.from_user is None:
         return
+    await state.clear()
     if message.text == "Buy VPN":
         await message.answer(await _plans_text(seller_context), reply_markup=seller_section_menu("plans"))
     elif message.text == "My Services":

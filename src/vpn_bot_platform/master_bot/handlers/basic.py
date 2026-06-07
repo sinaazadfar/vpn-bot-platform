@@ -80,11 +80,23 @@ async def admin_menu(message: Message, state: FSMContext | None = None) -> None:
     )
 
 
+@router.message(Command("cancel"))
+@router.message(F.text.in_({"Cancel", "cancel"}))
+async def cancel_flow(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer(
+        "\n".join([title("Canceled"), "Current flow was cleared."]),
+        reply_markup=master_main_menu(),
+    )
+
+
 @router.message(F.text.in_({"Resellers", "Seller Bots", "Panels", "Plans", "Reports", "Settings"}))
 async def master_reply_menu_alias(
     message: Message,
     reseller_service: ResellerService,
+    state: FSMContext,
 ) -> None:
+    await state.clear()
     if message.text == "Resellers":
         await message.answer(await _resellers_text(reseller_service), reply_markup=master_section_menu("resellers"))
     elif message.text == "Seller Bots":
