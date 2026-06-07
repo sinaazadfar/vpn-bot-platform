@@ -204,7 +204,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Validate token format.
   - [x] Confirm registration.
   - [ ] Optionally start immediately.
-- [ ] Add log viewer with truncated Telegram-safe code block and refresh button.
+- [x] Add log viewer with truncated Telegram-safe code block and refresh button.
 - [ ] Keep slash commands for power users.
 
 ### Master Bot Panel UX
@@ -419,7 +419,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Use confirmation screens for destructive actions.
 - [ ] Use message edits for menu navigation where possible to reduce chat spam.
 - [ ] Use new messages for important receipts, QR codes, and final confirmations.
-- [ ] Truncate logs and long broadcasts safely.
+- [x] Truncate logs and long broadcasts safely.
 - [ ] Avoid exposing secrets in any UI screen or log output.
 
 ### Phase 7 Deliverables
