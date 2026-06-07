@@ -6,6 +6,7 @@ STATUS_ICON = {
     "running": "[RUN]",
     "completed": "[OK]",
     "approved": "[OK]",
+    "paid": "[OK]",
     "pending": "[...]",
     "pending_payment": "[...]",
     "waiting_payment": "[...]",

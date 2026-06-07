@@ -46,6 +46,33 @@ async def admin_menu(message: Message) -> None:
     )
 
 
+@router.message(F.text.in_({"Resellers", "Seller Bots", "Panels", "Plans", "Reports", "Settings"}))
+async def master_reply_menu_alias(
+    message: Message,
+    reseller_service: ResellerService,
+) -> None:
+    if message.text == "Resellers":
+        await message.answer(await _resellers_text(reseller_service), reply_markup=master_section_menu("resellers"))
+    elif message.text == "Seller Bots":
+        await message.answer(await _seller_bots_text(reseller_service), reply_markup=master_section_menu("seller_bots"))
+    elif message.text == "Panels":
+        await message.answer(await _panels_text(reseller_service), reply_markup=master_section_menu("panels"))
+    elif message.text == "Plans":
+        await message.answer(await _plans_text(reseller_service), reply_markup=master_section_menu("plans"))
+    elif message.text == "Reports":
+        report = await reseller_service.global_report(days=1)
+        await message.answer(_format_report("Global Report - Today", report), reply_markup=master_section_menu("reports"))
+    elif message.text == "Settings":
+        await message.answer(
+            _button_guide_text(
+                "Settings",
+                "Use these controls for channel and platform configuration.",
+                ["/set_forced_join <chat_id> [title]"],
+            ),
+            reply_markup=master_section_menu("settings"),
+        )
+
+
 @router.callback_query(F.data.startswith("m:"))
 async def master_menu_callback(
     callback: CallbackQuery,

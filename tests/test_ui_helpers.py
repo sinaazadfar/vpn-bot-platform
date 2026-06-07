@@ -8,10 +8,16 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
+    confirm_keyboard,
     master_main_menu,
+    master_reply_menu,
     master_seller_bot_actions,
+    paginate,
+    pagination_row,
     reseller_card_actions,
+    seller_admin_reply_menu,
     seller_admin_menu,
+    seller_buyer_reply_menu,
     seller_buyer_menu,
     support_menu,
     wallet_charge_menu,
@@ -42,6 +48,9 @@ def test_main_menus_have_buttons() -> None:
     assert seller_admin_menu().inline_keyboard
     assert wallet_charge_menu().inline_keyboard
     assert support_menu().inline_keyboard
+    assert master_reply_menu().keyboard
+    assert seller_buyer_reply_menu().keyboard
+    assert seller_admin_reply_menu().keyboard
 
 
 def test_admin_action_keyboards_fit_callback_limit() -> None:
@@ -59,6 +68,33 @@ def test_admin_action_keyboards_fit_callback_limit() -> None:
                 assert len(button.callback_data.encode("utf-8")) <= 64
 
 
+def test_confirm_keyboard_has_confirm_and_cancel() -> None:
+    keyboard = confirm_keyboard(
+        scope="m",
+        confirm_action="ok",
+        cancel_action="cancel",
+        value="123",
+    )
+
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert callbacks == ["m:ok:123", "m:cancel:123"]
+
+
+def test_pagination_helper_clamps_pages() -> None:
+    page = paginate(list(range(25)), page=9, per_page=10)
+
+    assert page.page == 3
+    assert page.total_pages == 3
+    assert page.items == [20, 21, 22, 23, 24]
+    assert pagination_row(scope="m", action="resellers", page=2, total_pages=3) == [
+        ("Prev", "m:resellers:1"),
+        ("2/3", "m:resellers:2"),
+        ("Next", "m:resellers:3"),
+    ]
+
+
 def test_status_label_is_stable() -> None:
     assert status_label("active") == "[OK] Active"
     assert status_label("waiting_payment") == "[...] Waiting Payment"
+    assert status_label("paid") == "[OK] Paid"

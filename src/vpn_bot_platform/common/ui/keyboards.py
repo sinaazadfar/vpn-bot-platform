@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from dataclasses import dataclass
+
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 
 from vpn_bot_platform.common.ui.callbacks import build_callback
 
@@ -10,6 +17,121 @@ def inline_keyboard(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=text, callback_data=callback_data) for text, callback_data in row]
             for row in rows
+        ]
+    )
+
+
+@dataclass(frozen=True)
+class Page:
+    items: list[object]
+    page: int
+    total_pages: int
+    total_items: int
+
+
+def paginate(items: list[object], *, page: int = 1, per_page: int = 10) -> Page:
+    if per_page < 1:
+        raise ValueError("per_page_must_be_positive")
+    total_items = len(items)
+    total_pages = max(1, (total_items + per_page - 1) // per_page)
+    safe_page = min(max(page, 1), total_pages)
+    start = (safe_page - 1) * per_page
+    return Page(
+        items=items[start : start + per_page],
+        page=safe_page,
+        total_pages=total_pages,
+        total_items=total_items,
+    )
+
+
+def pagination_row(
+    *,
+    scope: str,
+    action: str,
+    page: int,
+    total_pages: int,
+) -> list[tuple[str, str]]:
+    if total_pages <= 1:
+        return []
+    previous_page = max(1, page - 1)
+    next_page = min(total_pages, page + 1)
+    return [
+        ("Prev", build_callback(scope, action, str(previous_page))),
+        (f"{page}/{total_pages}", build_callback(scope, action, str(page))),
+        ("Next", build_callback(scope, action, str(next_page))),
+    ]
+
+
+def nav_row(
+    *,
+    scope: str,
+    home_action: str = "home",
+    back_action: str | None = None,
+    refresh_action: str | None = None,
+    cancel_action: str | None = None,
+) -> list[tuple[str, str]]:
+    row: list[tuple[str, str]] = []
+    if back_action:
+        row.append(("Back", build_callback(scope, back_action)))
+    if refresh_action:
+        row.append(("Refresh", build_callback(scope, refresh_action)))
+    if cancel_action:
+        row.append(("Cancel", build_callback(scope, cancel_action)))
+    row.append(("Home", build_callback(scope, home_action)))
+    return row
+
+
+def confirm_keyboard(
+    *,
+    scope: str,
+    confirm_action: str,
+    cancel_action: str,
+    value: str | None = None,
+) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Confirm", build_callback(scope, confirm_action, value)),
+                ("Cancel", build_callback(scope, cancel_action, value)),
+            ]
+        ]
+    )
+
+
+def reply_keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=text) for text in row] for row in rows],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def master_reply_menu() -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [
+            ["Resellers", "Seller Bots"],
+            ["Panels", "Plans"],
+            ["Reports", "Settings"],
+        ]
+    )
+
+
+def seller_buyer_reply_menu() -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [
+            ["Buy VPN", "My Services"],
+            ["Wallet", "Support"],
+            ["Trial", "Guides"],
+        ]
+    )
+
+
+def seller_admin_reply_menu() -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [
+            ["Pending Payments", "Wallet Charges"],
+            ["Tickets", "Sales Report"],
+            ["Buyer Home"],
         ]
     )
 
@@ -93,10 +215,7 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
             ]
         )
     rows.append(
-        [
-            ("Refresh", build_callback("m", section)),
-            ("Home", build_callback("m", "home")),
-        ]
+        nav_row(scope="m", refresh_action=section, home_action="home")
     )
     return inline_keyboard(rows)
 
@@ -111,6 +230,7 @@ def reseller_actions(telegram_id: int) -> InlineKeyboardMarkup:
             ],
             [
                 ("Disable", build_callback("m", "reseller_disabled", value)),
+                ("Cancel", build_callback("m", "resellers")),
                 ("Home", build_callback("m", "home")),
             ],
         ]
@@ -126,7 +246,7 @@ def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
                 ("Suspend", build_callback("m", "reseller_suspended", value)),
                 ("Disable", build_callback("m", "reseller_disabled", value)),
             ],
-            [("Resellers", build_callback("m", "resellers"))],
+            [("Back", build_callback("m", "resellers")), ("Home", build_callback("m", "home"))],
         ]
     )
 
@@ -143,7 +263,7 @@ def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
                 ("Logs", build_callback("m", "seller_logs", seller_bot_id)),
             ],
             [("Disable", build_callback("m", "seller_disable", seller_bot_id))],
-            [("Seller Bots", build_callback("m", "seller_bots"))],
+            [("Back", build_callback("m", "seller_bots")), ("Home", build_callback("m", "home"))],
         ]
     )
 
@@ -190,10 +310,7 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
 def seller_section_menu(section: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
-            [
-                ("Refresh", build_callback("s", section)),
-                ("Home", build_callback("s", "home")),
-            ]
+            nav_row(scope="s", refresh_action=section, home_action="home")
         ]
     )
 
@@ -203,6 +320,7 @@ def plan_buy_button(plan_id: str) -> InlineKeyboardMarkup:
         [
             [
                 ("Buy", build_callback("s", "buy", plan_id)),
+                ("Back", build_callback("s", "plans")),
                 ("Home", build_callback("s", "home")),
             ]
         ]
@@ -220,7 +338,7 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
                 ("Renew", build_callback("s", "renew", service_id)),
                 ("Services", build_callback("s", "services")),
             ],
-            [("Home", build_callback("s", "home"))],
+            [("Back", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
         ]
     )
 
@@ -236,7 +354,7 @@ def wallet_charge_menu() -> InlineKeyboardMarkup:
                 ("500,000", build_callback("s", "wallet_add", "500000")),
                 ("Custom", build_callback("s", "wallet_custom")),
             ],
-            [("Home", build_callback("s", "home"))],
+            [("Cancel", build_callback("s", "wallet")), ("Home", build_callback("s", "home"))],
         ]
     )
 
@@ -263,7 +381,7 @@ def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
                 ("Approve", build_callback("s", "pay_ok", payment_id)),
                 ("Payments", build_callback("s", "admin_payments")),
             ],
-            [("Admin Home", build_callback("s", "admin"))],
+            [("Back", build_callback("s", "admin_payments")), ("Admin Home", build_callback("s", "admin"))],
         ]
     )
 
@@ -277,7 +395,7 @@ def admin_order_actions(order_id: str, *, renewal: bool = False) -> InlineKeyboa
                 (label, build_callback("s", action, order_id)),
                 ("Payments", build_callback("s", "admin_payments")),
             ],
-            [("Admin Home", build_callback("s", "admin"))],
+            [("Back", build_callback("s", "admin_payments")), ("Admin Home", build_callback("s", "admin"))],
         ]
     )
 
@@ -289,7 +407,7 @@ def admin_wallet_charge_actions(transaction_id: str) -> InlineKeyboardMarkup:
                 ("Approve", build_callback("s", "wallet_ok", transaction_id)),
                 ("Wallet Charges", build_callback("s", "admin_wallet")),
             ],
-            [("Admin Home", build_callback("s", "admin"))],
+            [("Back", build_callback("s", "admin_wallet")), ("Admin Home", build_callback("s", "admin"))],
         ]
     )
 
@@ -301,6 +419,6 @@ def admin_ticket_actions(ticket_id: str) -> InlineKeyboardMarkup:
                 ("Close", build_callback("s", "ticket_close", ticket_id)),
                 ("Tickets", build_callback("s", "admin_tickets")),
             ],
-            [("Admin Home", build_callback("s", "admin"))],
+            [("Back", build_callback("s", "admin_tickets")), ("Admin Home", build_callback("s", "admin"))],
         ]
     )

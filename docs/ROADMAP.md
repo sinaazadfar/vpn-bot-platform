@@ -107,15 +107,15 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 - [x] Create `src/vpn_bot_platform/common/ui/` package.
 - [x] Add shared button builders for inline keyboards.
-- [ ] Add shared reply keyboard builders for persistent main menus where useful.
+- [x] Add shared reply keyboard builders for persistent main menus where useful.
 - [x] Add callback data builders/parsers with short, Telegram-safe callback strings.
 - [x] Add shared message formatters for titles, sections, IDs, prices, dates, and status rows.
 - [x] Add common navigation buttons:
   - [x] Home
-  - [ ] Back
+  - [x] Back
   - [x] Refresh
-  - [ ] Cancel
-  - [ ] Confirm
+  - [x] Cancel
+  - [x] Confirm
 - [x] Add common status labels:
   - [x] Active
   - [x] Suspended
@@ -124,10 +124,10 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Running
   - [x] Stopped
   - [x] Error
-  - [ ] Paid
+  - [x] Paid
   - [x] Failed
-- [ ] Add pagination helper for long lists.
-- [ ] Add confirmation keyboard helper for destructive actions.
+- [x] Add pagination helper for long lists.
+- [x] Add confirmation keyboard helper for destructive actions.
 - [x] Add tests for keyboard builders and callback parsing.
 
 ### Master Bot Main Menu

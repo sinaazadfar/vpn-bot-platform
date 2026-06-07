@@ -48,6 +48,79 @@ async def start(message: Message, seller_context: SellerContextService) -> None:
     )
 
 
+@router.message(
+    F.text.in_(
+        {
+            "Buy VPN",
+            "My Services",
+            "Wallet",
+            "Support",
+            "Trial",
+            "Guides",
+            "Pending Payments",
+            "Wallet Charges",
+            "Tickets",
+            "Sales Report",
+            "Buyer Home",
+        }
+    )
+)
+async def seller_reply_menu_alias(
+    message: Message,
+    seller_context: SellerContextService,
+    provisioning_service: ProvisioningService,
+) -> None:
+    if message.from_user is None:
+        return
+    if message.text == "Buy VPN":
+        await message.answer(await _plans_text(seller_context), reply_markup=seller_section_menu("plans"))
+    elif message.text == "My Services":
+        await message.answer(
+            await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
+            reply_markup=seller_section_menu("services"),
+        )
+    elif message.text == "Wallet":
+        await message.answer(
+            await _wallet_text(seller_context, buyer_telegram_id=message.from_user.id),
+            reply_markup=wallet_charge_menu(),
+        )
+    elif message.text == "Support":
+        await message.answer(
+            _guided_text(
+                "Support",
+                "Use the buttons below to see tickets or open a new one.",
+                ["For a new ticket, send: /ticket <subject> | <message>"],
+            ),
+            reply_markup=support_menu(),
+        )
+    elif message.text == "Trial":
+        await trial(message, provisioning_service)
+    elif message.text == "Guides":
+        await message.answer(
+            _guided_text(
+                "Connection Guides",
+                "Use your subscription link in V2RayNG, Streisand, Hiddify, or Nekobox.",
+                [],
+            ),
+            reply_markup=seller_section_menu("guides"),
+        )
+    elif message.text == "Pending Payments":
+        await _send_admin_payments(message, seller_context)
+    elif message.text == "Wallet Charges":
+        await _send_admin_wallet(message, seller_context)
+    elif message.text == "Tickets":
+        await _send_admin_tickets(message, seller_context)
+    elif message.text == "Sales Report":
+        try:
+            report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=1)
+        except PermissionError:
+            await message.answer("You do not have reseller admin access.")
+            return
+        await message.answer(_format_report("Sales Report - Today", report), reply_markup=seller_admin_menu())
+    elif message.text == "Buyer Home":
+        await start(message, seller_context)
+
+
 @router.callback_query(F.data.startswith("s:"))
 async def seller_menu_callback(
     callback: CallbackQuery,
@@ -1237,6 +1310,36 @@ async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerCo
         )
 
 
+async def _send_admin_payments(message: Message, seller_context: SellerContextService) -> None:
+    try:
+        pending = await seller_context.list_pending_payments(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    rows = [
+        f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
+        for item in pending[:15]
+    ]
+    rows.extend(["", "Tap an approval button on a payment action card below."])
+    await message.answer(
+        "\n".join([title("Pending Payments"), section("Payments", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+    for item in pending[:5]:
+        await message.answer(
+            "\n".join(
+                [
+                    title("Payment Action"),
+                    f"Payment ID: {item.payment.id}",
+                    f"Order ID: {item.order.id}",
+                    f"Plan: {item.plan.name}",
+                    f"Amount: {item.payment.amount:,.0f}",
+                ]
+            ),
+            reply_markup=admin_payment_actions(item.payment.id),
+        )
+
+
 async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerContextService) -> None:
     try:
         pending = await seller_context.list_pending_wallet_charges(admin_telegram_id=callback.from_user.id)
@@ -1263,6 +1366,32 @@ async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerCont
         )
 
 
+async def _send_admin_wallet(message: Message, seller_context: SellerContextService) -> None:
+    try:
+        pending = await seller_context.list_pending_wallet_charges(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    rows = [f"- tx={item.id} | amount={item.amount:,.0f}" for item in pending[:15]]
+    rows.extend(["", "Tap an approval button on a wallet charge card below."])
+    await message.answer(
+        "\n".join([title("Wallet Charges"), section("Pending charges", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+    for item in pending[:5]:
+        await message.answer(
+            "\n".join(
+                [
+                    title("Wallet Charge Action"),
+                    f"Transaction ID: {item.id}",
+                    f"Buyer ID: {item.owner_id}",
+                    f"Amount: {item.amount:,.0f}",
+                ]
+            ),
+            reply_markup=admin_wallet_charge_actions(item.id),
+        )
+
+
 async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerContextService) -> None:
     try:
         tickets = await seller_context.list_open_tickets(admin_telegram_id=callback.from_user.id)
@@ -1277,6 +1406,32 @@ async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerCon
     )
     for item in tickets[:5]:
         await callback.message.answer(
+            "\n".join(
+                [
+                    title("Ticket Action"),
+                    f"Ticket ID: {item.id}",
+                    f"Subject: {item.subject}",
+                    f"Status: {status_label(item.status)}",
+                ]
+            ),
+            reply_markup=admin_ticket_actions(item.id),
+        )
+
+
+async def _send_admin_tickets(message: Message, seller_context: SellerContextService) -> None:
+    try:
+        tickets = await seller_context.list_open_tickets(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    rows = [f"- ticket={item.id} | {item.subject}" for item in tickets[:15]]
+    rows.extend(["", "Tap Close on a ticket card below, or reply by sending ticket ID and message."])
+    await message.answer(
+        "\n".join([title("Open Tickets"), section("Tickets", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+    for item in tickets[:5]:
+        await message.answer(
             "\n".join(
                 [
                     title("Ticket Action"),
