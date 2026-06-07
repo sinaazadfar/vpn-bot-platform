@@ -338,10 +338,10 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Balance
   - [x] Recent transactions
   - [x] Charge wallet
-- [ ] Add guided wallet charge flow:
-  - [ ] Ask amount.
-  - [ ] Confirm request.
-  - [ ] Show card-to-card instructions.
+- [x] Add guided wallet charge flow:
+  - [x] Ask amount.
+  - [x] Confirm request.
+  - [x] Show card-to-card instructions.
 - [ ] Add transaction detail screen.
 - [ ] Keep `/wallet` and `/charge_wallet` as shortcuts.
 

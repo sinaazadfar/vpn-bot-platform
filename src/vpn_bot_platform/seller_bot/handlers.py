@@ -38,6 +38,11 @@ class TicketCreateStates(StatesGroup):
     confirm = State()
 
 
+class WalletChargeStates(StatesGroup):
+    amount = State()
+    confirm = State()
+
+
 @router.message(CommandStart())
 async def start(
     message: Message,
@@ -246,6 +251,7 @@ async def seller_menu_callback(
             reply_markup=service_actions(service.id),
         )
     elif action.action == "wallet":
+        await state.clear()
         await callback.message.edit_text(
             await _wallet_text(seller_context, buyer_telegram_id=callback.from_user.id),
             reply_markup=wallet_charge_menu(),
@@ -256,35 +262,57 @@ async def seller_menu_callback(
             return
         try:
             amount = float(action.value)
-            charge = await seller_context.request_wallet_charge(
-                buyer_telegram_id=callback.from_user.id,
-                amount=amount,
-            )
         except ValueError:
-            await callback.answer("Invalid wallet charge.", show_alert=True)
+            await callback.answer("Invalid amount.", show_alert=True)
             return
+        await state.update_data(wallet_amount=amount)
+        await state.set_state(WalletChargeStates.confirm)
         await callback.message.edit_text(
-            "\n".join(
-                [
-                    title("Wallet Charge Request"),
-                    f"Transaction ID: {charge.transaction.id}",
-                    f"Amount: {charge.transaction.amount:,.0f}",
-                    "",
-                    charge.instructions,
-                ]
+            _wallet_charge_confirm_text(amount),
+            reply_markup=confirm_keyboard(
+                scope="s",
+                confirm_action="wallet_create",
+                cancel_action="wallet_cancel",
             ),
-            reply_markup=wallet_charge_menu(),
         )
     elif action.action == "wallet_custom":
+        await state.clear()
+        await state.set_state(WalletChargeStates.amount)
         await callback.message.edit_text(
             "\n".join(
                 [
                     title("Custom Wallet Charge"),
-                    "Send one message with the amount you want to charge:",
+                    "Send the amount you want to charge.",
                     "",
-                    "/charge_wallet <amount>",
+                    "Example: 250000",
                 ]
             ),
+            reply_markup=wallet_charge_menu(),
+        )
+    elif action.action == "wallet_create":
+        data = await state.get_data()
+        amount = data.get("wallet_amount")
+        if amount is None:
+            await callback.answer("Wallet charge draft is missing.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            charge = await seller_context.request_wallet_charge(
+                buyer_telegram_id=callback.from_user.id,
+                amount=float(amount),
+            )
+        except ValueError:
+            await callback.answer("Invalid wallet charge.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _wallet_charge_request_text(charge),
+            reply_markup=wallet_charge_menu(),
+        )
+    elif action.action == "wallet_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Wallet Charge Canceled"), "No wallet charge request was created."]),
             reply_markup=wallet_charge_menu(),
         )
     elif action.action == "trial":
@@ -522,6 +550,44 @@ async def seller_menu_callback(
             reply_markup=seller_admin_menu(),
         )
     await callback.answer()
+
+
+@router.message(WalletChargeStates.amount)
+async def wallet_charge_amount(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    raw_amount = (message.text or "").strip().replace(",", "")
+    try:
+        amount = float(raw_amount)
+    except ValueError:
+        await message.answer(
+            "\n".join([title("Custom Wallet Charge"), "Send a valid number. Example: 250000"]),
+            reply_markup=wallet_charge_menu(),
+        )
+        return
+    if amount <= 0:
+        await message.answer(
+            "\n".join([title("Custom Wallet Charge"), "Amount must be greater than zero."]),
+            reply_markup=wallet_charge_menu(),
+        )
+        return
+    await state.update_data(wallet_amount=amount)
+    await state.set_state(WalletChargeStates.confirm)
+    await message.answer(
+        _wallet_charge_confirm_text(amount),
+        reply_markup=confirm_keyboard(
+            scope="s",
+            confirm_action="wallet_create",
+            cancel_action="wallet_cancel",
+        ),
+    )
+
+
+@router.message(WalletChargeStates.confirm)
+async def wallet_charge_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Wallet Charge"), "Use Confirm or Cancel below the preview."])
+    )
 
 
 @router.message(TicketCreateStates.subject)
@@ -1353,6 +1419,29 @@ def _payment_request_text(payment_request) -> str:
             payment_request.instructions,
             "",
             "After approval, your VPN service will be provisioned.",
+        ]
+    )
+
+
+def _wallet_charge_confirm_text(amount: float) -> str:
+    return "\n".join(
+        [
+            title("Confirm Wallet Charge"),
+            f"Amount: {amount:,.0f}",
+            "",
+            "Confirm to create the card-to-card charge request.",
+        ]
+    )
+
+
+def _wallet_charge_request_text(charge) -> str:
+    return "\n".join(
+        [
+            title("Wallet Charge Request"),
+            f"Transaction ID: {charge.transaction.id}",
+            f"Amount: {charge.transaction.amount:,.0f}",
+            "",
+            charge.instructions,
         ]
     )
 
