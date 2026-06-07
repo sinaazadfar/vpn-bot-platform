@@ -53,6 +53,13 @@ class GlobalBroadcastCreateStates(StatesGroup):
     confirm = State()
 
 
+class PanelTokenCreateStates(StatesGroup):
+    name = State()
+    base_url = State()
+    token = State()
+    confirm = State()
+
+
 def _parse_args(raw: str | None) -> list[str]:
     try:
         return shlex.split(raw or "")
@@ -339,6 +346,57 @@ async def master_menu_callback(
     elif action.action == "panels":
         await callback.message.edit_text(
             await _panels_text(reseller_service),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "guide_add_panel_token":
+        await state.clear()
+        await state.set_state(PanelTokenCreateStates.name)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Token Panel"),
+                    "Send a short panel name.",
+                    "",
+                    "Example: Germany Main",
+                ]
+            ),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "panel_token_create":
+        data = await state.get_data()
+        panel_name = str(data.get("panel_token_name") or "").strip()
+        base_url = str(data.get("panel_token_base_url") or "").strip()
+        token_value = str(data.get("panel_token_value") or "").strip()
+        if not panel_name or not base_url or not token_value:
+            await callback.answer("Panel draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            panel = await reseller_service.register_marzban_panel(
+                name=panel_name,
+                base_url=base_url,
+                token=token_value,
+            )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Panel Registered"),
+                    f"ID: {panel.id}",
+                    f"Name: {panel.name}",
+                    f"URL: {panel.base_url}",
+                    f"Status: {status_label('active' if panel.is_active else 'disabled')}",
+                ]
+            ),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "panel_token_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Panel Canceled"), "No panel was registered."]),
             reply_markup=master_section_menu("panels"),
         )
     elif action.action == "plans":
@@ -871,6 +929,90 @@ async def broadcast_create_body(message: Message, state: FSMContext) -> None:
 async def broadcast_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Broadcast Draft"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(PanelTokenCreateStates.name)
+async def panel_token_create_name(message: Message, state: FSMContext) -> None:
+    panel_name = (message.text or "").strip()
+    if not panel_name or panel_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Token Panel"), "Send a panel name, not a command."]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_token_name=panel_name[:128])
+    await state.set_state(PanelTokenCreateStates.base_url)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Token Panel"),
+                "Send the Marzban base URL.",
+                "",
+                "Example: https://panel.example.com",
+            ]
+        ),
+        reply_markup=master_section_menu("panels"),
+    )
+
+
+@router.message(PanelTokenCreateStates.base_url)
+async def panel_token_create_base_url(message: Message, state: FSMContext) -> None:
+    base_url = (message.text or "").strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        await message.answer(
+            "\n".join([title("Add Token Panel"), "Send a valid URL starting with http:// or https://."]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_token_base_url=base_url)
+    await state.set_state(PanelTokenCreateStates.token)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Token Panel"),
+                "Send the Marzban admin token.",
+                "",
+                "The token will be encrypted and hidden in the preview.",
+            ]
+        ),
+        reply_markup=master_section_menu("panels"),
+    )
+
+
+@router.message(PanelTokenCreateStates.token)
+async def panel_token_create_token(message: Message, state: FSMContext) -> None:
+    token_value = (message.text or "").strip()
+    if not token_value or token_value.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Token Panel"), "Send the panel token, not a command."]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_token_value=token_value)
+    await state.set_state(PanelTokenCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Token Panel"),
+                f"Name: {data.get('panel_token_name')}",
+                f"URL: {data.get('panel_token_base_url')}",
+                "Token: hidden",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="panel_token_create",
+            cancel_action="panel_token_cancel",
+        ),
+    )
+
+
+@router.message(PanelTokenCreateStates.confirm)
+async def panel_token_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Token Panel"), "Use Confirm or Cancel below the preview."])
     )
 
 
