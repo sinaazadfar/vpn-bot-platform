@@ -259,9 +259,9 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Confirm send.
 - [ ] Add global broadcast history screen.
 - [ ] Add report menu:
-  - [ ] Today
-  - [ ] Last 7 days
-  - [ ] Last 30 days
+  - [x] Today
+  - [x] Last 7 days
+  - [x] Last 30 days
   - [ ] Custom days
 - [ ] Add settings menu:
   - [ ] Forced join settings
@@ -392,8 +392,8 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Add reseller broadcast compose FSM with preview/confirm.
 - [ ] Add sales report preset buttons:
   - [x] Today
-  - [ ] 7 days
-  - [ ] 30 days
+  - [x] 7 days
+  - [x] 30 days
   - [ ] Custom
 - [ ] Keep seller admin slash commands as shortcuts.
 

@@ -328,11 +328,12 @@ async def master_menu_callback(
             _format_report("Global Report - Today", report),
             reply_markup=master_section_menu("reports"),
         )
-    elif action.action in {"report_1", "report_7"}:
+    elif action.action in {"report_1", "report_7", "report_30"}:
         days = int(action.action.replace("report_", ""))
         report = await reseller_service.global_report(days=days)
+        label = "Today" if days == 1 else f"Last {days} Days"
         await callback.message.edit_text(
-            _format_report(f"Global Report - Last {days} Day(s)", report),
+            _format_report(f"Global Report - {label}", report),
             reply_markup=master_section_menu("system"),
         )
     elif action.action == "broadcasts":

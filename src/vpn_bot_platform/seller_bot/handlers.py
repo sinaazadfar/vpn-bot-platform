@@ -18,6 +18,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     plan_buy_button,
     seller_admin_menu,
     seller_buyer_menu,
+    seller_report_menu,
     seller_section_menu,
     service_actions,
     support_menu,
@@ -136,7 +137,7 @@ async def seller_reply_menu_alias(
         except PermissionError:
             await message.answer("You do not have reseller admin access.")
             return
-        await message.answer(_format_report("Sales Report - Today", report), reply_markup=seller_admin_menu())
+        await message.answer(_format_report("Sales Report - Today", report), reply_markup=seller_report_menu())
     elif message.text == "Buyer Home":
         await start(message, seller_context)
 
@@ -415,14 +416,24 @@ async def seller_menu_callback(
     elif action.action == "admin_tickets":
         await _show_admin_tickets(callback, seller_context)
     elif action.action == "admin_report":
+        days = 1
+        if action.value:
+            if not action.value.isdigit():
+                await callback.answer("Invalid report range.", show_alert=True)
+                return
+            days = int(action.value)
+        if days not in {1, 7, 30}:
+            await callback.answer("Invalid report range.", show_alert=True)
+            return
         try:
-            report = await seller_context.sales_report(admin_telegram_id=callback.from_user.id, days=1)
+            report = await seller_context.sales_report(admin_telegram_id=callback.from_user.id, days=days)
         except PermissionError:
             await callback.answer("You do not have reseller admin access.", show_alert=True)
             return
+        label = "Today" if days == 1 else f"Last {days} Days"
         await callback.message.edit_text(
-            _format_report("Sales Report - Today", report),
-            reply_markup=seller_admin_menu(),
+            _format_report(f"Sales Report - {label}", report),
+            reply_markup=seller_report_menu(),
         )
     elif action.action == "admin_broadcast":
         await callback.message.edit_text(

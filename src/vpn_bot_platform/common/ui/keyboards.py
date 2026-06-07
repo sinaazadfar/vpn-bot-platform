@@ -212,6 +212,7 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
             [
                 ("Today", build_callback("m", "report_1")),
                 ("7 Days", build_callback("m", "report_7")),
+                ("30 Days", build_callback("m", "report_30")),
             ]
         )
     rows.append(
@@ -306,6 +307,19 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
                 ("Broadcast", build_callback("s", "admin_broadcast")),
                 ("Buyer Home", build_callback("s", "home")),
             ],
+        ]
+    )
+
+
+def seller_report_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Today", build_callback("s", "admin_report", "1")),
+                ("7 Days", build_callback("s", "admin_report", "7")),
+                ("30 Days", build_callback("s", "admin_report", "30")),
+            ],
+            [("Admin Home", build_callback("s", "admin")), ("Buyer Home", build_callback("s", "home"))],
         ]
     )
 

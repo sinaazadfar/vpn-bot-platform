@@ -3,6 +3,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     master_main_menu,
     seller_admin_menu,
     seller_buyer_menu,
+    seller_report_menu,
 )
 from vpn_bot_platform.common.ui.messages import section, status_label, title
 
@@ -14,6 +15,7 @@ __all__ = [
     "section",
     "seller_admin_menu",
     "seller_buyer_menu",
+    "seller_report_menu",
     "status_label",
     "title",
 ]

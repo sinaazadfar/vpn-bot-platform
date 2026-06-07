@@ -19,6 +19,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     seller_admin_menu,
     seller_buyer_reply_menu,
     seller_buyer_menu,
+    seller_report_menu,
     support_menu,
     wallet_charge_menu,
 )
@@ -46,6 +47,7 @@ def test_main_menus_have_buttons() -> None:
     assert reseller_card_actions(12345).inline_keyboard
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
+    assert seller_report_menu().inline_keyboard
     assert wallet_charge_menu().inline_keyboard
     assert support_menu().inline_keyboard
     assert master_reply_menu().keyboard
