@@ -460,6 +460,18 @@ class SellerContextService:
             )
             return BuyerWallet(buyer=buyer, transactions=transactions)
 
+    async def get_buyer_wallet_transaction(
+        self,
+        *,
+        buyer_telegram_id: int,
+        transaction_id: str,
+    ) -> WalletTransaction:
+        wallet = await self.list_buyer_wallet(buyer_telegram_id=buyer_telegram_id)
+        transaction = next((item for item in wallet.transactions if item.id == transaction_id), None)
+        if transaction is None:
+            raise ValueError("wallet_transaction_not_found")
+        return transaction
+
     async def list_pending_wallet_charges(
         self,
         *,

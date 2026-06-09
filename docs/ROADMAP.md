@@ -347,7 +347,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Ask amount.
   - [x] Confirm request.
   - [x] Show card-to-card instructions.
-- [ ] Add transaction detail screen.
+- [x] Add transaction detail screen.
 - [ ] Keep `/wallet` and `/charge_wallet` as shortcuts.
 
 ### Seller Bot Trial UX

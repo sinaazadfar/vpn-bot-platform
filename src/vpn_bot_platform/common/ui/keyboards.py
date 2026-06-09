@@ -382,6 +382,18 @@ def wallet_charge_menu() -> InlineKeyboardMarkup:
     )
 
 
+def wallet_transaction_actions(transaction_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Details", build_callback("s", "wallet_tx", transaction_id)),
+                ("Wallet", build_callback("s", "wallet")),
+            ],
+            [("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
 def support_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

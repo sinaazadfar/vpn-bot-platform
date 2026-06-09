@@ -24,6 +24,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     service_actions,
     support_menu,
     wallet_charge_menu,
+    wallet_transaction_actions,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
 from vpn_bot_platform.common.models import OrderType
@@ -146,6 +147,12 @@ async def seller_reply_menu_alias(
             await _wallet_text(seller_context, buyer_telegram_id=message.from_user.id),
             reply_markup=wallet_charge_menu(),
         )
+        wallet_info = await seller_context.list_buyer_wallet(buyer_telegram_id=message.from_user.id)
+        for transaction in wallet_info.transactions[:5]:
+            await message.answer(
+                _wallet_transaction_card_text(transaction),
+                reply_markup=wallet_transaction_actions(transaction.id),
+            )
     elif message.text == "Support":
         await message.answer(
             _guided_text(
@@ -329,6 +336,28 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             await _wallet_text(seller_context, buyer_telegram_id=callback.from_user.id),
             reply_markup=wallet_charge_menu(),
+        )
+        wallet_info = await seller_context.list_buyer_wallet(buyer_telegram_id=callback.from_user.id)
+        for transaction in wallet_info.transactions[:5]:
+            await callback.message.answer(
+                _wallet_transaction_card_text(transaction),
+                reply_markup=wallet_transaction_actions(transaction.id),
+            )
+    elif action.action == "wallet_tx":
+        if not action.value:
+            await callback.answer("Transaction is missing.", show_alert=True)
+            return
+        try:
+            transaction = await seller_context.get_buyer_wallet_transaction(
+                buyer_telegram_id=callback.from_user.id,
+                transaction_id=action.value,
+            )
+        except ValueError:
+            await callback.answer("Transaction not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _wallet_transaction_detail_text(transaction),
+            reply_markup=wallet_transaction_actions(transaction.id),
         )
     elif action.action == "wallet_add":
         if not action.value:
@@ -1922,6 +1951,35 @@ async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_i
     ]
     rows.extend(["", "Use the amount buttons below, or choose Custom."])
     return "\n".join([title("Wallet"), f"Balance: {balance:,.0f}", "", section("Recent transactions", rows)])
+
+
+def _wallet_transaction_card_text(transaction) -> str:
+    return "\n".join(
+        [
+            title("Wallet Transaction"),
+            f"Transaction ID: {transaction.id}",
+            f"Type: {transaction.transaction_type}",
+            f"Status: {status_label(transaction.status)}",
+            f"Amount: {transaction.amount:,.0f}",
+        ]
+    )
+
+
+def _wallet_transaction_detail_text(transaction) -> str:
+    return "\n".join(
+        [
+            title("Transaction Detail"),
+            f"Transaction ID: {transaction.id}",
+            f"Type: {transaction.transaction_type}",
+            f"Status: {status_label(transaction.status)}",
+            f"Amount: {transaction.amount:,.0f}",
+            f"Related payment: {transaction.related_payment_id or '-'}",
+            f"Approved by: {transaction.approved_by_telegram_id or '-'}",
+            f"Created: {transaction.created_at.isoformat()}",
+            "",
+            f"Note: {transaction.note or '-'}",
+        ]
+    )
 
 
 async def _buyer_tickets_text(
