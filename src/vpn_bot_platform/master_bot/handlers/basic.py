@@ -53,6 +53,23 @@ class GlobalBroadcastCreateStates(StatesGroup):
     confirm = State()
 
 
+class PlanCreateStates(StatesGroup):
+    reseller = State()
+    name = State()
+    price = State()
+    duration = State()
+    data_limit = State()
+    confirm = State()
+
+
+class DiscountCreateStates(StatesGroup):
+    code = State()
+    discount_type = State()
+    amount = State()
+    max_uses = State()
+    confirm = State()
+
+
 class PanelTokenCreateStates(StatesGroup):
     name = State()
     base_url = State()
@@ -490,9 +507,174 @@ async def master_menu_callback(
             await _plans_text(reseller_service),
             reply_markup=master_section_menu("plans"),
         )
+    elif action.action == "guide_add_global_plan":
+        await state.clear()
+        await state.update_data(plan_scope="global")
+        await state.set_state(PlanCreateStates.name)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Global Plan"),
+                    "Send the plan name.",
+                    "",
+                    "Example: 30 Days 100GB",
+                ]
+            ),
+            reply_markup=master_section_menu("plans"),
+        )
+    elif action.action == "guide_add_reseller_plan":
+        await state.clear()
+        resellers = await reseller_service.list_resellers()
+        if not resellers:
+            await callback.message.edit_text(
+                "\n".join([title("Add Seller Plan"), "Create a reseller first."]),
+                reply_markup=master_section_menu("plans"),
+            )
+            return
+        await state.update_data(plan_scope="reseller")
+        await state.set_state(PlanCreateStates.reseller)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Seller Plan"),
+                    "Select the reseller who should own this custom plan.",
+                ]
+            ),
+            reply_markup=_reseller_select_keyboard(
+                resellers[:10],
+                action_name="plan_reseller",
+                cancel_action="plan_cancel",
+            ),
+        )
+    elif action.action == "plan_reseller":
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller.", show_alert=True)
+            return
+        await state.update_data(plan_reseller_telegram_id=int(action.value))
+        await state.set_state(PlanCreateStates.name)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Seller Plan"),
+                    "Send the plan name.",
+                    "",
+                    "Example: VIP 30 Days",
+                ]
+            ),
+            reply_markup=master_section_menu("plans"),
+        )
+    elif action.action == "plan_create":
+        data = await state.get_data()
+        plan_scope = str(data.get("plan_scope") or "").strip()
+        plan_name = str(data.get("plan_name") or "").strip()
+        price = data.get("plan_price")
+        duration_days = data.get("plan_duration_days")
+        data_limit_gb = data.get("plan_data_limit_gb")
+        if plan_scope not in {"global", "reseller"} or not plan_name or price is None or duration_days is None:
+            await callback.answer("Plan draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            if plan_scope == "global":
+                plan = await reseller_service.create_global_plan(
+                    name=plan_name,
+                    price=float(price),
+                    duration_days=int(duration_days),
+                    data_limit_gb=None if data_limit_gb is None else int(data_limit_gb),
+                )
+            else:
+                reseller_telegram_id = data.get("plan_reseller_telegram_id")
+                if not reseller_telegram_id:
+                    await callback.answer("Seller plan reseller is missing.", show_alert=True)
+                    await state.clear()
+                    return
+                plan = await reseller_service.create_reseller_plan(
+                    reseller_telegram_id=int(reseller_telegram_id),
+                    name=plan_name,
+                    price=float(price),
+                    duration_days=int(duration_days),
+                    data_limit_gb=None if data_limit_gb is None else int(data_limit_gb),
+                )
+        except ValueError:
+            await callback.answer("Could not create plan.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _plan_detail_text(plan),
+            reply_markup=master_section_menu("plans"),
+        )
+    elif action.action == "plan_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Plan Canceled"), "No plan was created."]),
+            reply_markup=master_section_menu("plans"),
+        )
     elif action.action == "discounts":
         await callback.message.edit_text(
             await _discounts_text(reseller_service),
+            reply_markup=master_section_menu("discounts"),
+        )
+    elif action.action == "guide_add_discount":
+        await state.clear()
+        await state.set_state(DiscountCreateStates.code)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Discount"),
+                    "Send the discount code.",
+                    "",
+                    "Example: SUMMER25",
+                ]
+            ),
+            reply_markup=master_section_menu("discounts"),
+        )
+    elif action.action == "discount_type":
+        if action.value not in {DiscountType.PERCENT.value, DiscountType.FIXED.value}:
+            await callback.answer("Invalid discount type.", show_alert=True)
+            return
+        await state.update_data(discount_type=action.value)
+        await state.set_state(DiscountCreateStates.amount)
+        unit = "percent value" if action.value == DiscountType.PERCENT.value else "fixed amount"
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Discount"),
+                    f"Send the {unit}.",
+                    "",
+                    "Example: 25",
+                ]
+            ),
+            reply_markup=master_section_menu("discounts"),
+        )
+    elif action.action == "discount_create":
+        data = await state.get_data()
+        code = str(data.get("discount_code") or "").strip()
+        raw_type = str(data.get("discount_type") or "").strip()
+        amount = data.get("discount_amount")
+        max_uses = data.get("discount_max_uses")
+        if not code or raw_type not in {DiscountType.PERCENT.value, DiscountType.FIXED.value} or amount is None:
+            await callback.answer("Discount draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            discount = await reseller_service.create_global_discount(
+                code=code,
+                discount_type=DiscountType(raw_type),
+                amount=float(amount),
+                max_uses=None if max_uses is None else int(max_uses),
+            )
+        except ValueError:
+            await callback.answer("Could not create discount.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _discount_detail_text(discount),
+            reply_markup=master_section_menu("discounts"),
+        )
+    elif action.action == "discount_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Discount Canceled"), "No discount was created."]),
             reply_markup=master_section_menu("discounts"),
         )
     elif action.action == "reports":
@@ -1015,6 +1197,229 @@ async def broadcast_create_body(message: Message, state: FSMContext) -> None:
 async def broadcast_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Broadcast Draft"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(PlanCreateStates.reseller)
+async def plan_create_waiting_for_reseller(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Add Seller Plan"), "Select a reseller using the buttons."])
+    )
+
+
+@router.message(PlanCreateStates.name)
+async def plan_create_name(message: Message, state: FSMContext) -> None:
+    plan_name = (message.text or "").strip()
+    if not plan_name or plan_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Plan"), "Send a plan name, not a command."]),
+            reply_markup=master_section_menu("plans"),
+        )
+        return
+    await state.update_data(plan_name=plan_name[:128])
+    await state.set_state(PlanCreateStates.price)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Plan"),
+                "Send the price.",
+                "",
+                "Example: 250000",
+            ]
+        ),
+        reply_markup=master_section_menu("plans"),
+    )
+
+
+@router.message(PlanCreateStates.price)
+async def plan_create_price(message: Message, state: FSMContext) -> None:
+    price = _parse_positive_float(message.text)
+    if price is None:
+        await message.answer(
+            "\n".join([title("Add Plan"), "Send a valid price greater than zero. Example: 250000"]),
+            reply_markup=master_section_menu("plans"),
+        )
+        return
+    await state.update_data(plan_price=price)
+    await state.set_state(PlanCreateStates.duration)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Plan"),
+                "Send the duration in days.",
+                "",
+                "Example: 30",
+            ]
+        ),
+        reply_markup=master_section_menu("plans"),
+    )
+
+
+@router.message(PlanCreateStates.duration)
+async def plan_create_duration(message: Message, state: FSMContext) -> None:
+    duration_days = _parse_positive_int(message.text)
+    if duration_days is None:
+        await message.answer(
+            "\n".join([title("Add Plan"), "Send a valid duration in days. Example: 30"]),
+            reply_markup=master_section_menu("plans"),
+        )
+        return
+    await state.update_data(plan_duration_days=duration_days)
+    await state.set_state(PlanCreateStates.data_limit)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Plan"),
+                "Send the data limit in GB, or send unlimited.",
+                "",
+                "Example: 100",
+            ]
+        ),
+        reply_markup=master_section_menu("plans"),
+    )
+
+
+@router.message(PlanCreateStates.data_limit)
+async def plan_create_data_limit(message: Message, state: FSMContext) -> None:
+    raw_value = (message.text or "").strip().lower()
+    if raw_value == "unlimited":
+        data_limit_gb = None
+    else:
+        data_limit_gb = _parse_positive_int(raw_value)
+        if data_limit_gb is None:
+            await message.answer(
+                "\n".join([title("Add Plan"), "Send a valid GB value or unlimited. Example: 100"]),
+                reply_markup=master_section_menu("plans"),
+            )
+            return
+    await state.update_data(plan_data_limit_gb=data_limit_gb)
+    await state.set_state(PlanCreateStates.confirm)
+    data = await state.get_data()
+    traffic = "Unlimited" if data_limit_gb is None else f"{data_limit_gb} GB"
+    scope = "Global" if data.get("plan_scope") == "global" else "Seller"
+    rows = [
+        title("Confirm Plan"),
+        f"Scope: {scope}",
+        f"Name: {data.get('plan_name')}",
+        f"Price: {float(data.get('plan_price')):,.0f}",
+        f"Duration: {data.get('plan_duration_days')} days",
+        f"Traffic: {traffic}",
+    ]
+    if data.get("plan_reseller_telegram_id"):
+        rows.insert(2, f"Reseller Telegram: {data.get('plan_reseller_telegram_id')}")
+    await message.answer(
+        "\n".join(rows),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="plan_create",
+            cancel_action="plan_cancel",
+        ),
+    )
+
+
+@router.message(PlanCreateStates.confirm)
+async def plan_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Plan"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(DiscountCreateStates.code)
+async def discount_create_code(message: Message, state: FSMContext) -> None:
+    code = (message.text or "").strip().upper()
+    if not code or code.startswith("/") or len(code) > 64:
+        await message.answer(
+            "\n".join([title("Add Discount"), "Send a code up to 64 characters, not a command."]),
+            reply_markup=master_section_menu("discounts"),
+        )
+        return
+    await state.update_data(discount_code=code)
+    await state.set_state(DiscountCreateStates.discount_type)
+    await message.answer(
+        "\n".join([title("Add Discount"), "Choose the discount type."]),
+        reply_markup=inline_keyboard(
+            [
+                [
+                    ("Percent", "m:discount_type:percent"),
+                    ("Fixed", "m:discount_type:fixed"),
+                ],
+                [("Cancel", "m:discount_cancel"), ("Home", "m:home")],
+            ]
+        ),
+    )
+
+
+@router.message(DiscountCreateStates.discount_type)
+async def discount_create_waiting_for_type(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Add Discount"), "Choose Percent or Fixed using the buttons."])
+    )
+
+
+@router.message(DiscountCreateStates.amount)
+async def discount_create_amount(message: Message, state: FSMContext) -> None:
+    amount = _parse_positive_float(message.text)
+    data = await state.get_data()
+    discount_type = str(data.get("discount_type") or "")
+    if amount is None or (discount_type == DiscountType.PERCENT.value and amount > 100):
+        await message.answer(
+            "\n".join([title("Add Discount"), "Send a valid amount. Percent discounts must be 100 or less."]),
+            reply_markup=master_section_menu("discounts"),
+        )
+        return
+    await state.update_data(discount_amount=amount)
+    await state.set_state(DiscountCreateStates.max_uses)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Discount"),
+                "Send max uses, or send unlimited.",
+                "",
+                "Example: 50",
+            ]
+        ),
+        reply_markup=master_section_menu("discounts"),
+    )
+
+
+@router.message(DiscountCreateStates.max_uses)
+async def discount_create_max_uses(message: Message, state: FSMContext) -> None:
+    raw_value = (message.text or "").strip().lower()
+    if raw_value == "unlimited":
+        max_uses = None
+    else:
+        max_uses = _parse_positive_int(raw_value)
+        if max_uses is None:
+            await message.answer(
+                "\n".join([title("Add Discount"), "Send a valid max-use number or unlimited."]),
+                reply_markup=master_section_menu("discounts"),
+            )
+            return
+    await state.update_data(discount_max_uses=max_uses)
+    await state.set_state(DiscountCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Discount"),
+                f"Code: {data.get('discount_code')}",
+                f"Type: {data.get('discount_type')}",
+                f"Amount: {float(data.get('discount_amount')):g}",
+                f"Max uses: {max_uses if max_uses is not None else 'Unlimited'}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="discount_create",
+            cancel_action="discount_cancel",
+        ),
+    )
+
+
+@router.message(DiscountCreateStates.confirm)
+async def discount_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Discount"), "Use Confirm or Cancel below the preview."])
     )
 
 
@@ -1711,6 +2116,23 @@ async def _plans_text(reseller_service: ResellerService) -> str:
     return "\n".join([title("Plans"), section("Active catalog", rows)])
 
 
+def _plan_detail_text(plan) -> str:
+    scope = "Global" if plan.reseller_id is None else f"Seller {short_id(plan.reseller_id)}"
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Plan Created"),
+            f"ID: {plan.id}",
+            f"Scope: {scope}",
+            f"Name: {plan.name}",
+            f"Price: {plan.price:,.0f}",
+            f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            f"Status: {status_label('active' if plan.is_active else 'disabled')}",
+        ]
+    )
+
+
 async def _discounts_text(reseller_service: ResellerService) -> str:
     discounts = await reseller_service.list_discounts()
     rows = [
@@ -1722,6 +2144,23 @@ async def _discounts_text(reseller_service: ResellerService) -> str:
     ]
     rows.extend(["", "Use the buttons below to create new discount codes."])
     return "\n".join([title("Discounts"), section("Discount codes", rows)])
+
+
+def _discount_detail_text(discount) -> str:
+    scope = "Global" if discount.reseller_id is None else f"Seller {short_id(discount.reseller_id)}"
+    max_uses = "Unlimited" if discount.max_uses is None else str(discount.max_uses)
+    return "\n".join(
+        [
+            title("Discount Created"),
+            f"ID: {discount.id}",
+            f"Scope: {scope}",
+            f"Code: {discount.code}",
+            f"Type: {discount.discount_type}",
+            f"Amount: {discount.amount:g}",
+            f"Uses: {discount.used_count}/{max_uses}",
+            f"Status: {status_label('active' if discount.is_active else 'disabled')}",
+        ]
+    )
 
 
 def _button_guide_text(name: str, description: str, examples: list[str]) -> str:
@@ -1913,6 +2352,26 @@ def _parse_plan_args(args: list[str]) -> tuple[float, int, int | None] | None:
     if price < 0 or duration_days <= 0 or (data_limit_gb is not None and data_limit_gb <= 0):
         return None
     return price, duration_days, data_limit_gb
+
+
+def _parse_positive_float(raw: str | None) -> float | None:
+    try:
+        value = float((raw or "").strip().replace(",", ""))
+    except ValueError:
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def _parse_positive_int(raw: str | None) -> int | None:
+    try:
+        value = int((raw or "").strip().replace(",", ""))
+    except ValueError:
+        return None
+    if value <= 0:
+        return None
+    return value
 
 
 @router.message(Command("add_discount"))

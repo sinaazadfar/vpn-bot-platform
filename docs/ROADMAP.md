@@ -235,19 +235,19 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Master Bot Plans And Discounts UX
 
-- [ ] Add global/reseller plan list screen.
+- [x] Add global/reseller plan list screen.
 - [ ] Add plan detail screen.
-- [ ] Add guided FSM flow for creating global plan.
-- [ ] Add guided FSM flow for creating reseller plan.
+- [x] Add guided FSM flow for creating global plan.
+- [x] Add guided FSM flow for creating reseller plan.
 - [ ] Add plan enable/disable buttons.
-- [ ] Add discount list screen.
+- [x] Add discount list screen.
 - [ ] Add discount detail screen.
-- [ ] Add guided FSM flow for creating discount:
-  - [ ] Ask code.
-  - [ ] Ask percent/fixed.
-  - [ ] Ask amount.
-  - [ ] Ask max uses.
-  - [ ] Confirm.
+- [x] Add guided FSM flow for creating discount:
+  - [x] Ask code.
+  - [x] Ask percent/fixed.
+  - [x] Ask amount.
+  - [x] Ask max uses.
+  - [x] Confirm.
 - [ ] Add discount enable/disable buttons.
 
 ### Master Bot Broadcasts, Reports, Settings, And System UX
@@ -403,7 +403,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add FSM state groups for master reseller flows.
 - [x] Add FSM state groups for master seller bot flows.
 - [x] Add FSM state groups for master panel flows.
-- [ ] Add FSM state groups for master plan/discount/broadcast/settings flows.
+- [x] Add FSM state groups for master plan/discount/broadcast/settings flows.
 - [ ] Add FSM state groups for seller purchase/renew/wallet/ticket flows.
 - [x] Add central cancel handler.
 - [x] Add stale-state recovery: Home/Cancel should clear state.
