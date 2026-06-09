@@ -285,9 +285,10 @@ def seller_buyer_menu() -> InlineKeyboardMarkup:
             ],
             [
                 ("Wallet", build_callback("s", "wallet")),
-                ("Trial", build_callback("s", "trial")),
+                ("Renew", build_callback("s", "renew_services")),
             ],
             [
+                ("Trial", build_callback("s", "trial")),
                 ("Support", build_callback("s", "support")),
                 ("Guides", build_callback("s", "guides")),
             ],
@@ -363,6 +364,38 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
             ],
             [("Back", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
         ]
+    )
+
+
+def renewal_plan_button(plan_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Select", build_callback("s", "renew_plan", plan_id)),
+                ("Services", build_callback("s", "services")),
+                ("Home", build_callback("s", "home")),
+            ]
+        ]
+    )
+
+
+def renewal_coupon_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Enter Coupon", build_callback("s", "renew_coupon")),
+                ("Skip Coupon", build_callback("s", "renew_no_coupon")),
+            ],
+            [("Services", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
+def renewal_confirm_menu() -> InlineKeyboardMarkup:
+    return confirm_keyboard(
+        scope="s",
+        confirm_action="renew_create",
+        cancel_action="renew_cancel",
     )
 
 

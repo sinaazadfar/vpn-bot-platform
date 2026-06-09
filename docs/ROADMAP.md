@@ -288,7 +288,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add buyer top-level buttons:
   - [x] Buy VPN
   - [x] My Services
-  - [ ] Renew
+  - [x] Renew
   - [x] Wallet
   - [x] Trial
   - [x] Support
@@ -328,13 +328,13 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add service action buttons:
   - [x] Get Subscription
   - [x] QR Code
-  - [ ] Renew
+  - [x] Renew
   - [x] Connection Guide
-- [ ] Add guided renewal flow:
-  - [ ] Select service.
-  - [ ] Select plan.
-  - [ ] Optional coupon.
-  - [ ] Confirm payment request.
+- [x] Add guided renewal flow:
+  - [x] Select service.
+  - [x] Select plan.
+  - [x] Optional coupon.
+  - [x] Confirm payment request.
 - [ ] Keep `/my_services` and `/renew` as shortcuts.
 
 ### Seller Bot Wallet UX

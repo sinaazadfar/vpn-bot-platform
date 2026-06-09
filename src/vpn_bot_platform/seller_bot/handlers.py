@@ -17,6 +17,9 @@ from vpn_bot_platform.common.ui.keyboards import (
     buyer_ticket_actions,
     confirm_keyboard,
     plan_buy_button,
+    renewal_confirm_menu,
+    renewal_coupon_menu,
+    renewal_plan_button,
     seller_admin_menu,
     seller_buyer_menu,
     seller_report_menu,
@@ -48,6 +51,12 @@ class TicketReplyStates(StatesGroup):
 
 class WalletChargeStates(StatesGroup):
     amount = State()
+    confirm = State()
+
+
+class RenewalCreateStates(StatesGroup):
+    plan = State()
+    coupon = State()
     confirm = State()
 
 
@@ -241,6 +250,7 @@ async def seller_menu_callback(
             reply_markup=seller_section_menu("plans"),
         )
     elif action.action == "services":
+        await state.clear()
         await callback.message.edit_text(
             await _services_text(seller_context, buyer_telegram_id=callback.from_user.id),
             reply_markup=seller_section_menu("services"),
@@ -327,9 +337,108 @@ async def seller_menu_callback(
         if service is None:
             await callback.answer("Service not found.", show_alert=True)
             return
+        await state.clear()
+        await state.update_data(renew_service_id=service.id)
+        await state.set_state(RenewalCreateStates.plan)
         await callback.message.edit_text(
             await _renewal_text(seller_context, service_id=service.id),
             reply_markup=service_actions(service.id),
+        )
+        plans = await seller_context.list_plans()
+        for plan in plans[:8]:
+            await callback.message.answer(
+                _renewal_plan_card_text(plan),
+                reply_markup=renewal_plan_button(plan.id),
+            )
+    elif action.action == "renew_services":
+        await state.clear()
+        await callback.message.edit_text(
+            await _services_text(seller_context, buyer_telegram_id=callback.from_user.id),
+            reply_markup=seller_section_menu("services"),
+        )
+        services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
+        for service in services[:8]:
+            await callback.message.answer(
+                _service_card_text(service),
+                reply_markup=service_actions(service.id),
+            )
+    elif action.action == "renew_plan":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        data = await state.get_data()
+        service_id = data.get("renew_service_id")
+        if not service_id:
+            await callback.answer("Choose a service first.", show_alert=True)
+            return
+        plan = await _find_plan(seller_context, plan_id=action.value)
+        if plan is None:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=str(service_id),
+        )
+        if service is None:
+            await callback.answer("Service not found.", show_alert=True)
+            await state.clear()
+            return
+        await state.update_data(renew_plan_id=plan.id, renew_coupon=None)
+        await state.set_state(RenewalCreateStates.coupon)
+        await callback.message.edit_text(
+            _renewal_coupon_text(service, plan),
+            reply_markup=renewal_coupon_menu(),
+        )
+    elif action.action == "renew_coupon":
+        data = await state.get_data()
+        if not data.get("renew_service_id") or not data.get("renew_plan_id"):
+            await callback.answer("Renewal draft is missing.", show_alert=True)
+            return
+        await state.set_state(RenewalCreateStates.coupon)
+        await callback.message.edit_text(
+            "\n".join([title("Renew Coupon"), "Send the coupon code for this renewal."]),
+            reply_markup=renewal_coupon_menu(),
+        )
+    elif action.action == "renew_no_coupon":
+        await _show_renewal_confirm(callback, state, seller_context, coupon=None)
+    elif action.action == "renew_create":
+        data = await state.get_data()
+        service_id = data.get("renew_service_id")
+        plan_id = data.get("renew_plan_id")
+        if not service_id or not plan_id:
+            await callback.answer("Renewal draft is missing.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            payment_request = await seller_context.request_renewal_payment(
+                buyer_telegram_id=callback.from_user.id,
+                service_id=str(service_id),
+                plan_id=str(plan_id),
+                coupon_code=data.get("renew_coupon"),
+            )
+        except ValueError as exc:
+            if str(exc) == "service_not_found":
+                await callback.answer("Service not found.", show_alert=True)
+                await state.clear()
+                return
+            if str(exc) == "plan_not_found":
+                await callback.answer("Plan not found.", show_alert=True)
+                return
+            if str(exc) == "coupon_not_found":
+                await callback.answer("Coupon not found.", show_alert=True)
+                return
+            raise
+        await state.clear()
+        await callback.message.edit_text(
+            _payment_request_text(payment_request),
+            reply_markup=seller_section_menu("services"),
+        )
+    elif action.action == "renew_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Renewal Canceled"), "No renewal payment request was created."]),
+            reply_markup=seller_section_menu("services"),
         )
     elif action.action == "wallet":
         await state.clear()
@@ -942,6 +1051,38 @@ async def wallet_charge_amount(message: Message, state: FSMContext) -> None:
 async def wallet_charge_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Wallet Charge"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(RenewalCreateStates.coupon)
+async def renewal_coupon_input(
+    message: Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+) -> None:
+    if message.from_user is None:
+        return
+    coupon = (message.text or "").strip()
+    if not coupon or coupon.startswith("/"):
+        await message.answer(
+            "\n".join([title("Renew Coupon"), "Send a coupon code, or use Skip Coupon."]),
+            reply_markup=renewal_coupon_menu(),
+        )
+        return
+    await _show_renewal_confirm(message, state, seller_context, coupon=coupon)
+
+
+@router.message(RenewalCreateStates.plan)
+async def renewal_waiting_for_plan(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Renew Service"), "Choose one of the renewal plan buttons."])
+    )
+
+
+@router.message(RenewalCreateStates.confirm)
+async def renewal_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Renewal"), "Use Confirm or Cancel below the preview."])
     )
 
 
@@ -1895,6 +2036,26 @@ async def _find_buyer_service(
     return next((service for service in services if service.id == service_id), None)
 
 
+async def _find_plan(seller_context: SellerContextService, *, plan_id: str):
+    plans = await seller_context.list_plans()
+    return next((plan for plan in plans if plan.id == plan_id), None)
+
+
+def _service_card_text(service) -> str:
+    traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
+    expire = service.expire_at.date().isoformat() if service.expire_at else "Unlimited"
+    return "\n".join(
+        [
+            title("Service"),
+            f"Username: {service.marzban_username}",
+            f"Status: {status_label('active' if service.is_active else 'disabled')}",
+            f"Traffic: {traffic}",
+            f"Expires: {expire}",
+            f"ID: {short_id(service.id)}",
+        ]
+    )
+
+
 def _service_detail_text(service) -> str:
     traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
     expire = service.expire_at.isoformat() if service.expire_at else "Unlimited"
@@ -1938,8 +2099,90 @@ async def _renewal_text(seller_context: SellerContextService, *, service_id: str
         rows.append(
             f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
         )
-    rows.extend(["", f"To renew this service, send: /renew {service_id} <plan_id> [coupon]"])
+    rows.extend(["", f"Service ID: {short_id(service_id)}", "Choose a plan button below to continue."])
     return "\n".join([title("Renew Service"), section("Plans", rows)])
+
+
+def _renewal_plan_card_text(plan) -> str:
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Renewal Plan"),
+            f"Name: {plan.name}",
+            f"Price: {plan.price:,.0f}",
+            f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            f"ID: {short_id(plan.id)}",
+        ]
+    )
+
+
+def _renewal_coupon_text(service, plan) -> str:
+    return "\n".join(
+        [
+            title("Renew Coupon"),
+            f"Service: {service.marzban_username}",
+            f"Plan: {plan.name}",
+            f"Amount: {plan.price:,.0f}",
+            "",
+            "Enter a coupon code or skip this step.",
+        ]
+    )
+
+
+def _renewal_confirm_text(service, plan, *, coupon: str | None) -> str:
+    return "\n".join(
+        [
+            title("Confirm Renewal"),
+            f"Service: {service.marzban_username}",
+            f"Plan: {plan.name}",
+            f"Amount: {plan.price:,.0f}",
+            f"Coupon: {coupon or '-'}",
+            "",
+            "Confirm to create the renewal payment request.",
+        ]
+    )
+
+
+async def _show_renewal_confirm(
+    target: CallbackQuery | Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+    *,
+    coupon: str | None,
+) -> None:
+    from_user = target.from_user
+    data = await state.get_data()
+    service_id = data.get("renew_service_id")
+    plan_id = data.get("renew_plan_id")
+    if not service_id or not plan_id:
+        if isinstance(target, CallbackQuery):
+            await target.answer("Renewal draft is missing.", show_alert=True)
+        else:
+            await target.answer("Renewal draft is missing. Start again from My Services.")
+        await state.clear()
+        return
+    service = await _find_buyer_service(
+        seller_context,
+        buyer_telegram_id=from_user.id,
+        service_id=str(service_id),
+    )
+    plan = await _find_plan(seller_context, plan_id=str(plan_id))
+    if service is None or plan is None:
+        if isinstance(target, CallbackQuery):
+            await target.answer("Renewal draft is no longer valid.", show_alert=True)
+        else:
+            await target.answer("Renewal draft is no longer valid. Start again from My Services.")
+        await state.clear()
+        return
+    await state.update_data(renew_coupon=coupon)
+    await state.set_state(RenewalCreateStates.confirm)
+    text = _renewal_confirm_text(service, plan, coupon=coupon)
+    if isinstance(target, CallbackQuery):
+        if target.message is not None:
+            await target.message.edit_text(text, reply_markup=renewal_confirm_menu())
+    else:
+        await target.answer(text, reply_markup=renewal_confirm_menu())
 
 
 async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
