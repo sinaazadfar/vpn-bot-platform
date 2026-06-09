@@ -301,19 +301,19 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 - [x] Add plan list screen with one card/message per plan or compact paginated list.
 - [x] Add `Buy` button for each plan.
-- [ ] Add coupon step:
-  - [ ] Enter coupon.
-  - [ ] Skip coupon.
-  - [ ] Validate coupon.
-  - [ ] Show discounted amount.
-- [ ] Add payment instruction screen:
-  - [ ] Order ID
-  - [ ] Payment ID
-  - [ ] Amount
-  - [ ] Instructions
-  - [ ] Support/contact button
-- [ ] Add order status button.
-- [ ] Add receipt-upload placeholder flow for future automated proof review.
+- [x] Add coupon step:
+  - [x] Enter coupon.
+  - [x] Skip coupon.
+  - [x] Validate coupon.
+  - [x] Show discounted amount.
+- [x] Add payment instruction screen:
+  - [x] Order ID
+  - [x] Payment ID
+  - [x] Amount
+  - [x] Instructions
+  - [x] Support/contact button
+- [x] Add order status button.
+- [x] Add receipt-upload placeholder flow for future automated proof review.
 - [ ] Keep `/buy <plan_id> [coupon]` as shortcut.
 
 ### Seller Bot Services And Renewal UX

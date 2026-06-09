@@ -351,6 +351,38 @@ def plan_buy_button(plan_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def purchase_coupon_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Enter Coupon", build_callback("s", "buy_coupon")),
+                ("Skip Coupon", build_callback("s", "buy_no_coupon")),
+            ],
+            [("Plans", build_callback("s", "plans")), ("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
+def purchase_confirm_menu() -> InlineKeyboardMarkup:
+    return confirm_keyboard(
+        scope="s",
+        confirm_action="buy_create",
+        cancel_action="buy_cancel",
+    )
+
+
+def payment_request_actions(order_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Order Status", build_callback("s", "order_status", order_id)),
+                ("Receipt", build_callback("s", "receipt_upload", order_id)),
+            ],
+            [("Support", build_callback("s", "support")), ("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
 def service_actions(service_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

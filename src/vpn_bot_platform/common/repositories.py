@@ -463,6 +463,27 @@ async def list_pending_payments_for_reseller(
     return list(result.all())
 
 
+async def get_buyer_order_status(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    telegram_id: int,
+    order_id: str,
+) -> tuple[Order, Payment | None, Plan | None] | None:
+    result = await session.execute(
+        select(Order, Payment, Plan)
+        .join(Buyer, Order.buyer_id == Buyer.id)
+        .outerjoin(Payment, Payment.order_id == Order.id)
+        .outerjoin(Plan, Order.plan_id == Plan.id)
+        .where(
+            Order.id == order_id,
+            Order.reseller_id == reseller_id,
+            Buyer.telegram_user_id == telegram_id,
+        )
+    )
+    return result.first()
+
+
 async def approve_payment(
     session: AsyncSession,
     *,

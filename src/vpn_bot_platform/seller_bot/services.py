@@ -34,6 +34,7 @@ from vpn_bot_platform.common.repositories import (
     create_reseller_broadcast,
     get_active_plan_for_reseller,
     get_active_discount_code,
+    get_buyer_order_status,
     get_seller_bot_with_reseller,
     get_ticket_for_buyer,
     get_ticket_for_reseller,
@@ -74,6 +75,20 @@ class PaymentRequest:
     payment: Payment
     plan: Plan
     instructions: str
+
+
+@dataclass(frozen=True)
+class PaymentQuote:
+    plan: Plan
+    amount: float
+    coupon_code: str | None = None
+
+
+@dataclass(frozen=True)
+class BuyerOrderStatus:
+    order: Order
+    payment: Payment | None
+    plan: Plan | None
 
 
 @dataclass(frozen=True)
@@ -235,6 +250,63 @@ class SellerContextService:
                 plan=plan,
                 instructions=intent.instructions,
             )
+
+    async def quote_card_to_card_payment(
+        self,
+        *,
+        plan_id: str,
+        coupon_code: str | None = None,
+    ) -> PaymentQuote:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            plan = await get_active_plan_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                plan_id=plan_id,
+            )
+            if plan is None:
+                raise ValueError("plan_not_found")
+            discount = None
+            normalized_coupon = (coupon_code or "").strip() or None
+            if normalized_coupon:
+                discount = await get_active_discount_code(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    code=normalized_coupon,
+                )
+                if discount is None:
+                    raise ValueError("discount_not_found")
+            amount = apply_discount_amount(price=float(plan.price), discount=discount)
+            return PaymentQuote(plan=plan, amount=amount, coupon_code=normalized_coupon)
+
+    async def get_buyer_order_status(
+        self,
+        *,
+        buyer_telegram_id: int,
+        order_id: str,
+    ) -> BuyerOrderStatus:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            row = await get_buyer_order_status(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+                order_id=order_id,
+            )
+            if row is None:
+                raise ValueError("order_not_found")
+            order, payment, plan = row
+            return BuyerOrderStatus(order=order, payment=payment, plan=plan)
 
     async def request_renewal_payment(
         self,

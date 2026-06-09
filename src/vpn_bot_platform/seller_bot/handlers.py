@@ -16,7 +16,10 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_wallet_charge_actions,
     buyer_ticket_actions,
     confirm_keyboard,
+    payment_request_actions,
     plan_buy_button,
+    purchase_confirm_menu,
+    purchase_coupon_menu,
     renewal_confirm_menu,
     renewal_coupon_menu,
     renewal_plan_button,
@@ -52,6 +55,11 @@ class TicketReplyStates(StatesGroup):
 
 class WalletChargeStates(StatesGroup):
     amount = State()
+    confirm = State()
+
+
+class PurchaseCreateStates(StatesGroup):
+    coupon = State()
     confirm = State()
 
 
@@ -250,18 +258,60 @@ async def seller_menu_callback(
         if not action.value:
             await callback.answer("Plan is missing.", show_alert=True)
             return
+        plan = await _find_plan(seller_context, plan_id=action.value)
+        if plan is None:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(buy_plan_id=plan.id, buy_coupon=None, buy_amount=float(plan.price))
+        await state.set_state(PurchaseCreateStates.coupon)
+        await callback.message.edit_text(
+            _purchase_coupon_text(plan),
+            reply_markup=purchase_coupon_menu(),
+        )
+    elif action.action == "buy_coupon":
+        data = await state.get_data()
+        if not data.get("buy_plan_id"):
+            await callback.answer("Purchase draft is missing.", show_alert=True)
+            return
+        await state.set_state(PurchaseCreateStates.coupon)
+        await callback.message.edit_text(
+            "\n".join([title("Purchase Coupon"), "Send the coupon code for this purchase."]),
+            reply_markup=purchase_coupon_menu(),
+        )
+    elif action.action == "buy_no_coupon":
+        await _show_purchase_confirm(callback, state, seller_context, coupon=None)
+    elif action.action == "buy_create":
+        data = await state.get_data()
+        plan_id = data.get("buy_plan_id")
+        if not plan_id:
+            await callback.answer("Purchase draft is missing.", show_alert=True)
+            await state.clear()
+            return
         try:
             payment_request = await seller_context.request_card_to_card_payment(
                 buyer_telegram_id=callback.from_user.id,
-                plan_id=action.value,
+                plan_id=str(plan_id),
+                coupon_code=data.get("buy_coupon"),
             )
         except ValueError as exc:
             if str(exc) == "plan_not_found":
                 await callback.answer("Plan not found.", show_alert=True)
+                await state.clear()
+                return
+            if str(exc) == "discount_not_found":
+                await callback.answer("Coupon not found.", show_alert=True)
                 return
             raise
+        await state.clear()
         await callback.message.edit_text(
             _payment_request_text(payment_request),
+            reply_markup=payment_request_actions(payment_request.order.id),
+        )
+    elif action.action == "buy_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Purchase Canceled"), "No payment request was created."]),
             reply_markup=seller_section_menu("plans"),
         )
     elif action.action == "services":
@@ -440,14 +490,14 @@ async def seller_menu_callback(
             if str(exc) == "plan_not_found":
                 await callback.answer("Plan not found.", show_alert=True)
                 return
-            if str(exc) == "coupon_not_found":
+            if str(exc) == "discount_not_found":
                 await callback.answer("Coupon not found.", show_alert=True)
                 return
             raise
         await state.clear()
         await callback.message.edit_text(
             _payment_request_text(payment_request),
-            reply_markup=seller_section_menu("services"),
+            reply_markup=payment_request_actions(payment_request.order.id),
         )
     elif action.action == "renew_cancel":
         await state.clear()
@@ -482,6 +532,30 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             _wallet_transaction_detail_text(transaction),
             reply_markup=wallet_transaction_actions(transaction.id),
+        )
+    elif action.action == "order_status":
+        if not action.value:
+            await callback.answer("Order is missing.", show_alert=True)
+            return
+        try:
+            order_status = await seller_context.get_buyer_order_status(
+                buyer_telegram_id=callback.from_user.id,
+                order_id=action.value,
+            )
+        except ValueError:
+            await callback.answer("Order not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _buyer_order_status_text(order_status),
+            reply_markup=payment_request_actions(order_status.order.id),
+        )
+    elif action.action == "receipt_upload":
+        if not action.value:
+            await callback.answer("Order is missing.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _receipt_upload_placeholder_text(action.value),
+            reply_markup=payment_request_actions(action.value),
         )
     elif action.action == "wallet_add":
         if not action.value:
@@ -1069,6 +1143,31 @@ async def wallet_charge_waiting_for_confirmation(message: Message) -> None:
     )
 
 
+@router.message(PurchaseCreateStates.coupon)
+async def purchase_coupon_input(
+    message: Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+) -> None:
+    if message.from_user is None:
+        return
+    coupon = (message.text or "").strip()
+    if not coupon or coupon.startswith("/"):
+        await message.answer(
+            "\n".join([title("Purchase Coupon"), "Send a coupon code, or use Skip Coupon."]),
+            reply_markup=purchase_coupon_menu(),
+        )
+        return
+    await _show_purchase_confirm(message, state, seller_context, coupon=coupon)
+
+
+@router.message(PurchaseCreateStates.confirm)
+async def purchase_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Purchase"), "Use Confirm or Cancel below the preview."])
+    )
+
+
 @router.message(RenewalCreateStates.coupon)
 async def renewal_coupon_input(
     message: Message,
@@ -1651,7 +1750,8 @@ async def buy(
                 "",
                 "After payment approval, your VPN service will be provisioned.",
             ]
-        )
+        ),
+        reply_markup=payment_request_actions(payment_request.order.id),
     )
 
 
@@ -1698,7 +1798,8 @@ async def renew(
                 "",
                 payment_request.instructions,
             ]
-        )
+        ),
+        reply_markup=payment_request_actions(payment_request.order.id),
     )
 
 
@@ -2132,6 +2233,84 @@ def _renewal_plan_card_text(plan) -> str:
     )
 
 
+def _purchase_coupon_text(plan) -> str:
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Purchase Coupon"),
+            f"Plan: {plan.name}",
+            f"Price: {plan.price:,.0f}",
+            f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            "",
+            "Enter a coupon code or skip this step.",
+        ]
+    )
+
+
+def _purchase_confirm_text(quote) -> str:
+    plan = quote.plan
+    original_amount = float(plan.price)
+    rows = [
+        title("Confirm Purchase"),
+        f"Plan: {plan.name}",
+        f"Duration: {plan.duration_days} days",
+        f"Original amount: {original_amount:,.0f}",
+        f"Coupon: {quote.coupon_code or '-'}",
+        f"Payable amount: {quote.amount:,.0f}",
+    ]
+    if quote.amount < original_amount:
+        rows.append(f"Discount: {original_amount - quote.amount:,.0f}")
+    rows.extend(["", "Confirm to create the payment request."])
+    return "\n".join(rows)
+
+
+async def _show_purchase_confirm(
+    target: CallbackQuery | Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+    *,
+    coupon: str | None,
+) -> None:
+    data = await state.get_data()
+    plan_id = data.get("buy_plan_id")
+    if not plan_id:
+        if isinstance(target, CallbackQuery):
+            await target.answer("Purchase draft is missing.", show_alert=True)
+        else:
+            await target.answer("Purchase draft is missing. Start again from Buy VPN.")
+        await state.clear()
+        return
+    try:
+        quote = await seller_context.quote_card_to_card_payment(
+            plan_id=str(plan_id),
+            coupon_code=coupon,
+        )
+    except ValueError as exc:
+        if str(exc) == "discount_not_found":
+            if isinstance(target, CallbackQuery):
+                await target.answer("Coupon not found.", show_alert=True)
+            else:
+                await target.answer("Coupon not found. Send another code or use Skip Coupon.")
+            return
+        if str(exc) == "plan_not_found":
+            if isinstance(target, CallbackQuery):
+                await target.answer("Plan not found.", show_alert=True)
+            else:
+                await target.answer("Plan not found. Start again from Buy VPN.")
+            await state.clear()
+            return
+        raise
+    await state.update_data(buy_coupon=quote.coupon_code, buy_amount=quote.amount)
+    await state.set_state(PurchaseCreateStates.confirm)
+    text = _purchase_confirm_text(quote)
+    if isinstance(target, CallbackQuery):
+        if target.message is not None:
+            await target.message.edit_text(text, reply_markup=purchase_confirm_menu())
+    else:
+        await target.answer(text, reply_markup=purchase_confirm_menu())
+
+
 def _renewal_coupon_text(service, plan) -> str:
     return "\n".join(
         [
@@ -2299,6 +2478,43 @@ def _payment_request_text(payment_request) -> str:
             payment_request.instructions,
             "",
             "After approval, your VPN service will be provisioned.",
+        ]
+    )
+
+
+def _buyer_order_status_text(order_status) -> str:
+    order = order_status.order
+    payment = order_status.payment
+    plan = order_status.plan
+    rows = [
+        title("Order Status"),
+        f"Order ID: {order.id}",
+        f"Order type: {order.order_type}",
+        f"Order status: {status_label(order.status)}",
+        f"Amount: {order.total_amount:,.0f}",
+        f"Plan: {plan.name if plan else '-'}",
+    ]
+    if payment is not None:
+        rows.extend(
+            [
+                "",
+                f"Payment ID: {payment.id}",
+                f"Payment status: {status_label(payment.status)}",
+                f"Method: {payment.method}",
+            ]
+        )
+    rows.extend(["", "Admin approval is required before provisioning."])
+    return "\n".join(rows)
+
+
+def _receipt_upload_placeholder_text(order_id: str) -> str:
+    return "\n".join(
+        [
+            title("Receipt Upload"),
+            f"Order ID: {order_id}",
+            "",
+            "Automatic receipt review is not enabled yet.",
+            "For now, send your receipt in Support and include this order ID.",
         ]
     )
 
