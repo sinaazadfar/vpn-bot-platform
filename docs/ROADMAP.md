@@ -314,7 +314,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Support/contact button
 - [x] Add order status button.
 - [x] Add receipt-upload placeholder flow for future automated proof review.
-- [ ] Keep `/buy <plan_id> [coupon]` as shortcut.
+- [x] Keep `/buy <plan_id> [coupon]` as shortcut.
 
 ### Seller Bot Services And Renewal UX
 
@@ -335,7 +335,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Select plan.
   - [x] Optional coupon.
   - [x] Confirm payment request.
-- [ ] Keep `/my_services` and `/renew` as shortcuts.
+- [x] Keep `/my_services` and `/renew` as shortcuts.
 
 ### Seller Bot Wallet UX
 
@@ -348,7 +348,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Confirm request.
   - [x] Show card-to-card instructions.
 - [x] Add transaction detail screen.
-- [ ] Keep `/wallet` and `/charge_wallet` as shortcuts.
+- [x] Keep `/wallet` and `/charge_wallet` as shortcuts.
 
 ### Seller Bot Trial UX
 
@@ -356,7 +356,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add request trial button.
 - [x] Add trial result screen with subscription and QR actions.
 - [x] Add clear already-used state.
-- [ ] Keep `/trial` as shortcut.
+- [x] Keep `/trial` as shortcut.
 
 ### Seller Bot Support UX
 
@@ -371,7 +371,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add ticket list screen.
 - [x] Add ticket detail screen with recent messages.
 - [x] Add reply button and FSM.
-- [ ] Keep `/ticket`, `/my_tickets`, and `/reply_ticket` as shortcuts.
+- [x] Keep `/ticket`, `/my_tickets`, and `/reply_ticket` as shortcuts.
 
 ### Seller Bot Reseller Admin UX
 
@@ -391,12 +391,12 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add wallet charge list and approve button.
 - [x] Add ticket admin list/detail/reply/close buttons.
 - [x] Add reseller broadcast compose FSM with preview/confirm.
-- [ ] Add sales report preset buttons:
+- [x] Add sales report preset buttons:
   - [x] Today
   - [x] 7 days
   - [x] 30 days
   - [x] Custom
-- [ ] Keep seller admin slash commands as shortcuts.
+- [x] Keep seller admin slash commands as shortcuts.
 
 ### FSM And Navigation Architecture
 
