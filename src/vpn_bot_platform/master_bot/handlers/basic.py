@@ -85,6 +85,15 @@ class PanelPasswordCreateStates(StatesGroup):
     confirm = State()
 
 
+class PanelAssignmentCreateStates(StatesGroup):
+    reseller = State()
+    panel = State()
+    admin_username = State()
+    priority = State()
+    weight = State()
+    confirm = State()
+
+
 def _parse_args(raw: str | None) -> list[str]:
     try:
         return shlex.split(raw or "")
@@ -500,6 +509,102 @@ async def master_menu_callback(
         await state.clear()
         await callback.message.edit_text(
             "\n".join([title("Panel Canceled"), "No panel was registered."]),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "guide_assign_panel":
+        await state.clear()
+        resellers = await reseller_service.list_resellers()
+        panels = await reseller_service.list_marzban_panels()
+        if not resellers:
+            await callback.message.edit_text(
+                "\n".join([title("Assign Panel"), "Create a reseller first."]),
+                reply_markup=master_section_menu("panels"),
+            )
+            return
+        if not panels:
+            await callback.message.edit_text(
+                "\n".join([title("Assign Panel"), "Register a Marzban panel first."]),
+                reply_markup=master_section_menu("panels"),
+            )
+            return
+        await state.set_state(PanelAssignmentCreateStates.reseller)
+        await callback.message.edit_text(
+            "\n".join([title("Assign Panel"), "Select the reseller."]),
+            reply_markup=_reseller_select_keyboard(
+                resellers[:10],
+                action_name="panel_assign_reseller",
+                cancel_action="panel_assign_cancel",
+            ),
+        )
+    elif action.action == "panel_assign_reseller":
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller.", show_alert=True)
+            return
+        panels = await reseller_service.list_marzban_panels()
+        if not panels:
+            await callback.message.edit_text(
+                "\n".join([title("Assign Panel"), "Register a Marzban panel first."]),
+                reply_markup=master_section_menu("panels"),
+            )
+            return
+        await state.update_data(panel_assign_reseller_telegram_id=int(action.value))
+        await state.set_state(PanelAssignmentCreateStates.panel)
+        await callback.message.edit_text(
+            "\n".join([title("Assign Panel"), "Select the Marzban panel."]),
+            reply_markup=_panel_select_keyboard(
+                panels[:10],
+                action_name="panel_assign_panel",
+                cancel_action="panel_assign_cancel",
+            ),
+        )
+    elif action.action == "panel_assign_panel":
+        if not action.value:
+            await callback.answer("Invalid panel.", show_alert=True)
+            return
+        await state.update_data(panel_assign_panel_id=action.value)
+        await state.set_state(PanelAssignmentCreateStates.admin_username)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Assign Panel"),
+                    "Send the optional Marzban admin username.",
+                    "",
+                    "Send - to skip.",
+                ]
+            ),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "panel_assign_create":
+        data = await state.get_data()
+        reseller_telegram_id = data.get("panel_assign_reseller_telegram_id")
+        panel_id = str(data.get("panel_assign_panel_id") or "").strip()
+        admin_username = str(data.get("panel_assign_admin_username") or "").strip() or None
+        priority = data.get("panel_assign_priority")
+        weight = data.get("panel_assign_weight")
+        if not reseller_telegram_id or not panel_id or priority is None or weight is None:
+            await callback.answer("Panel assignment draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            assignment = await reseller_service.assign_panel(
+                reseller_telegram_id=int(reseller_telegram_id),
+                panel_id=panel_id,
+                marzban_admin_username=admin_username,
+                priority=int(priority),
+                weight=int(weight),
+            )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _panel_assignment_detail_text(assignment),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "panel_assign_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Assignment Canceled"), "No panel assignment was created."]),
             reply_markup=master_section_menu("panels"),
         )
     elif action.action == "plans":
@@ -1609,6 +1714,107 @@ async def panel_password_create_waiting_for_confirmation(message: Message) -> No
     )
 
 
+@router.message(PanelAssignmentCreateStates.reseller)
+async def panel_assignment_waiting_for_reseller(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Assign Panel"), "Select a reseller using the buttons."])
+    )
+
+
+@router.message(PanelAssignmentCreateStates.panel)
+async def panel_assignment_waiting_for_panel(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Assign Panel"), "Select a panel using the buttons."])
+    )
+
+
+@router.message(PanelAssignmentCreateStates.admin_username)
+async def panel_assignment_admin_username(message: Message, state: FSMContext) -> None:
+    raw_value = (message.text or "").strip()
+    if not raw_value or raw_value.startswith("/"):
+        await message.answer(
+            "\n".join([title("Assign Panel"), "Send a username or - to skip."]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    admin_username = None if raw_value == "-" else raw_value[:128]
+    await state.update_data(panel_assign_admin_username=admin_username)
+    await state.set_state(PanelAssignmentCreateStates.priority)
+    await message.answer(
+        "\n".join(
+            [
+                title("Assign Panel"),
+                "Send the routing priority.",
+                "",
+                "Lower priority is tried first. Example: 100",
+            ]
+        ),
+        reply_markup=master_section_menu("panels"),
+    )
+
+
+@router.message(PanelAssignmentCreateStates.priority)
+async def panel_assignment_priority(message: Message, state: FSMContext) -> None:
+    priority = _parse_positive_int(message.text)
+    if priority is None:
+        await message.answer(
+            "\n".join([title("Assign Panel"), "Send a valid priority number. Example: 100"]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_assign_priority=priority)
+    await state.set_state(PanelAssignmentCreateStates.weight)
+    await message.answer(
+        "\n".join(
+            [
+                title("Assign Panel"),
+                "Send the routing weight.",
+                "",
+                "Higher weight gets more traffic among equal priority panels. Example: 1",
+            ]
+        ),
+        reply_markup=master_section_menu("panels"),
+    )
+
+
+@router.message(PanelAssignmentCreateStates.weight)
+async def panel_assignment_weight(message: Message, state: FSMContext) -> None:
+    weight = _parse_positive_int(message.text)
+    if weight is None:
+        await message.answer(
+            "\n".join([title("Assign Panel"), "Send a valid weight number. Example: 1"]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_assign_weight=weight)
+    await state.set_state(PanelAssignmentCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Panel Assignment"),
+                f"Reseller Telegram: {data.get('panel_assign_reseller_telegram_id')}",
+                f"Panel ID: {data.get('panel_assign_panel_id')}",
+                f"Marzban admin: {data.get('panel_assign_admin_username') or '-'}",
+                f"Priority: {data.get('panel_assign_priority')}",
+                f"Weight: {data.get('panel_assign_weight')}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="panel_assign_create",
+            cancel_action="panel_assign_cancel",
+        ),
+    )
+
+
+@router.message(PanelAssignmentCreateStates.confirm)
+async def panel_assignment_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Panel Assignment"), "Use Confirm or Cancel below the preview."])
+    )
+
+
 @router.message(Command("add_reseller"))
 async def add_reseller(
     message: Message,
@@ -1833,6 +2039,8 @@ async def assign_panel(
             reseller_telegram_id=int(args[0]),
             panel_id=args[1].strip(),
             marzban_admin_username=args[2].strip() if len(args) == 3 else None,
+            priority=100,
+            weight=1,
         )
     except ValueError as exc:
         if str(exc) == "reseller_not_found":
@@ -2078,6 +2286,20 @@ def _reseller_select_keyboard(resellers, *, action_name: str, cancel_action: str
     return inline_keyboard(rows)
 
 
+def _panel_select_keyboard(panels, *, action_name: str, cancel_action: str):
+    rows = [
+        [(panel.name, f"m:{action_name}:{panel.id}")]
+        for panel in panels
+    ]
+    rows.append(
+        [
+            ("Cancel", f"m:{cancel_action}"),
+            ("Home", "m:home"),
+        ]
+    )
+    return inline_keyboard(rows)
+
+
 async def _panels_text(reseller_service: ResellerService) -> str:
     panels = await reseller_service.list_marzban_panels()
     rows = [
@@ -2086,6 +2308,21 @@ async def _panels_text(reseller_service: ResellerService) -> str:
     ]
     rows.extend(["", "Use the buttons below to add or assign panels."])
     return "\n".join([title("Panels"), section("Registered panels", rows)])
+
+
+def _panel_assignment_detail_text(assignment) -> str:
+    return "\n".join(
+        [
+            title("Panel Assigned"),
+            f"Assignment ID: {assignment.id}",
+            f"Reseller ID: {assignment.reseller_id}",
+            f"Panel ID: {assignment.panel_id}",
+            f"Marzban admin: {assignment.marzban_admin_username or '-'}",
+            f"Priority: {assignment.priority}",
+            f"Weight: {assignment.weight}",
+            f"Status: {status_label('active' if assignment.is_active else 'disabled')}",
+        ]
+    )
 
 
 async def _seller_bots_text(reseller_service: ResellerService) -> str:

@@ -219,18 +219,18 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [ ] Add panel action buttons:
   - [x] Add Token Panel
   - [x] Add Password Panel
-  - [ ] Assign To Reseller
+  - [x] Assign To Reseller
   - [ ] Disable Panel
   - [ ] Test Connection
 - [x] Add guided FSM flow for token panel registration.
 - [x] Add guided FSM flow for password panel registration.
-- [ ] Add guided FSM flow for assignment:
-  - [ ] Select reseller.
-  - [ ] Select panel.
-  - [ ] Ask optional Marzban admin username.
-  - [ ] Ask priority.
-  - [ ] Ask weight.
-  - [ ] Confirm assignment.
+- [x] Add guided FSM flow for assignment:
+  - [x] Select reseller.
+  - [x] Select panel.
+  - [x] Ask optional Marzban admin username.
+  - [x] Ask priority.
+  - [x] Ask weight.
+  - [x] Confirm assignment.
 - [ ] Add priority/weight editing buttons for multi-panel routing.
 
 ### Master Bot Plans And Discounts UX

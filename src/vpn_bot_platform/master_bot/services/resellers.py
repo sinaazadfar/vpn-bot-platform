@@ -267,6 +267,8 @@ class ResellerService:
         reseller_telegram_id: int,
         panel_id: str,
         marzban_admin_username: str | None = None,
+        priority: int = 100,
+        weight: int = 1,
     ) -> ResellerPanelAssignment:
         async with session_scope() as session:
             reseller = await get_reseller_by_telegram_id(
@@ -283,6 +285,8 @@ class ResellerService:
                 reseller_id=reseller.id,
                 panel_id=panel.id,
                 marzban_admin_username=marzban_admin_username,
+                priority=priority,
+                weight=weight,
             )
             await record_audit_log(
                 session,
@@ -291,7 +295,12 @@ class ResellerService:
                 reseller_id=reseller.id,
                 target_type="reseller_panel_assignment",
                 target_id=assignment.id,
-                metadata={"panel_id": panel.id, "reseller_telegram_id": reseller_telegram_id},
+                metadata={
+                    "panel_id": panel.id,
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "priority": priority,
+                    "weight": weight,
+                },
             )
             await session.flush()
             return assignment
