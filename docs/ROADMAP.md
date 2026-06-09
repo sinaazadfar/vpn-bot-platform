@@ -293,7 +293,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Trial
   - [x] Support
   - [x] Guides
-- [ ] Add persistent reply keyboard for buyer shortcuts if it does not clutter admin usage.
+- [x] Add persistent reply keyboard for buyer shortcuts if it does not clutter admin usage.
 - [ ] Add forced-join blocked screen with required chat buttons.
 - [x] Add tests for buyer dashboard keyboard.
 

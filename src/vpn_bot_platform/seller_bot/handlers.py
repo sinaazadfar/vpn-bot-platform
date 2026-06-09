@@ -22,6 +22,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     renewal_plan_button,
     seller_admin_menu,
     seller_buyer_menu,
+    seller_buyer_reply_menu,
     seller_report_menu,
     seller_section_menu,
     service_actions,
@@ -93,6 +94,7 @@ async def start(
         _buyer_dashboard_text(seller_name=profile.seller_bot.name, reseller_name=profile.reseller.display_name),
         reply_markup=seller_buyer_menu(),
     )
+    await message.answer("Shortcuts are ready.", reply_markup=seller_buyer_reply_menu())
 
 
 @router.message(Command("cancel"))
@@ -116,6 +118,7 @@ async def cancel_flow(
         "\n".join([title("Canceled"), "Current flow was cleared.", "", f"Seller: {profile.reseller.display_name}"]),
         reply_markup=seller_buyer_menu(),
     )
+    await message.answer("Shortcuts are ready.", reply_markup=seller_buyer_reply_menu())
 
 
 @router.message(
@@ -123,6 +126,7 @@ async def cancel_flow(
         {
             "Buy VPN",
             "My Services",
+            "Renew",
             "Wallet",
             "Support",
             "Trial",
@@ -151,6 +155,17 @@ async def seller_reply_menu_alias(
             await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
             reply_markup=seller_section_menu("services"),
         )
+    elif message.text == "Renew":
+        await message.answer(
+            await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
+            reply_markup=seller_section_menu("services"),
+        )
+        services = await seller_context.list_buyer_services(buyer_telegram_id=message.from_user.id)
+        for service in services[:8]:
+            await message.answer(
+                _service_card_text(service),
+                reply_markup=service_actions(service.id),
+            )
     elif message.text == "Wallet":
         await message.answer(
             await _wallet_text(seller_context, buyer_telegram_id=message.from_user.id),

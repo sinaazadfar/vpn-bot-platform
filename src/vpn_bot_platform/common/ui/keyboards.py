@@ -120,8 +120,9 @@ def seller_buyer_reply_menu() -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
             ["Buy VPN", "My Services"],
-            ["Wallet", "Support"],
-            ["Trial", "Guides"],
+            ["Renew", "Wallet"],
+            ["Trial", "Support"],
+            ["Guides"],
         ]
     )
 
