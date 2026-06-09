@@ -414,7 +414,11 @@ def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
+                ("Details", build_callback("s", "pay_detail", payment_id)),
                 ("Approve", build_callback("s", "pay_ok", payment_id)),
+            ],
+            [
+                ("Reject", build_callback("s", "pay_reject_confirm", payment_id)),
                 ("Payments", build_callback("s", "admin_payments")),
             ],
             [("Back", build_callback("s", "admin_payments")), ("Admin Home", build_callback("s", "admin"))],
@@ -423,7 +427,7 @@ def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
 
 
 def admin_order_actions(order_id: str, *, renewal: bool = False) -> InlineKeyboardMarkup:
-    action = "apply_renewal" if renewal else "provision_order"
+    action = "confirm_renewal" if renewal else "confirm_provision"
     label = "Apply Renewal" if renewal else "Provision"
     return inline_keyboard(
         [

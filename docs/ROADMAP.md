@@ -386,8 +386,8 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [ ] Customers
   - [ ] Plans
 - [x] Add pending payment list screen.
-- [ ] Add payment detail screen with approve/reject buttons.
-- [ ] Add provision order screen with confirm button.
+- [x] Add payment detail screen with approve/reject buttons.
+- [x] Add provision order screen with confirm button.
 - [x] Add wallet charge list and approve button.
 - [x] Add ticket admin list/detail/reply/close buttons.
 - [x] Add reseller broadcast compose FSM with preview/confirm.

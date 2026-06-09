@@ -490,6 +490,33 @@ async def approve_payment(
     return payment, order
 
 
+async def reject_payment(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    payment_id: str,
+    rejected_by_telegram_id: int,
+) -> tuple[Payment, Order] | None:
+    result = await session.execute(
+        select(Payment, Order)
+        .join(Order, Payment.order_id == Order.id)
+        .where(
+            Payment.id == payment_id,
+            Payment.reseller_id == reseller_id,
+            Payment.status == PaymentStatus.PENDING.value,
+            Order.status == OrderStatus.WAITING_PAYMENT.value,
+        )
+    )
+    row = result.one_or_none()
+    if row is None:
+        return None
+    payment, order = row
+    payment.status = PaymentStatus.REJECTED.value
+    payment.approved_by_telegram_id = rejected_by_telegram_id
+    order.status = OrderStatus.CANCELED.value
+    return payment, order
+
+
 async def get_provisioning_order_context(
     session: AsyncSession,
     *,

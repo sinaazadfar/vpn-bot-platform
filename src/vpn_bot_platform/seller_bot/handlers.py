@@ -670,6 +670,25 @@ async def seller_menu_callback(
             "\n".join([title("Broadcast Canceled"), "No broadcast draft was created."]),
             reply_markup=seller_admin_menu(),
         )
+    elif action.action == "pay_detail":
+        if not action.value:
+            await callback.answer("Payment is missing.", show_alert=True)
+            return
+        try:
+            pending = await seller_context.get_pending_payment(
+                admin_telegram_id=callback.from_user.id,
+                payment_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Pending payment not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _pending_payment_detail_text(pending),
+            reply_markup=admin_payment_actions(pending.payment.id),
+        )
     elif action.action == "pay_ok":
         if not action.value:
             await callback.answer("Payment is missing.", show_alert=True)
@@ -696,6 +715,76 @@ async def seller_menu_callback(
                 ]
             ),
             reply_markup=admin_order_actions(approved.order.id, renewal=is_renewal),
+        )
+    elif action.action == "pay_reject_confirm":
+        if not action.value:
+            await callback.answer("Payment is missing.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Confirm Payment Rejection"),
+                    f"Payment ID: {action.value}",
+                    "",
+                    "Rejecting cancels the order and cannot provision a service from this payment.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="s",
+                confirm_action="pay_reject",
+                cancel_action="admin_payments",
+                value=action.value,
+            ),
+        )
+    elif action.action == "pay_reject":
+        if not action.value:
+            await callback.answer("Payment is missing.", show_alert=True)
+            return
+        try:
+            rejected = await seller_context.reject_payment(
+                admin_telegram_id=callback.from_user.id,
+                payment_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Pending payment not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Payment Rejected"),
+                    f"Payment ID: {rejected.payment.id}",
+                    f"Payment status: {status_label(rejected.payment.status)}",
+                    f"Order ID: {rejected.order.id}",
+                    f"Order status: {status_label(rejected.order.status)}",
+                ]
+            ),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action in {"confirm_provision", "confirm_renewal"}:
+        if not action.value:
+            await callback.answer("Order is missing.", show_alert=True)
+            return
+        is_renewal = action.action == "confirm_renewal"
+        confirm_action = "apply_renewal" if is_renewal else "provision_order"
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Confirm Provision"),
+                    f"Order ID: {action.value}",
+                    f"Action: {'Apply renewal' if is_renewal else 'Provision VPN service'}",
+                    "",
+                    "Confirm only after checking the approved payment.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="s",
+                confirm_action=confirm_action,
+                cancel_action="admin_payments",
+                value=action.value,
+            ),
         )
     elif action.action == "provision_order":
         if not action.value:
@@ -1898,6 +1987,30 @@ def _payment_request_text(payment_request) -> str:
     )
 
 
+def _pending_payment_detail_text(pending) -> str:
+    plan = pending.plan
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Payment Detail"),
+            f"Payment ID: {pending.payment.id}",
+            f"Payment status: {status_label(pending.payment.status)}",
+            f"Method: {pending.payment.method}",
+            f"Amount: {pending.payment.amount:,.0f}",
+            "",
+            f"Order ID: {pending.order.id}",
+            f"Order type: {pending.order.order_type}",
+            f"Order status: {status_label(pending.order.status)}",
+            "",
+            f"Plan: {plan.name}",
+            f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            "",
+            "Approve only after checking the payment receipt/support message.",
+        ]
+    )
+
+
 def _wallet_charge_confirm_text(amount: float) -> str:
     return "\n".join(
         [
@@ -1972,7 +2085,7 @@ async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerCo
         f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
         for item in pending[:15]
     ]
-    rows.extend(["", "Tap an approval button on a payment action card below."])
+    rows.extend(["", "Tap Details before approving a payment."])
     await callback.message.edit_text(
         "\n".join([title("Pending Payments"), section("Payments", rows)]),
         reply_markup=seller_admin_menu(),
@@ -2002,7 +2115,7 @@ async def _send_admin_payments(message: Message, seller_context: SellerContextSe
         f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
         for item in pending[:15]
     ]
-    rows.extend(["", "Tap an approval button on a payment action card below."])
+    rows.extend(["", "Tap Details before approving a payment."])
     await message.answer(
         "\n".join([title("Pending Payments"), section("Payments", rows)]),
         reply_markup=seller_admin_menu(),
