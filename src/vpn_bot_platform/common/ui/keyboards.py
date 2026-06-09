@@ -207,7 +207,7 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
                 ("List Forced Join", build_callback("m", "list_forced_join")),
             ]
         )
-    elif section == "system":
+    elif section in {"reports", "system"}:
         rows.append(
             [
                 ("Today", build_callback("m", "report_1")),
@@ -215,6 +215,7 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
                 ("30 Days", build_callback("m", "report_30")),
             ]
         )
+        rows.append([("Custom Days", build_callback("m", "report_custom"))])
     rows.append(
         nav_row(scope="m", refresh_action=section, home_action="home")
     )
@@ -322,6 +323,7 @@ def seller_report_menu() -> InlineKeyboardMarkup:
                 ("7 Days", build_callback("s", "admin_report", "7")),
                 ("30 Days", build_callback("s", "admin_report", "30")),
             ],
+            [("Custom Days", build_callback("s", "admin_report_custom"))],
             [("Admin Home", build_callback("s", "admin")), ("Buyer Home", build_callback("s", "home"))],
         ]
     )

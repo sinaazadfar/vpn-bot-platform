@@ -70,6 +70,10 @@ class DiscountCreateStates(StatesGroup):
     confirm = State()
 
 
+class ReportCustomStates(StatesGroup):
+    days = State()
+
+
 class PanelTokenCreateStates(StatesGroup):
     name = State()
     base_url = State()
@@ -794,7 +798,21 @@ async def master_menu_callback(
         label = "Today" if days == 1 else f"Last {days} Days"
         await callback.message.edit_text(
             _format_report(f"Global Report - {label}", report),
-            reply_markup=master_section_menu("system"),
+            reply_markup=master_section_menu("reports"),
+        )
+    elif action.action == "report_custom":
+        await state.clear()
+        await state.set_state(ReportCustomStates.days)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Custom Report"),
+                    "Send the number of days to include.",
+                    "",
+                    "Example: 14",
+                ]
+            ),
+            reply_markup=master_section_menu("reports"),
         )
     elif action.action == "broadcasts":
         await callback.message.edit_text(
@@ -1525,6 +1543,27 @@ async def discount_create_max_uses(message: Message, state: FSMContext) -> None:
 async def discount_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Discount"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(ReportCustomStates.days)
+async def report_custom_days(
+    message: Message,
+    reseller_service: ResellerService,
+    state: FSMContext,
+) -> None:
+    days = _parse_bounded_days(message.text)
+    if days is None:
+        await message.answer(
+            "\n".join([title("Custom Report"), "Send a number from 1 to 365."]),
+            reply_markup=master_section_menu("reports"),
+        )
+        return
+    report = await reseller_service.global_report(days=days)
+    await state.clear()
+    await message.answer(
+        _format_report(f"Global Report - Last {days} Days", report),
+        reply_markup=master_section_menu("reports"),
     )
 
 
@@ -2609,6 +2648,13 @@ def _parse_positive_int(raw: str | None) -> int | None:
     if value <= 0:
         return None
     return value
+
+
+def _parse_bounded_days(raw: str | None) -> int | None:
+    days = _parse_positive_int(raw)
+    if days is None or days > 365:
+        return None
+    return days
 
 
 @router.message(Command("add_discount"))

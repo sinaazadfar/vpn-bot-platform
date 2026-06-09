@@ -56,6 +56,10 @@ class SellerBroadcastCreateStates(StatesGroup):
     confirm = State()
 
 
+class SellerReportCustomStates(StatesGroup):
+    days = State()
+
+
 @router.message(CommandStart())
 async def start(
     message: Message,
@@ -601,6 +605,20 @@ async def seller_menu_callback(
             _format_report(f"Sales Report - {label}", report),
             reply_markup=seller_report_menu(),
         )
+    elif action.action == "admin_report_custom":
+        await state.clear()
+        await state.set_state(SellerReportCustomStates.days)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Custom Sales Report"),
+                    "Send the number of days to include.",
+                    "",
+                    "Example: 14",
+                ]
+            ),
+            reply_markup=seller_report_menu(),
+        )
     elif action.action == "admin_broadcast":
         await state.clear()
         await state.set_state(SellerBroadcastCreateStates.title)
@@ -1008,6 +1026,34 @@ async def seller_broadcast_create_body(message: Message, state: FSMContext) -> N
 async def seller_broadcast_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Broadcast Draft"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(SellerReportCustomStates.days)
+async def seller_report_custom_days(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    days = _parse_bounded_days(message.text)
+    if days is None:
+        await message.answer(
+            "\n".join([title("Custom Sales Report"), "Send a number from 1 to 365."]),
+            reply_markup=seller_report_menu(),
+        )
+        return
+    try:
+        report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=days)
+    except PermissionError:
+        await state.clear()
+        await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
+        return
+    await state.clear()
+    await message.answer(
+        _format_report(f"Sales Report - Last {days} Days", report),
+        reply_markup=seller_report_menu(),
     )
 
 
@@ -1668,6 +1714,16 @@ def _parse_days(raw: str | None) -> int:
     except ValueError:
         return 1
     return max(1, min(days, 365))
+
+
+def _parse_bounded_days(raw: str | None) -> int | None:
+    try:
+        days = int((raw or "").strip().replace(",", ""))
+    except ValueError:
+        return None
+    if days < 1 or days > 365:
+        return None
+    return days
 
 
 def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:

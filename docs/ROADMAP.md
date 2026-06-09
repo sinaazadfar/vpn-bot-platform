@@ -263,7 +263,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Today
   - [x] Last 7 days
   - [x] Last 30 days
-  - [ ] Custom days
+  - [x] Custom days
 - [ ] Add settings menu:
   - [ ] Forced join settings
   - [ ] Rate limit settings
@@ -395,7 +395,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Today
   - [x] 7 days
   - [x] 30 days
-  - [ ] Custom
+  - [x] Custom
 - [ ] Keep seller admin slash commands as shortcuts.
 
 ### FSM And Navigation Architecture
