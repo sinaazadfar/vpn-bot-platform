@@ -16,6 +16,7 @@ from vpn_bot_platform.common.models import (
     Plan,
     Reseller,
     SellerBot,
+    TelegramUser,
     VpnService,
     WalletTransaction,
     Ticket,
@@ -41,7 +42,9 @@ from vpn_bot_platform.common.repositories import (
     get_broadcast_for_reseller,
     get_vpn_service_for_buyer,
     list_pending_payments_for_reseller,
+    list_provisioning_orders_for_reseller,
     list_pending_wallet_charges_for_reseller,
+    list_customers_for_reseller,
     list_buyer_tickets,
     list_open_tickets_for_reseller,
     list_ticket_messages,
@@ -96,6 +99,19 @@ class PendingPayment:
     payment: Payment
     order: Order
     plan: Plan
+
+
+@dataclass(frozen=True)
+class ProvisioningOrder:
+    order: Order
+    buyer: Buyer
+    plan: Plan
+
+
+@dataclass(frozen=True)
+class SellerCustomer:
+    buyer: Buyer
+    telegram_user: TelegramUser
 
 
 @dataclass(frozen=True)
@@ -383,6 +399,56 @@ class SellerContextService:
                 PendingPayment(payment=payment, order=order, plan=plan)
                 for payment, order, plan in rows
             ]
+
+    async def list_provisioning_orders(self, *, admin_telegram_id: int) -> list[ProvisioningOrder]:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            rows = await list_provisioning_orders_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+            )
+            return [
+                ProvisioningOrder(order=order, buyer=buyer, plan=plan)
+                for order, buyer, plan in rows
+            ]
+
+    async def list_customers(self, *, admin_telegram_id: int) -> list[SellerCustomer]:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            rows = await list_customers_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+            )
+            return [
+                SellerCustomer(buyer=buyer, telegram_user=telegram_user)
+                for buyer, telegram_user in rows
+            ]
+
+    async def list_admin_plans(self, *, admin_telegram_id: int) -> list[Plan]:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            return await list_active_plans_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+            )
 
     async def get_pending_payment(
         self,

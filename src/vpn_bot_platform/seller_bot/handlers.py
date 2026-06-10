@@ -140,8 +140,11 @@ async def cancel_flow(
             "Trial",
             "Guides",
             "Pending Payments",
+            "Provision Orders",
             "Wallet Charges",
+            "Customers",
             "Tickets",
+            "Plans",
             "Sales Report",
             "Buyer Home",
         }
@@ -207,10 +210,16 @@ async def seller_reply_menu_alias(
         )
     elif message.text == "Pending Payments":
         await _send_admin_payments(message, seller_context)
+    elif message.text == "Provision Orders":
+        await _send_admin_orders(message, seller_context)
     elif message.text == "Wallet Charges":
         await _send_admin_wallet(message, seller_context)
+    elif message.text == "Customers":
+        await _send_admin_customers(message, seller_context)
     elif message.text == "Tickets":
         await _send_admin_tickets(message, seller_context)
+    elif message.text == "Plans":
+        await _send_admin_plans(message, seller_context)
     elif message.text == "Sales Report":
         try:
             report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=1)
@@ -759,10 +768,16 @@ async def seller_menu_callback(
         await _show_admin_dashboard(callback, seller_context)
     elif action.action == "admin_payments":
         await _show_admin_payments(callback, seller_context)
+    elif action.action == "admin_orders":
+        await _show_admin_orders(callback, seller_context)
     elif action.action == "admin_wallet":
         await _show_admin_wallet(callback, seller_context)
+    elif action.action == "admin_customers":
+        await _show_admin_customers(callback, seller_context)
     elif action.action == "admin_tickets":
         await _show_admin_tickets(callback, seller_context)
+    elif action.action == "admin_plans":
+        await _show_admin_plans(callback, seller_context)
     elif action.action == "admin_ticket_detail":
         if not action.value:
             await callback.answer("Ticket is missing.", show_alert=True)
@@ -2667,6 +2682,46 @@ async def _send_admin_payments(message: Message, seller_context: SellerContextSe
         )
 
 
+async def _show_admin_orders(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        orders = await seller_context.list_provisioning_orders(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    rows = [_admin_order_row(item) for item in orders[:15]]
+    rows.extend(["", "Approved orders are ready for provisioning or renewal."])
+    await callback.message.edit_text(
+        "\n".join([title("Provision Orders"), section("Ready orders", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+    for item in orders[:5]:
+        is_renewal = item.order.order_type == OrderType.RENEWAL.value
+        await callback.message.answer(
+            _admin_order_card_text(item),
+            reply_markup=admin_order_actions(item.order.id, renewal=is_renewal),
+        )
+
+
+async def _send_admin_orders(message: Message, seller_context: SellerContextService) -> None:
+    try:
+        orders = await seller_context.list_provisioning_orders(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    rows = [_admin_order_row(item) for item in orders[:15]]
+    rows.extend(["", "Approved orders are ready for provisioning or renewal."])
+    await message.answer(
+        "\n".join([title("Provision Orders"), section("Ready orders", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+    for item in orders[:5]:
+        is_renewal = item.order.order_type == OrderType.RENEWAL.value
+        await message.answer(
+            _admin_order_card_text(item),
+            reply_markup=admin_order_actions(item.order.id, renewal=is_renewal),
+        )
+
+
 async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerContextService) -> None:
     try:
         pending = await seller_context.list_pending_wallet_charges(admin_telegram_id=callback.from_user.id)
@@ -2717,6 +2772,92 @@ async def _send_admin_wallet(message: Message, seller_context: SellerContextServ
             ),
             reply_markup=admin_wallet_charge_actions(item.id),
         )
+
+
+async def _show_admin_customers(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        customers = await seller_context.list_customers(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    rows = [_admin_customer_row(item) for item in customers[:20]]
+    await callback.message.edit_text(
+        "\n".join([title("Customers"), section("Recent customers", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+
+
+async def _send_admin_customers(message: Message, seller_context: SellerContextService) -> None:
+    try:
+        customers = await seller_context.list_customers(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    rows = [_admin_customer_row(item) for item in customers[:20]]
+    await message.answer(
+        "\n".join([title("Customers"), section("Recent customers", rows)]),
+        reply_markup=seller_admin_menu(),
+    )
+
+
+async def _show_admin_plans(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        plans = await seller_context.list_admin_plans(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    await callback.message.edit_text(_admin_plans_text(plans), reply_markup=seller_admin_menu())
+
+
+async def _send_admin_plans(message: Message, seller_context: SellerContextService) -> None:
+    try:
+        plans = await seller_context.list_admin_plans(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    await message.answer(_admin_plans_text(plans), reply_markup=seller_admin_menu())
+
+
+def _admin_order_row(item) -> str:
+    return (
+        f"- order={short_id(item.order.id)} | {item.order.order_type} | "
+        f"plan={item.plan.name} | amount={item.order.total_amount:,.0f}"
+    )
+
+
+def _admin_order_card_text(item) -> str:
+    return "\n".join(
+        [
+            title("Provision Order"),
+            f"Order ID: {item.order.id}",
+            f"Type: {item.order.order_type}",
+            f"Status: {status_label(item.order.status)}",
+            f"Buyer TG: {item.buyer.telegram_user_id}",
+            f"Plan: {item.plan.name}",
+            f"Amount: {item.order.total_amount:,.0f}",
+        ]
+    )
+
+
+def _admin_customer_row(item) -> str:
+    user = item.telegram_user
+    username = f"@{user.username}" if user.username else "-"
+    name = " ".join(part for part in [user.first_name, user.last_name] if part) or "-"
+    return (
+        f"- tg={user.id} | {username} | {name} | "
+        f"wallet={item.buyer.wallet_balance:,.0f} | id={short_id(item.buyer.id)}"
+    )
+
+
+def _admin_plans_text(plans) -> str:
+    rows = []
+    for plan in plans[:20]:
+        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        rows.append(
+            f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={short_id(plan.id)}"
+        )
+    rows.extend(["", "Plan creation and pricing are managed from the master bot for now."])
+    return "\n".join([title("Seller Plans"), section("Active plans", rows)])
 
 
 async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerContextService) -> None:

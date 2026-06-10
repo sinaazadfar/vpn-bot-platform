@@ -378,13 +378,13 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Replace `/admin` response with admin dashboard buttons.
 - [x] Add admin top-level buttons:
   - [x] Pending Payments
-  - [ ] Provision Orders
+  - [x] Provision Orders
   - [x] Wallet Charges
   - [x] Tickets
   - [x] Broadcast
   - [x] Sales Report
-  - [ ] Customers
-  - [ ] Plans
+  - [x] Customers
+  - [x] Plans
 - [x] Add pending payment list screen.
 - [x] Add payment detail screen with approve/reject buttons.
 - [x] Add provision order screen with confirm button.

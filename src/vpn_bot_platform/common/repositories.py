@@ -463,6 +463,38 @@ async def list_pending_payments_for_reseller(
     return list(result.all())
 
 
+async def list_provisioning_orders_for_reseller(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+) -> list[tuple[Order, Buyer, Plan]]:
+    result = await session.execute(
+        select(Order, Buyer, Plan)
+        .join(Buyer, Order.buyer_id == Buyer.id)
+        .join(Plan, Order.plan_id == Plan.id)
+        .where(
+            Order.reseller_id == reseller_id,
+            Order.status == OrderStatus.PROVISIONING.value,
+        )
+        .order_by(Order.updated_at.asc())
+    )
+    return list(result.all())
+
+
+async def list_customers_for_reseller(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+) -> list[tuple[Buyer, TelegramUser]]:
+    result = await session.execute(
+        select(Buyer, TelegramUser)
+        .join(TelegramUser, Buyer.telegram_user_id == TelegramUser.id)
+        .where(Buyer.reseller_id == reseller_id)
+        .order_by(Buyer.created_at.desc())
+    )
+    return list(result.all())
+
+
 async def get_buyer_order_status(
     session: AsyncSession,
     *,

@@ -130,9 +130,10 @@ def seller_buyer_reply_menu() -> ReplyKeyboardMarkup:
 def seller_admin_reply_menu() -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
-            ["Pending Payments", "Wallet Charges"],
-            ["Tickets", "Sales Report"],
-            ["Buyer Home"],
+            ["Pending Payments", "Provision Orders"],
+            ["Wallet Charges", "Customers"],
+            ["Tickets", "Plans"],
+            ["Sales Report", "Buyer Home"],
         ]
     )
 
@@ -303,16 +304,21 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
         [
             [
                 ("Pending Payments", build_callback("s", "admin_payments")),
+                ("Provision Orders", build_callback("s", "admin_orders")),
+            ],
+            [
                 ("Wallet Charges", build_callback("s", "admin_wallet")),
+                ("Customers", build_callback("s", "admin_customers")),
             ],
             [
                 ("Tickets", build_callback("s", "admin_tickets")),
-                ("Sales Report", build_callback("s", "admin_report")),
+                ("Plans", build_callback("s", "admin_plans")),
             ],
             [
+                ("Sales Report", build_callback("s", "admin_report")),
                 ("Broadcast", build_callback("s", "admin_broadcast")),
-                ("Buyer Home", build_callback("s", "home")),
             ],
+            [("Buyer Home", build_callback("s", "home"))],
         ]
     )
 
