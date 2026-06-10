@@ -185,6 +185,26 @@ async def assign_panel_to_reseller(
     return assignment
 
 
+async def get_panel_assignment(
+    session: AsyncSession,
+    *,
+    assignment_id: str,
+) -> ResellerPanelAssignment | None:
+    return await session.get(ResellerPanelAssignment, assignment_id)
+
+
+async def update_panel_assignment_routing(
+    session: AsyncSession,
+    *,
+    assignment: ResellerPanelAssignment,
+    priority: int,
+    weight: int,
+) -> ResellerPanelAssignment:
+    assignment.priority = priority
+    assignment.weight = weight
+    return assignment
+
+
 async def create_seller_bot(
     session: AsyncSession,
     *,
@@ -1131,6 +1151,20 @@ async def get_global_broadcast(
     return result.scalar_one_or_none()
 
 
+async def list_global_broadcasts(
+    session: AsyncSession,
+    *,
+    limit: int = 10,
+) -> list[Broadcast]:
+    result = await session.execute(
+        select(Broadcast)
+        .where(Broadcast.reseller_id.is_(None))
+        .order_by(Broadcast.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def reseller_sales_report(
     session: AsyncSession,
     *,
@@ -1267,6 +1301,17 @@ async def record_audit_log(
     )
     session.add(audit_log)
     return audit_log
+
+
+async def list_recent_audit_logs(
+    session: AsyncSession,
+    *,
+    limit: int = 10,
+) -> list[AuditLog]:
+    result = await session.execute(
+        select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+    )
+    return list(result.scalars().all())
 
 
 async def consume_rate_limit_token(

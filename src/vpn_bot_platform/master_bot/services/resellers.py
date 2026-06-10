@@ -28,6 +28,7 @@ from vpn_bot_platform.common.repositories import (
     get_global_broadcast,
     get_global_setting,
     get_discount_code,
+    get_panel_assignment,
     get_plan,
     global_sales_report,
     get_reseller_by_telegram_id,
@@ -35,7 +36,9 @@ from vpn_bot_platform.common.repositories import (
     list_all_plans,
     list_active_panel_assignments,
     list_discount_codes,
+    list_global_broadcasts,
     list_pending_broadcast_recipients,
+    list_recent_audit_logs,
     list_seller_bots,
     mark_broadcast_sent,
     record_audit_log,
@@ -45,6 +48,7 @@ from vpn_bot_platform.common.repositories import (
     set_plan_active,
     list_marzban_panels,
     list_resellers,
+    update_panel_assignment_routing,
     update_seller_runtime_state,
     update_reseller_profile,
     upsert_telegram_user,
@@ -62,6 +66,7 @@ from vpn_bot_platform.common.models import (
     DiscountType,
     Broadcast,
     BroadcastRecipient,
+    AuditLog,
 )
 from vpn_bot_platform.integrations.docker_runtime import seller_container_name
 from vpn_bot_platform.integrations.marzban import MarzbanClient, MarzbanCredentials
@@ -398,6 +403,37 @@ class ResellerService:
                     "priority": priority,
                     "weight": weight,
                 },
+            )
+            await session.flush()
+            return assignment
+
+    async def update_panel_assignment_routing(
+        self,
+        *,
+        assignment_id: str,
+        priority: int,
+        weight: int,
+        actor_telegram_id: int | None = None,
+    ) -> ResellerPanelAssignment:
+        async with session_scope() as session:
+            assignment = await get_panel_assignment(session, assignment_id=assignment_id)
+            if assignment is None:
+                raise ValueError("assignment_not_found")
+            await update_panel_assignment_routing(
+                session,
+                assignment=assignment,
+                priority=priority,
+                weight=weight,
+            )
+            await record_audit_log(
+                session,
+                action="reseller_panel.routing_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=assignment.reseller_id,
+                target_type="reseller_panel_assignment",
+                target_id=assignment.id,
+                metadata={"priority": priority, "weight": weight, "panel_id": assignment.panel_id},
             )
             await session.flush()
             return assignment
@@ -799,6 +835,17 @@ class ResellerService:
             )
             return BroadcastDraft(broadcast=broadcast, recipients=recipients)
 
+    async def get_global_broadcast(self, *, broadcast_id: str) -> Broadcast:
+        async with session_scope() as session:
+            broadcast = await get_global_broadcast(session, broadcast_id=broadcast_id)
+            if broadcast is None:
+                raise ValueError("broadcast_not_found")
+            return broadcast
+
+    async def list_global_broadcasts(self, *, limit: int = 10) -> list[Broadcast]:
+        async with session_scope() as session:
+            return await list_global_broadcasts(session, limit=limit)
+
     async def mark_global_broadcast_sent(
         self,
         *,
@@ -821,6 +868,10 @@ class ResellerService:
             await mark_broadcast_sent(session, broadcast=broadcast, recipients=delivered)
             await session.flush()
             return broadcast
+
+    async def recent_audit_logs(self, *, limit: int = 10) -> list[AuditLog]:
+        async with session_scope() as session:
+            return await list_recent_audit_logs(session, limit=limit)
 
     async def global_report(self, *, days: int = 1) -> dict[str, float | int]:
         async with session_scope() as session:

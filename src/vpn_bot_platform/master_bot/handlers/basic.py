@@ -14,14 +14,18 @@ from vpn_bot_platform.common.models import DiscountType, ResellerStatus
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
+    broadcast_actions,
     confirm_keyboard,
     discount_actions,
+    forced_join_menu,
     inline_keyboard,
     master_main_menu,
     master_section_menu,
     master_seller_bot_actions,
     panel_actions,
+    paginate,
     plan_actions,
+    reseller_list_menu,
     reseller_card_actions,
     reseller_detail_actions,
     reseller_actions,
@@ -99,6 +103,23 @@ class PanelAssignmentCreateStates(StatesGroup):
     admin_username = State()
     priority = State()
     weight = State()
+    confirm = State()
+
+
+class PanelAssignmentRoutingStates(StatesGroup):
+    priority = State()
+    weight = State()
+    confirm = State()
+
+
+class ForcedJoinCreateStates(StatesGroup):
+    chat_id = State()
+    title = State()
+    confirm = State()
+
+
+class ForcedJoinRemoveStates(StatesGroup):
+    chat_id = State()
     confirm = State()
 
 
@@ -182,11 +203,14 @@ async def master_menu_callback(
         await state.clear()
         await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
     elif action.action == "resellers":
+        page_number = _parse_positive_int(action.value) or 1
+        resellers = await reseller_service.list_resellers()
+        page = _paginate_resellers(resellers, page=page_number)
         await callback.message.edit_text(
-            await _resellers_text(reseller_service),
-            reply_markup=master_section_menu("resellers"),
+            _resellers_page_text(page),
+            reply_markup=reseller_list_menu(page=page.page, total_pages=page.total_pages),
         )
-        for reseller in (await reseller_service.list_resellers())[:5]:
+        for reseller in page.items:
             await callback.message.answer(
                 "\n".join(
                     [
@@ -218,6 +242,13 @@ async def master_menu_callback(
             text,
             reply_markup=reseller_detail_actions(reseller.telegram_user_id),
         )
+        if action.action == "reseller_panels":
+            assignments = await reseller_service.list_panel_assignments_for_reseller(reseller_id=reseller.id)
+            for item in assignments[:5]:
+                await callback.message.answer(
+                    _panel_assignment_detail_text(item.assignment),
+                    reply_markup=_panel_assignment_actions(item.assignment.id, reseller.telegram_user_id),
+                )
     elif action.action == "reseller_status_menu":
         if not action.value or not action.value.isdigit():
             await callback.answer("Invalid reseller.", show_alert=True)
@@ -733,6 +764,47 @@ async def master_menu_callback(
             "\n".join([title("Assignment Canceled"), "No panel assignment was created."]),
             reply_markup=master_section_menu("panels"),
         )
+    elif action.action == "panel_routing_edit":
+        if not action.value:
+            await callback.answer("Assignment is missing.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(panel_routing_assignment_id=action.value)
+        await state.set_state(PanelAssignmentRoutingStates.priority)
+        await callback.message.edit_text(
+            "\n".join([title("Edit Panel Routing"), "Send the new priority. Lower priority is tried first."]),
+            reply_markup=master_section_menu("panels"),
+        )
+    elif action.action == "panel_routing_update":
+        data = await state.get_data()
+        assignment_id = str(data.get("panel_routing_assignment_id") or "").strip()
+        priority = data.get("panel_routing_priority")
+        weight = data.get("panel_routing_weight")
+        if not assignment_id or priority is None or weight is None:
+            await callback.answer("Routing draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            assignment = await reseller_service.update_panel_assignment_routing(
+                assignment_id=assignment_id,
+                priority=int(priority),
+                weight=int(weight),
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Assignment not found.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _panel_assignment_detail_text(assignment),
+            reply_markup=_panel_assignment_actions(assignment.id),
+        )
+    elif action.action == "panel_routing_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Routing Canceled"), "No panel assignment was changed."]),
+            reply_markup=master_section_menu("panels"),
+        )
     elif action.action == "plans":
         await callback.message.edit_text(
             await _plans_text(reseller_service),
@@ -1034,10 +1106,94 @@ async def master_menu_callback(
         )
     elif action.action == "broadcasts":
         await callback.message.edit_text(
-            _button_guide_text(
-                "Broadcasts",
-                "Create a draft first, then send it after review.",
-                ["/global_broadcast <title> | <message>", "/send_global_broadcast <broadcast_id>"],
+            await _broadcast_history_text(reseller_service),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+        for broadcast in (await reseller_service.list_global_broadcasts(limit=5)):
+            await callback.message.answer(
+                _broadcast_card_text(broadcast),
+                reply_markup=broadcast_actions(broadcast.id, status=broadcast.status),
+            )
+    elif action.action == "broadcast_history":
+        await callback.message.edit_text(
+            await _broadcast_history_text(reseller_service),
+            reply_markup=master_section_menu("broadcasts"),
+        )
+        for broadcast in (await reseller_service.list_global_broadcasts(limit=5)):
+            await callback.message.answer(
+                _broadcast_card_text(broadcast),
+                reply_markup=broadcast_actions(broadcast.id, status=broadcast.status),
+            )
+    elif action.action == "broadcast_detail":
+        if not action.value:
+            await callback.answer("Broadcast is missing.", show_alert=True)
+            return
+        try:
+            broadcast = await reseller_service.get_global_broadcast(broadcast_id=action.value)
+        except ValueError:
+            await callback.answer("Broadcast not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _broadcast_detail_text(broadcast),
+            reply_markup=broadcast_actions(broadcast.id, status=broadcast.status),
+        )
+    elif action.action == "broadcast_send_confirm":
+        if not action.value:
+            await callback.answer("Broadcast is missing.", show_alert=True)
+            return
+        try:
+            draft = await reseller_service.get_global_broadcast_recipients(broadcast_id=action.value)
+        except ValueError:
+            await callback.answer("Broadcast not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Send Broadcast"),
+                    f"ID: {draft.broadcast.id}",
+                    f"Title: {draft.broadcast.title}",
+                    f"Pending targets: {len(draft.recipients)}",
+                    "",
+                    "Confirm to send this message to all pending recipients.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="m",
+                confirm_action="broadcast_send_apply",
+                cancel_action="broadcast_history",
+                value=draft.broadcast.id,
+            ),
+        )
+    elif action.action == "broadcast_send_apply":
+        if not action.value:
+            await callback.answer("Broadcast is missing.", show_alert=True)
+            return
+        try:
+            draft = await reseller_service.get_global_broadcast_recipients(broadcast_id=action.value)
+        except ValueError:
+            await callback.answer("Broadcast not found.", show_alert=True)
+            return
+        delivered: set[int] = set()
+        for recipient in draft.recipients:
+            try:
+                await callback.bot.send_message(
+                    recipient.telegram_user_id,
+                    "\n".join([title(draft.broadcast.title), draft.broadcast.body]),
+                )
+            except TelegramAPIError:
+                continue
+            delivered.add(recipient.telegram_user_id)
+        broadcast = await reseller_service.mark_global_broadcast_sent(
+            broadcast_id=draft.broadcast.id,
+            delivered_telegram_ids=delivered,
+        )
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Broadcast Sent"),
+                    f"ID: {broadcast.id}",
+                    f"Delivered: {len(delivered)}/{draft.broadcast.target_count}",
+                ]
             ),
             reply_markup=master_section_menu("broadcasts"),
         )
@@ -1089,22 +1245,85 @@ async def master_menu_callback(
         )
     elif action.action == "settings":
         await callback.message.edit_text(
-            _button_guide_text(
-                "Settings",
-                "Use these controls for channel and platform configuration.",
-                ["/set_forced_join <chat_id> [title]"],
-            ),
+            _settings_text(),
+            reply_markup=master_section_menu("settings"),
+        )
+    elif action.action == "settings_forced_join":
+        await callback.message.edit_text(
+            await _forced_join_text(reseller_service),
+            reply_markup=forced_join_menu(),
+        )
+    elif action.action in {"settings_rate_limits", "settings_trial", "settings_payments"}:
+        await callback.message.edit_text(
+            _settings_detail_text(action.action),
             reply_markup=master_section_menu("settings"),
         )
     elif action.action == "system":
         await callback.message.edit_text(
-            _button_guide_text("System", "Choose a report range below.", []),
+            await _system_text(reseller_service),
+            reply_markup=master_section_menu("system"),
+        )
+    elif action.action in {"system_health", "system_version", "system_backup", "system_errors"}:
+        await callback.message.edit_text(
+            _system_detail_text(action.action),
+            reply_markup=master_section_menu("system"),
+        )
+    elif action.action == "system_audit":
+        await callback.message.edit_text(
+            await _recent_audit_text(reseller_service),
             reply_markup=master_section_menu("system"),
         )
     elif action.action == "list_forced_join":
         await callback.message.edit_text(
             await _forced_join_text(reseller_service),
-            reply_markup=master_section_menu("settings"),
+            reply_markup=forced_join_menu(),
+        )
+    elif action.action == "forced_join_add":
+        await state.clear()
+        await state.set_state(ForcedJoinCreateStates.chat_id)
+        await callback.message.edit_text(
+            "\n".join([title("Add Forced Join"), "Send the required chat ID or public @username."]),
+            reply_markup=forced_join_menu(),
+        )
+    elif action.action == "forced_join_remove":
+        await state.clear()
+        await state.set_state(ForcedJoinRemoveStates.chat_id)
+        await callback.message.edit_text(
+            "\n".join([title("Remove Forced Join"), "Send the chat ID or @username to remove."]),
+            reply_markup=forced_join_menu(),
+        )
+    elif action.action == "forced_join_create":
+        data = await state.get_data()
+        chat_id = str(data.get("forced_join_chat_id") or "").strip()
+        chat_title = str(data.get("forced_join_title") or "").strip() or None
+        if not chat_id:
+            await callback.answer("Forced join draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        chats = await reseller_service.get_forced_join_chats()
+        chats = [chat for chat in chats if chat.chat_id != chat_id]
+        chats.append(ForcedJoinChat(chat_id=chat_id, title=chat_title))
+        await reseller_service.set_forced_join_chats(chats=chats)
+        await state.clear()
+        await callback.message.edit_text(
+            await _forced_join_text(reseller_service),
+            reply_markup=forced_join_menu(),
+        )
+    elif action.action == "forced_join_remove_apply":
+        data = await state.get_data()
+        chat_id = str(data.get("forced_join_remove_chat_id") or "").strip()
+        chats = [chat for chat in await reseller_service.get_forced_join_chats() if chat.chat_id != chat_id]
+        await reseller_service.set_forced_join_chats(chats=chats)
+        await state.clear()
+        await callback.message.edit_text(
+            await _forced_join_text(reseller_service),
+            reply_markup=forced_join_menu(),
+        )
+    elif action.action in {"forced_join_cancel", "forced_join_remove_cancel"}:
+        await state.clear()
+        await callback.message.edit_text(
+            await _forced_join_text(reseller_service),
+            reply_markup=forced_join_menu(),
         )
     elif action.action == "guide_add_reseller":
         await state.clear()
@@ -2072,6 +2291,140 @@ async def panel_assignment_waiting_for_confirmation(message: Message) -> None:
     )
 
 
+@router.message(PanelAssignmentRoutingStates.priority)
+async def panel_assignment_routing_priority(message: Message, state: FSMContext) -> None:
+    priority = _parse_positive_int(message.text)
+    if priority is None:
+        await message.answer(
+            "\n".join([title("Edit Panel Routing"), "Send a valid priority number. Example: 100"]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_routing_priority=priority)
+    await state.set_state(PanelAssignmentRoutingStates.weight)
+    await message.answer(
+        "\n".join([title("Edit Panel Routing"), "Send the new weight. Example: 1"]),
+        reply_markup=master_section_menu("panels"),
+    )
+
+
+@router.message(PanelAssignmentRoutingStates.weight)
+async def panel_assignment_routing_weight(message: Message, state: FSMContext) -> None:
+    weight = _parse_positive_int(message.text)
+    if weight is None:
+        await message.answer(
+            "\n".join([title("Edit Panel Routing"), "Send a valid weight number. Example: 1"]),
+            reply_markup=master_section_menu("panels"),
+        )
+        return
+    await state.update_data(panel_routing_weight=weight)
+    await state.set_state(PanelAssignmentRoutingStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Routing"),
+                f"Assignment ID: {data.get('panel_routing_assignment_id')}",
+                f"Priority: {data.get('panel_routing_priority')}",
+                f"Weight: {data.get('panel_routing_weight')}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="panel_routing_update",
+            cancel_action="panel_routing_cancel",
+        ),
+    )
+
+
+@router.message(PanelAssignmentRoutingStates.confirm)
+async def panel_assignment_routing_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Routing"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(ForcedJoinCreateStates.chat_id)
+async def forced_join_create_chat_id(message: Message, state: FSMContext) -> None:
+    chat_id = (message.text or "").strip()
+    if not chat_id or chat_id.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Forced Join"), "Send a chat ID or @username, not a command."]),
+            reply_markup=forced_join_menu(),
+        )
+        return
+    await state.update_data(forced_join_chat_id=chat_id[:128])
+    await state.set_state(ForcedJoinCreateStates.title)
+    await message.answer(
+        "\n".join([title("Add Forced Join"), "Send the display title for users, or - to use the ID."]),
+        reply_markup=forced_join_menu(),
+    )
+
+
+@router.message(ForcedJoinCreateStates.title)
+async def forced_join_create_title(message: Message, state: FSMContext) -> None:
+    raw_title = (message.text or "").strip()
+    if not raw_title or raw_title.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Forced Join"), "Send a title or - to skip."]),
+            reply_markup=forced_join_menu(),
+        )
+        return
+    chat_title = None if raw_title == "-" else raw_title[:128]
+    await state.update_data(forced_join_title=chat_title)
+    await state.set_state(ForcedJoinCreateStates.confirm)
+    data = await state.get_data()
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Forced Join"),
+                f"Chat: {data.get('forced_join_chat_id')}",
+                f"Title: {data.get('forced_join_title') or '-'}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="forced_join_create",
+            cancel_action="forced_join_cancel",
+        ),
+    )
+
+
+@router.message(ForcedJoinCreateStates.confirm)
+async def forced_join_create_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Forced Join"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(ForcedJoinRemoveStates.chat_id)
+async def forced_join_remove_chat_id(message: Message, state: FSMContext) -> None:
+    chat_id = (message.text or "").strip()
+    if not chat_id or chat_id.startswith("/"):
+        await message.answer(
+            "\n".join([title("Remove Forced Join"), "Send a chat ID or @username, not a command."]),
+            reply_markup=forced_join_menu(),
+        )
+        return
+    await state.update_data(forced_join_remove_chat_id=chat_id[:128])
+    await state.set_state(ForcedJoinRemoveStates.confirm)
+    await message.answer(
+        "\n".join([title("Confirm Remove Forced Join"), f"Chat: {chat_id[:128]}"]),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="forced_join_remove_apply",
+            cancel_action="forced_join_remove_cancel",
+        ),
+    )
+
+
+@router.message(ForcedJoinRemoveStates.confirm)
+async def forced_join_remove_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Remove Forced Join"), "Use Confirm or Cancel below the preview."])
+    )
+
+
 @router.message(Command("add_reseller"))
 async def add_reseller(
     message: Message,
@@ -2529,6 +2882,19 @@ async def _resellers_text(reseller_service: ResellerService) -> str:
     return "\n".join([title("Resellers"), section("Latest resellers", rows)])
 
 
+def _paginate_resellers(resellers, *, page: int):
+    return paginate(list(resellers), page=page, per_page=5)
+
+
+def _resellers_page_text(page) -> str:
+    rows = [
+        f"- {reseller.display_name} | {status_label(reseller.status)} | tg={reseller.telegram_user_id}"
+        for reseller in page.items
+    ]
+    rows.extend(["", f"Page: {page.page}/{page.total_pages}", f"Total: {page.total_items}"])
+    return "\n".join([title("Resellers"), section("Resellers", rows)])
+
+
 async def _find_reseller_by_telegram_id(reseller_service: ResellerService, *, telegram_id: int):
     resellers = await reseller_service.list_resellers()
     return next((reseller for reseller in resellers if reseller.telegram_user_id == telegram_id), None)
@@ -2637,6 +3003,17 @@ def _panel_assignment_detail_text(assignment) -> str:
             f"Status: {status_label('active' if assignment.is_active else 'disabled')}",
         ]
     )
+
+
+def _panel_assignment_actions(assignment_id: str, reseller_telegram_id: int | None = None):
+    rows = [
+        [("Edit Priority/Weight", f"m:panel_routing_edit:{assignment_id}")],
+    ]
+    if reseller_telegram_id is not None:
+        rows.append([("Back", f"m:reseller_panels:{reseller_telegram_id}"), ("Home", "m:home")])
+    else:
+        rows.append([("Panels", "m:panels"), ("Home", "m:home")])
+    return inline_keyboard(rows)
 
 
 def _panel_detail_text(detail) -> str:
@@ -2761,6 +3138,139 @@ def _discount_card_text(discount) -> str:
             f"ID: {discount.id}",
         ]
     )
+
+
+async def _broadcast_history_text(reseller_service: ResellerService) -> str:
+    broadcasts = await reseller_service.list_global_broadcasts(limit=10)
+    rows = [
+        (
+            f"- {item.title} | {status_label(item.status)} | "
+            f"{item.sent_count}/{item.target_count} | id={short_id(item.id)}"
+        )
+        for item in broadcasts
+    ]
+    rows.extend(["", "Create drafts, review them, then send with confirmation."])
+    return "\n".join([title("Broadcasts"), section("Recent global broadcasts", rows)])
+
+
+def _broadcast_card_text(broadcast) -> str:
+    return "\n".join(
+        [
+            title("Broadcast Action"),
+            f"Title: {broadcast.title}",
+            f"Status: {status_label(broadcast.status)}",
+            f"Targets: {broadcast.sent_count}/{broadcast.target_count}",
+            f"ID: {broadcast.id}",
+        ]
+    )
+
+
+def _broadcast_detail_text(broadcast) -> str:
+    body = " ".join((broadcast.body or "").split())
+    if len(body) > 900:
+        body = f"{body[:900]}..."
+    return "\n".join(
+        [
+            title("Broadcast Detail"),
+            f"ID: {broadcast.id}",
+            f"Title: {broadcast.title}",
+            f"Status: {status_label(broadcast.status)}",
+            f"Targets: {broadcast.sent_count}/{broadcast.target_count}",
+            f"Created: {broadcast.created_at:%Y-%m-%d %H:%M}",
+            f"Sent: {broadcast.sent_at:%Y-%m-%d %H:%M}" if broadcast.sent_at else "Sent: -",
+            "",
+            body,
+        ]
+    )
+
+
+def _settings_text() -> str:
+    return "\n".join(
+        [
+            title("Settings"),
+            "Choose the setting group to view or change.",
+            "",
+            "- Forced join controls required channels/groups.",
+            "- Rate limits are configured by environment.",
+            "- Trial and payment settings show the current operating mode.",
+        ]
+    )
+
+
+def _settings_detail_text(action: str) -> str:
+    details = {
+        "settings_rate_limits": [
+            title("Rate Limits"),
+            "Bot action limits are enforced per user and command.",
+            "Runtime setting: BOT_RATE_LIMIT_PER_MINUTE.",
+        ],
+        "settings_trial": [
+            title("Trial Settings"),
+            "Trial accounts use anti-abuse checks per buyer/reseller.",
+            "Plan limits are controlled by the seller service configuration.",
+        ],
+        "settings_payments": [
+            title("Payment Instructions"),
+            "Card-to-card is the active adapter.",
+            "Gateway adapters can be added without changing buyer flows.",
+        ],
+    }
+    return "\n".join(details.get(action, [title("Settings"), "Unknown setting group."]))
+
+
+async def _system_text(reseller_service: ResellerService) -> str:
+    resellers = await reseller_service.list_resellers()
+    seller_bots = await reseller_service.list_seller_bots()
+    panels = await reseller_service.list_marzban_panels()
+    return "\n".join(
+        [
+            title("System"),
+            f"Health: {status_label('active')}",
+            f"Resellers: {len(resellers)}",
+            f"Seller bots: {len(seller_bots)}",
+            f"Panels: {len(panels)}",
+            "",
+            "Use the buttons below for version, backup, audit, and error checks.",
+        ]
+    )
+
+
+def _system_detail_text(action: str) -> str:
+    details = {
+        "system_health": [
+            title("Healthcheck"),
+            f"Master bot: {status_label('running')}",
+            "Database: available through active service queries.",
+        ],
+        "system_version": [
+            title("Deploy Version"),
+            "Version is tracked by the deployed Git commit on server-04.",
+            "Use CI/CD logs or SSH deploy output for the exact hash.",
+        ],
+        "system_backup": [
+            title("Backup Timer"),
+            "Postgres backup is configured during deploy on server-04.",
+            "Timer status is available from the host with systemctl.",
+        ],
+        "system_errors": [
+            title("Recent Errors"),
+            "Runtime errors are visible from Docker logs and seller bot health screens.",
+            "No secrets are shown in this screen.",
+        ],
+    }
+    return "\n".join(details.get(action, [title("System"), "Unknown system screen."]))
+
+
+async def _recent_audit_text(reseller_service: ResellerService) -> str:
+    logs = await reseller_service.recent_audit_logs(limit=10)
+    rows = [
+        (
+            f"- {item.created_at:%m-%d %H:%M} | {item.action} | "
+            f"actor={item.actor_telegram_id or '-'} | target={short_id(item.target_id)}"
+        )
+        for item in logs
+    ]
+    return "\n".join([title("Recent Audit Logs"), section("Audit", rows)])
 
 
 def _button_guide_text(name: str, description: str, examples: list[str]) -> str:

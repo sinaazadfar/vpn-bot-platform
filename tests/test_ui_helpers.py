@@ -8,8 +8,11 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
+    broadcast_actions,
     confirm_keyboard,
     discount_actions,
+    forced_join_blocked_menu,
+    forced_join_menu,
     master_main_menu,
     master_reply_menu,
     master_section_menu,
@@ -28,6 +31,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     reseller_actions,
     reseller_card_actions,
     reseller_detail_actions,
+    reseller_list_menu,
     seller_section_menu,
     service_actions,
     seller_admin_reply_menu,
@@ -67,6 +71,7 @@ def test_callback_rejects_too_long_data() -> None:
 def test_main_menus_have_buttons() -> None:
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
+    assert reseller_list_menu(page=1, total_pages=3).inline_keyboard
     assert panel_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert reseller_card_actions(12345).inline_keyboard
     assert reseller_detail_actions(12345).inline_keyboard
@@ -75,6 +80,8 @@ def test_main_menus_have_buttons() -> None:
     assert seller_report_menu().inline_keyboard
     assert wallet_charge_menu().inline_keyboard
     assert support_menu().inline_keyboard
+    assert forced_join_menu().inline_keyboard
+    assert forced_join_blocked_menu().inline_keyboard
     assert master_reply_menu().keyboard
     assert seller_buyer_reply_menu().keyboard
     assert seller_admin_reply_menu().keyboard
@@ -94,6 +101,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_section_menu("settings"),
         master_section_menu("system"),
         reseller_actions(123456789),
+        reseller_list_menu(page=1, total_pages=3),
         reseller_card_actions(123456789),
         reseller_detail_actions(123456789),
         panel_actions(uuid),
@@ -101,6 +109,10 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         plan_actions(uuid, is_active=False),
         discount_actions(uuid),
         discount_actions(uuid, is_active=False),
+        broadcast_actions(uuid),
+        broadcast_actions(uuid, status="sent"),
+        forced_join_menu(),
+        forced_join_blocked_menu(),
         master_seller_bot_actions(uuid),
         seller_buyer_menu(),
         seller_admin_menu(),

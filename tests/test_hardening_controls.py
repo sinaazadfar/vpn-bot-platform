@@ -8,7 +8,31 @@ from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine, 
 from vpn_bot_platform.common.models import MarzbanPanel, ResellerPanelAssignment
 from vpn_bot_platform.common.repositories import consume_rate_limit_token
 from vpn_bot_platform.integrations.payments import CardToCardGatewayAdapter
+from vpn_bot_platform.master_bot.filters import SuperUserFilter
 from vpn_bot_platform.seller_bot.panel_routing import PanelRouter
+
+
+class _Settings:
+    super_user_telegram_id = 252486544
+
+
+class _User:
+    def __init__(self, user_id: int) -> None:
+        self.id = user_id
+
+
+class _Event:
+    def __init__(self, user_id: int | None) -> None:
+        self.from_user = _User(user_id) if user_id is not None else None
+
+
+@pytest.mark.asyncio
+async def test_super_user_filter_allows_only_owner_events() -> None:
+    user_filter = SuperUserFilter(_Settings())  # type: ignore[arg-type]
+
+    assert await user_filter(_Event(252486544)) is True  # type: ignore[arg-type]
+    assert await user_filter(_Event(123)) is False  # type: ignore[arg-type]
+    assert await user_filter(_Event(None)) is False  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

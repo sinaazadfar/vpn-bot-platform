@@ -16,6 +16,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_wallet_charge_actions,
     buyer_ticket_actions,
     confirm_keyboard,
+    forced_join_blocked_menu,
     payment_request_actions,
     plan_buy_button,
     purchase_confirm_menu,
@@ -3030,5 +3031,6 @@ async def _blocked_by_forced_join(message: Message) -> bool:
     lines = ["Please join required channel/group first:"]
     for chat in missing:
         lines.append(f"- {chat.title or chat.chat_id}")
-    await message.answer("\n".join(lines))
+    lines.extend(["", "After joining, press Check Again."])
+    await message.answer("\n".join(lines), reply_markup=forced_join_blocked_menu())
     return True

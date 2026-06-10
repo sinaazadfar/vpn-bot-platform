@@ -199,17 +199,23 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
         rows.append(
             [
                 ("Create Broadcast", build_callback("m", "guide_global_broadcast")),
-                ("Send Broadcast", build_callback("m", "guide_send_global_broadcast")),
+                ("Drafts", build_callback("m", "broadcast_history")),
             ]
         )
     elif section == "settings":
         rows.append(
             [
-                ("Forced Join", build_callback("m", "guide_set_forced_join")),
-                ("List Forced Join", build_callback("m", "list_forced_join")),
+                ("Forced Join", build_callback("m", "settings_forced_join")),
+                ("Rate Limits", build_callback("m", "settings_rate_limits")),
             ]
         )
-    elif section in {"reports", "system"}:
+        rows.append(
+            [
+                ("Trial", build_callback("m", "settings_trial")),
+                ("Payments", build_callback("m", "settings_payments")),
+            ]
+        )
+    elif section == "reports":
         rows.append(
             [
                 ("Today", build_callback("m", "report_1")),
@@ -218,6 +224,20 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
             ]
         )
         rows.append([("Custom Days", build_callback("m", "report_custom"))])
+    elif section == "system":
+        rows.append(
+            [
+                ("Health", build_callback("m", "system_health")),
+                ("Version", build_callback("m", "system_version")),
+            ]
+        )
+        rows.append(
+            [
+                ("Backup", build_callback("m", "system_backup")),
+                ("Audit Logs", build_callback("m", "system_audit")),
+            ]
+        )
+        rows.append([("Recent Errors", build_callback("m", "system_errors"))])
     rows.append(
         nav_row(scope="m", refresh_action=section, home_action="home")
     )
@@ -277,6 +297,20 @@ def reseller_detail_actions(telegram_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def reseller_list_menu(*, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [
+        [
+            ("Add Reseller", build_callback("m", "guide_add_reseller")),
+            ("Rename", build_callback("m", "guide_rename_reseller")),
+        ]
+    ]
+    page_row = pagination_row(scope="m", action="resellers", page=page, total_pages=total_pages)
+    if page_row:
+        rows.append(page_row)
+    rows.append(nav_row(scope="m", refresh_action="resellers", home_action="home"))
+    return inline_keyboard(rows)
+
+
 def panel_actions(panel_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
@@ -331,6 +365,35 @@ def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
             [("Refresh Logs", build_callback("m", "seller_logs", seller_bot_id))],
             [("Disable", build_callback("m", "seller_disable", seller_bot_id))],
             [("Back", build_callback("m", "seller_bots")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
+def broadcast_actions(broadcast_id: str, *, status: str = "draft") -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [[("Details", build_callback("m", "broadcast_detail", broadcast_id))]]
+    if status == "draft":
+        rows.append([("Send", build_callback("m", "broadcast_send_confirm", broadcast_id))])
+    rows.append([("Back", build_callback("m", "broadcast_history")), ("Home", build_callback("m", "home"))])
+    return inline_keyboard(rows)
+
+
+def forced_join_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Add Chat", build_callback("m", "forced_join_add")),
+                ("List Chats", build_callback("m", "list_forced_join")),
+            ],
+            [("Remove Chat", build_callback("m", "forced_join_remove"))],
+            [("Back", build_callback("m", "settings")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
+def forced_join_blocked_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [("Check Again", build_callback("s", "home"))],
         ]
     )
 

@@ -39,6 +39,7 @@ async def run() -> None:
         )
     )
     basic_router.message.filter(SuperUserFilter(settings))
+    basic_router.callback_query.filter(SuperUserFilter(settings))
     dp.include_router(basic_router)
 
     while True:

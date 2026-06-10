@@ -150,7 +150,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Master Bot Reseller UX
 
-- [ ] Add reseller list screen with pagination.
+- [x] Add reseller list screen with pagination.
 - [x] Add reseller detail screen with status, Telegram ID, wallet balance, and seller bot count.
 - [x] Add reseller action buttons:
   - [x] Rename
@@ -172,12 +172,12 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Show updated reseller action screen.
 - [x] Add confirm dialog for suspend/disable.
 - [x] Add audit log entries for button-based reseller changes.
-- [ ] Keep slash commands:
-  - [ ] `/add_reseller`
-  - [ ] `/rename_reseller`
-  - [ ] `/set_reseller_status`
-  - [ ] `/disable_reseller`
-  - [ ] `/list_resellers`
+- [x] Keep slash commands:
+  - [x] `/add_reseller`
+  - [x] `/rename_reseller`
+  - [x] `/set_reseller_status`
+  - [x] `/disable_reseller`
+  - [x] `/list_resellers`
 
 ### Master Bot Seller Bot UX
 
@@ -203,9 +203,9 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Ask token.
   - [x] Validate token format.
   - [x] Confirm registration.
-  - [ ] Optionally start immediately.
+  - [x] Optionally start immediately.
 - [x] Add log viewer with truncated Telegram-safe code block and refresh button.
-- [ ] Keep slash commands for power users.
+- [x] Keep slash commands for power users.
 
 ### Master Bot Panel UX
 
@@ -216,7 +216,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Auth type
   - [x] Active status
   - [x] Assignment count
-- [ ] Add panel action buttons:
+- [x] Add panel action buttons:
   - [x] Add Token Panel
   - [x] Add Password Panel
   - [x] Assign To Reseller
@@ -231,7 +231,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Ask priority.
   - [x] Ask weight.
   - [x] Confirm assignment.
-- [ ] Add priority/weight editing buttons for multi-panel routing.
+- [x] Add priority/weight editing buttons for multi-panel routing.
 
 ### Master Bot Plans And Discounts UX
 
@@ -252,35 +252,35 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 
 ### Master Bot Broadcasts, Reports, Settings, And System UX
 
-- [ ] Add broadcast compose FSM:
+- [x] Add broadcast compose FSM:
   - [x] Ask title.
   - [x] Ask message.
   - [x] Preview.
   - [x] Confirm draft creation.
-  - [ ] Confirm send.
-- [ ] Add global broadcast history screen.
-- [ ] Add report menu:
+  - [x] Confirm send.
+- [x] Add global broadcast history screen.
+- [x] Add report menu:
   - [x] Today
   - [x] Last 7 days
   - [x] Last 30 days
   - [x] Custom days
-- [ ] Add settings menu:
-  - [ ] Forced join settings
-  - [ ] Rate limit settings
-  - [ ] Trial settings
-  - [ ] Payment instructions
-- [ ] Add forced join guided flow:
-  - [ ] Add required chat.
-  - [ ] List required chats.
-  - [ ] Remove required chat.
-- [ ] Add system menu:
-  - [ ] Healthcheck
-  - [ ] Deploy version
-  - [ ] Backup timer status
-  - [ ] Recent audit logs
-  - [ ] Recent errors
-- [ ] Add button action for reading recent audit logs from `audit_logs`.
-- [ ] Add button action for showing backup timer status on `server-04` where available.
+- [x] Add settings menu:
+  - [x] Forced join settings
+  - [x] Rate limit settings
+  - [x] Trial settings
+  - [x] Payment instructions
+- [x] Add forced join guided flow:
+  - [x] Add required chat.
+  - [x] List required chats.
+  - [x] Remove required chat.
+- [x] Add system menu:
+  - [x] Healthcheck
+  - [x] Deploy version
+  - [x] Backup timer status
+  - [x] Recent audit logs
+  - [x] Recent errors
+- [x] Add button action for reading recent audit logs from `audit_logs`.
+- [x] Add button action for showing backup timer status on `server-04` where available.
 
 ### Seller Bot Buyer Main Menu
 
@@ -294,7 +294,7 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
   - [x] Support
   - [x] Guides
 - [x] Add persistent reply keyboard for buyer shortcuts if it does not clutter admin usage.
-- [ ] Add forced-join blocked screen with required chat buttons.
+- [x] Add forced-join blocked screen with required chat buttons.
 - [x] Add tests for buyer dashboard keyboard.
 
 ### Seller Bot Buyer Purchase UX
@@ -404,29 +404,29 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Add FSM state groups for master seller bot flows.
 - [x] Add FSM state groups for master panel flows.
 - [x] Add FSM state groups for master plan/discount/broadcast/settings flows.
-- [ ] Add FSM state groups for seller purchase/renew/wallet/ticket flows.
+- [x] Add FSM state groups for seller purchase/renew/wallet/ticket flows.
 - [x] Add central cancel handler.
 - [x] Add stale-state recovery: Home/Cancel should clear state.
-- [ ] Add permission checks to every callback handler.
+- [x] Add permission checks to every callback handler.
 - [x] Add callback data size tests.
-- [ ] Add tests for critical FSM transitions.
+- [x] Add tests for critical FSM transitions.
 
 ### Visual Polish Rules
 
-- [ ] Use concise titles and sections instead of long paragraphs.
-- [ ] Keep IDs visible but compact.
-- [ ] Use consistent status icons and labels.
-- [ ] Use confirmation screens for destructive actions.
-- [ ] Use message edits for menu navigation where possible to reduce chat spam.
-- [ ] Use new messages for important receipts, QR codes, and final confirmations.
+- [x] Use concise titles and sections instead of long paragraphs.
+- [x] Keep IDs visible but compact.
+- [x] Use consistent status icons and labels.
+- [x] Use confirmation screens for destructive actions.
+- [x] Use message edits for menu navigation where possible to reduce chat spam.
+- [x] Use new messages for important receipts, QR codes, and final confirmations.
 - [x] Truncate logs and long broadcasts safely.
-- [ ] Avoid exposing secrets in any UI screen or log output.
+- [x] Avoid exposing secrets in any UI screen or log output.
 
 ### Phase 7 Deliverables
 
-- [ ] Master bot can be operated mostly through buttons.
-- [ ] Seller buyer flows can be operated mostly through buttons.
-- [ ] Seller admin flows can be operated mostly through buttons.
-- [ ] Existing slash commands still work.
-- [ ] Tests cover keyboard builders, callback parsing, permission checks, and critical FSM flows.
+- [x] Master bot can be operated mostly through buttons.
+- [x] Seller buyer flows can be operated mostly through buttons.
+- [x] Seller admin flows can be operated mostly through buttons.
+- [x] Existing slash commands still work.
+- [x] Tests cover keyboard builders, callback parsing, permission checks, and critical FSM flows.
 - [ ] Production deploy verifies the new button UX starts without polling/runtime errors.
