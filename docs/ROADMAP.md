@@ -236,19 +236,19 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### Master Bot Plans And Discounts UX
 
 - [x] Add global/reseller plan list screen.
-- [ ] Add plan detail screen.
+- [x] Add plan detail screen.
 - [x] Add guided FSM flow for creating global plan.
 - [x] Add guided FSM flow for creating reseller plan.
-- [ ] Add plan enable/disable buttons.
+- [x] Add plan enable/disable buttons.
 - [x] Add discount list screen.
-- [ ] Add discount detail screen.
+- [x] Add discount detail screen.
 - [x] Add guided FSM flow for creating discount:
   - [x] Ask code.
   - [x] Ask percent/fixed.
   - [x] Ask amount.
   - [x] Ask max uses.
   - [x] Confirm.
-- [ ] Add discount enable/disable buttons.
+- [x] Add discount enable/disable buttons.
 
 ### Master Bot Broadcasts, Reports, Settings, And System UX
 

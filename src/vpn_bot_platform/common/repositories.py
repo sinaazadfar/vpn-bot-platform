@@ -355,6 +355,15 @@ async def list_all_plans(session: AsyncSession) -> list[Plan]:
     return list(result.scalars().all())
 
 
+async def get_plan(session: AsyncSession, *, plan_id: str) -> Plan | None:
+    return await session.get(Plan, plan_id)
+
+
+async def set_plan_active(session: AsyncSession, *, plan: Plan, is_active: bool) -> Plan:
+    plan.is_active = is_active
+    return plan
+
+
 async def get_active_plan_for_reseller(
     session: AsyncSession,
     *,
@@ -453,6 +462,20 @@ async def list_discount_codes(session: AsyncSession) -> list[DiscountCode]:
         select(DiscountCode).order_by(DiscountCode.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def get_discount_code(session: AsyncSession, *, discount_id: str) -> DiscountCode | None:
+    return await session.get(DiscountCode, discount_id)
+
+
+async def set_discount_code_active(
+    session: AsyncSession,
+    *,
+    discount: DiscountCode,
+    is_active: bool,
+) -> DiscountCode:
+    discount.is_active = is_active
+    return discount
 
 
 def apply_discount_amount(*, price: float, discount: DiscountCode | None) -> float:

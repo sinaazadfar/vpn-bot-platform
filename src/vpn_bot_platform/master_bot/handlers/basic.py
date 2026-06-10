@@ -15,11 +15,13 @@ from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     confirm_keyboard,
+    discount_actions,
     inline_keyboard,
     master_main_menu,
     master_section_menu,
     master_seller_bot_actions,
     panel_actions,
+    plan_actions,
     reseller_card_actions,
     reseller_detail_actions,
     reseller_actions,
@@ -736,6 +738,54 @@ async def master_menu_callback(
             await _plans_text(reseller_service),
             reply_markup=master_section_menu("plans"),
         )
+        for plan in (await reseller_service.list_plans())[:5]:
+            await callback.message.answer(
+                _plan_card_text(plan),
+                reply_markup=plan_actions(plan.id, is_active=plan.is_active),
+            )
+    elif action.action == "plan_detail":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        try:
+            plan = await reseller_service.get_plan(plan_id=action.value)
+        except ValueError:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _plan_detail_text(plan),
+            reply_markup=plan_actions(plan.id, is_active=plan.is_active),
+        )
+    elif action.action == "plan_disable_confirm":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join([title("Disable Plan"), f"Plan ID: {action.value}", "", "Confirm to hide this plan from buyers."]),
+            reply_markup=confirm_keyboard(
+                scope="m",
+                confirm_action="plan_disable_apply",
+                cancel_action="plans",
+                value=action.value,
+            ),
+        )
+    elif action.action in {"plan_disable_apply", "plan_enable"}:
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        try:
+            plan = await reseller_service.set_plan_status(
+                plan_id=action.value,
+                is_active=action.action == "plan_enable",
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _plan_detail_text(plan),
+            reply_markup=plan_actions(plan.id, is_active=plan.is_active),
+        )
     elif action.action == "guide_add_global_plan":
         await state.clear()
         await state.update_data(plan_scope="global")
@@ -842,6 +892,54 @@ async def master_menu_callback(
         await callback.message.edit_text(
             await _discounts_text(reseller_service),
             reply_markup=master_section_menu("discounts"),
+        )
+        for discount in (await reseller_service.list_discounts())[:5]:
+            await callback.message.answer(
+                _discount_card_text(discount),
+                reply_markup=discount_actions(discount.id, is_active=discount.is_active),
+            )
+    elif action.action == "discount_detail":
+        if not action.value:
+            await callback.answer("Discount is missing.", show_alert=True)
+            return
+        try:
+            discount = await reseller_service.get_discount(discount_id=action.value)
+        except ValueError:
+            await callback.answer("Discount not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _discount_detail_text(discount),
+            reply_markup=discount_actions(discount.id, is_active=discount.is_active),
+        )
+    elif action.action == "discount_disable_confirm":
+        if not action.value:
+            await callback.answer("Discount is missing.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join([title("Disable Discount"), f"Discount ID: {action.value}", "", "Confirm to stop accepting this code."]),
+            reply_markup=confirm_keyboard(
+                scope="m",
+                confirm_action="discount_disable_apply",
+                cancel_action="discounts",
+                value=action.value,
+            ),
+        )
+    elif action.action in {"discount_disable_apply", "discount_enable"}:
+        if not action.value:
+            await callback.answer("Discount is missing.", show_alert=True)
+            return
+        try:
+            discount = await reseller_service.set_discount_status(
+                discount_id=action.value,
+                is_active=action.action == "discount_enable",
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Discount not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _discount_detail_text(discount),
+            reply_markup=discount_actions(discount.id, is_active=discount.is_active),
         )
     elif action.action == "guide_add_discount":
         await state.clear()
@@ -2601,6 +2699,23 @@ def _plan_detail_text(plan) -> str:
     )
 
 
+def _plan_card_text(plan) -> str:
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    scope = "Global" if plan.reseller_id is None else f"Seller {short_id(plan.reseller_id)}"
+    return "\n".join(
+        [
+            title("Plan Action"),
+            f"Name: {plan.name}",
+            f"Scope: {scope}",
+            f"Price: {plan.price:,.0f}",
+            f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            f"Status: {status_label('active' if plan.is_active else 'disabled')}",
+            f"ID: {plan.id}",
+        ]
+    )
+
+
 async def _discounts_text(reseller_service: ResellerService) -> str:
     discounts = await reseller_service.list_discounts()
     rows = [
@@ -2627,6 +2742,23 @@ def _discount_detail_text(discount) -> str:
             f"Amount: {discount.amount:g}",
             f"Uses: {discount.used_count}/{max_uses}",
             f"Status: {status_label('active' if discount.is_active else 'disabled')}",
+        ]
+    )
+
+
+def _discount_card_text(discount) -> str:
+    max_uses = "Unlimited" if discount.max_uses is None else str(discount.max_uses)
+    scope = "Global" if discount.reseller_id is None else f"Seller {short_id(discount.reseller_id)}"
+    return "\n".join(
+        [
+            title("Discount Action"),
+            f"Code: {discount.code}",
+            f"Scope: {scope}",
+            f"Type: {discount.discount_type}",
+            f"Amount: {discount.amount:g}",
+            f"Uses: {discount.used_count}/{max_uses}",
+            f"Status: {status_label('active' if discount.is_active else 'disabled')}",
+            f"ID: {discount.id}",
         ]
     )
 

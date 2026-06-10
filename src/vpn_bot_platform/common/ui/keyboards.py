@@ -291,6 +291,30 @@ def panel_actions(panel_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def plan_actions(plan_id: str, *, is_active: bool = True) -> InlineKeyboardMarkup:
+    toggle_label = "Disable" if is_active else "Enable"
+    toggle_action = "plan_disable_confirm" if is_active else "plan_enable"
+    return inline_keyboard(
+        [
+            [("Details", build_callback("m", "plan_detail", plan_id))],
+            [(toggle_label, build_callback("m", toggle_action, plan_id))],
+            [("Back", build_callback("m", "plans")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
+def discount_actions(discount_id: str, *, is_active: bool = True) -> InlineKeyboardMarkup:
+    toggle_label = "Disable" if is_active else "Enable"
+    toggle_action = "discount_disable_confirm" if is_active else "discount_enable"
+    return inline_keyboard(
+        [
+            [("Details", build_callback("m", "discount_detail", discount_id))],
+            [(toggle_label, build_callback("m", toggle_action, discount_id))],
+            [("Back", build_callback("m", "discounts")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
 def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

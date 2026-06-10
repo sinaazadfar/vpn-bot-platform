@@ -27,6 +27,8 @@ from vpn_bot_platform.common.repositories import (
     get_marzban_panel,
     get_global_broadcast,
     get_global_setting,
+    get_discount_code,
+    get_plan,
     global_sales_report,
     get_reseller_by_telegram_id,
     get_seller_bot,
@@ -38,7 +40,9 @@ from vpn_bot_platform.common.repositories import (
     mark_broadcast_sent,
     record_audit_log,
     set_marzban_panel_active,
+    set_discount_code_active,
     set_global_setting,
+    set_plan_active,
     list_marzban_panels,
     list_resellers,
     update_seller_runtime_state,
@@ -659,6 +663,38 @@ class ResellerService:
         async with session_scope() as session:
             return await list_all_plans(session)
 
+    async def get_plan(self, *, plan_id: str) -> Plan:
+        async with session_scope() as session:
+            plan = await get_plan(session, plan_id=plan_id)
+            if plan is None:
+                raise ValueError("plan_not_found")
+            return plan
+
+    async def set_plan_status(
+        self,
+        *,
+        plan_id: str,
+        is_active: bool,
+        actor_telegram_id: int | None = None,
+    ) -> Plan:
+        async with session_scope() as session:
+            plan = await get_plan(session, plan_id=plan_id)
+            if plan is None:
+                raise ValueError("plan_not_found")
+            await set_plan_active(session, plan=plan, is_active=is_active)
+            await record_audit_log(
+                session,
+                action="plan.enable" if is_active else "plan.disable",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=plan.reseller_id,
+                target_type="plan",
+                target_id=plan.id,
+                metadata={"name": plan.name, "is_active": is_active},
+            )
+            await session.flush()
+            return plan
+
     async def create_global_discount(
         self,
         *,
@@ -689,6 +725,38 @@ class ResellerService:
     async def list_discounts(self) -> list[DiscountCode]:
         async with session_scope() as session:
             return await list_discount_codes(session)
+
+    async def get_discount(self, *, discount_id: str) -> DiscountCode:
+        async with session_scope() as session:
+            discount = await get_discount_code(session, discount_id=discount_id)
+            if discount is None:
+                raise ValueError("discount_not_found")
+            return discount
+
+    async def set_discount_status(
+        self,
+        *,
+        discount_id: str,
+        is_active: bool,
+        actor_telegram_id: int | None = None,
+    ) -> DiscountCode:
+        async with session_scope() as session:
+            discount = await get_discount_code(session, discount_id=discount_id)
+            if discount is None:
+                raise ValueError("discount_not_found")
+            await set_discount_code_active(session, discount=discount, is_active=is_active)
+            await record_audit_log(
+                session,
+                action="discount.enable" if is_active else "discount.disable",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=discount.reseller_id,
+                target_type="discount_code",
+                target_id=discount.id,
+                metadata={"code": discount.code, "is_active": is_active},
+            )
+            await session.flush()
+            return discount
 
     async def create_global_broadcast(
         self,
