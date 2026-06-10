@@ -30,6 +30,7 @@ from vpn_bot_platform.common.repositories import (
     get_reseller_by_telegram_id,
     get_seller_bot,
     list_all_plans,
+    list_active_panel_assignments,
     list_discount_codes,
     list_pending_broadcast_recipients,
     list_seller_bots,
@@ -80,6 +81,12 @@ class SellerRuntimeStatus:
 class BroadcastDraft:
     broadcast: Broadcast
     recipients: list[BroadcastRecipient]
+
+
+@dataclass(frozen=True)
+class ResellerPanelSummary:
+    assignment: ResellerPanelAssignment
+    panel: MarzbanPanel
 
 
 class ResellerService:
@@ -260,6 +267,14 @@ class ResellerService:
     async def list_marzban_panels(self) -> list[MarzbanPanel]:
         async with session_scope() as session:
             return await list_marzban_panels(session)
+
+    async def list_panel_assignments_for_reseller(self, *, reseller_id: str) -> list[ResellerPanelSummary]:
+        async with session_scope() as session:
+            rows = await list_active_panel_assignments(session, reseller_id=reseller_id)
+            return [
+                ResellerPanelSummary(assignment=assignment, panel=panel)
+                for assignment, panel in rows
+            ]
 
     async def assign_panel(
         self,

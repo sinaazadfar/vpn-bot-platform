@@ -151,15 +151,15 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### Master Bot Reseller UX
 
 - [ ] Add reseller list screen with pagination.
-- [ ] Add reseller detail screen with status, Telegram ID, wallet balance, and seller bot count.
+- [x] Add reseller detail screen with status, Telegram ID, wallet balance, and seller bot count.
 - [x] Add reseller action buttons:
   - [x] Rename
   - [x] Activate
   - [x] Suspend
   - [x] Disable
-  - [ ] Seller Bots
-  - [ ] Plans
-  - [ ] Panel Assignments
+  - [x] Seller Bots
+  - [x] Plans
+  - [x] Panel Assignments
 - [x] Add guided FSM flow for adding a reseller:
   - [x] Ask Telegram ID.
   - [x] Ask display name.

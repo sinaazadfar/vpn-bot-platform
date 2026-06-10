@@ -20,6 +20,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     master_section_menu,
     master_seller_bot_actions,
     reseller_card_actions,
+    reseller_detail_actions,
     reseller_actions,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
@@ -194,6 +195,41 @@ async def master_menu_callback(
                 ),
                 reply_markup=reseller_card_actions(reseller.telegram_user_id),
             )
+    elif action.action in {"reseller_detail", "reseller_seller_bots", "reseller_plans", "reseller_panels"}:
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller.", show_alert=True)
+            return
+        reseller = await _find_reseller_by_telegram_id(reseller_service, telegram_id=int(action.value))
+        if reseller is None:
+            await callback.answer("Reseller not found.", show_alert=True)
+            return
+        if action.action == "reseller_detail":
+            text = await _reseller_detail_text(reseller_service, reseller)
+        elif action.action == "reseller_seller_bots":
+            text = await _reseller_seller_bots_text(reseller_service, reseller)
+        elif action.action == "reseller_plans":
+            text = await _reseller_plans_text(reseller_service, reseller)
+        else:
+            text = await _reseller_panels_text(reseller_service, reseller)
+        await callback.message.edit_text(
+            text,
+            reply_markup=reseller_detail_actions(reseller.telegram_user_id),
+        )
+    elif action.action == "reseller_status_menu":
+        if not action.value or not action.value.isdigit():
+            await callback.answer("Invalid reseller.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Reseller Status"),
+                    f"Telegram: {action.value}",
+                    "",
+                    "Choose the new status.",
+                ]
+            ),
+            reply_markup=reseller_actions(int(action.value)),
+        )
     elif action.action in {"reseller_suspended", "reseller_disabled"}:
         if not action.value or not action.value.isdigit():
             await callback.answer("Invalid reseller action.", show_alert=True)
@@ -2309,6 +2345,63 @@ async def _resellers_text(reseller_service: ResellerService) -> str:
         ]
     )
     return "\n".join([title("Resellers"), section("Latest resellers", rows)])
+
+
+async def _find_reseller_by_telegram_id(reseller_service: ResellerService, *, telegram_id: int):
+    resellers = await reseller_service.list_resellers()
+    return next((reseller for reseller in resellers if reseller.telegram_user_id == telegram_id), None)
+
+
+async def _reseller_detail_text(reseller_service: ResellerService, reseller) -> str:
+    seller_bots = [item for item in await reseller_service.list_seller_bots() if item.reseller_id == reseller.id]
+    plans = [item for item in await reseller_service.list_plans() if item.reseller_id == reseller.id]
+    assignments = await reseller_service.list_panel_assignments_for_reseller(reseller_id=reseller.id)
+    return "\n".join(
+        [
+            title("Reseller Detail"),
+            f"Name: {reseller.display_name}",
+            f"Telegram: {reseller.telegram_user_id}",
+            f"Status: {status_label(reseller.status)}",
+            f"Wallet: {reseller.wallet_balance:,.0f}",
+            f"Seller bots: {len(seller_bots)}",
+            f"Plans: {len(plans)}",
+            f"Panel assignments: {len(assignments)}",
+            f"ID: {reseller.id}",
+        ]
+    )
+
+
+async def _reseller_seller_bots_text(reseller_service: ResellerService, reseller) -> str:
+    seller_bots = [item for item in await reseller_service.list_seller_bots() if item.reseller_id == reseller.id]
+    rows = [
+        f"- {item.name} | {status_label(item.status)} | id={short_id(item.id)} | container={item.container_name or '-'}"
+        for item in seller_bots[:20]
+    ]
+    rows.extend(["", f"Reseller: {reseller.display_name}"])
+    return "\n".join([title("Reseller Seller Bots"), section("Bots", rows)])
+
+
+async def _reseller_plans_text(reseller_service: ResellerService, reseller) -> str:
+    plans = [item for item in await reseller_service.list_plans() if item.reseller_id == reseller.id]
+    rows = []
+    for plan in plans[:20]:
+        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        rows.append(f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days}d | {traffic} | id={short_id(plan.id)}")
+    rows.extend(["", f"Reseller: {reseller.display_name}"])
+    return "\n".join([title("Reseller Plans"), section("Plans", rows)])
+
+
+async def _reseller_panels_text(reseller_service: ResellerService, reseller) -> str:
+    assignments = await reseller_service.list_panel_assignments_for_reseller(reseller_id=reseller.id)
+    rows = [
+        (
+            f"- {item.panel.name} | priority={item.assignment.priority} | weight={item.assignment.weight} | "
+            f"admin={item.assignment.marzban_admin_username or '-'} | id={short_id(item.assignment.id)}"
+        )
+        for item in assignments[:20]
+    ]
+    rows.extend(["", f"Reseller: {reseller.display_name}"])
+    return "\n".join([title("Panel Assignments"), section("Assignments", rows)])
 
 
 def _reseller_select_keyboard(resellers, *, action_name: str, cancel_action: str):

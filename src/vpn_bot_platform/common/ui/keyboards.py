@@ -245,6 +245,7 @@ def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
     value = str(telegram_id)
     return inline_keyboard(
         [
+            [("Details", build_callback("m", "reseller_detail", value))],
             [
                 ("Rename", build_callback("m", "reseller_rename_select", value)),
             ],
@@ -252,6 +253,24 @@ def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
                 ("Activate", build_callback("m", "reseller_active", value)),
                 ("Suspend", build_callback("m", "reseller_suspended", value)),
                 ("Disable", build_callback("m", "reseller_disabled", value)),
+            ],
+            [("Back", build_callback("m", "resellers")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
+def reseller_detail_actions(telegram_id: int) -> InlineKeyboardMarkup:
+    value = str(telegram_id)
+    return inline_keyboard(
+        [
+            [
+                ("Seller Bots", build_callback("m", "reseller_seller_bots", value)),
+                ("Plans", build_callback("m", "reseller_plans", value)),
+            ],
+            [("Panel Assignments", build_callback("m", "reseller_panels", value))],
+            [
+                ("Rename", build_callback("m", "reseller_rename_select", value)),
+                ("Status", build_callback("m", "reseller_status_menu", value)),
             ],
             [("Back", build_callback("m", "resellers")), ("Home", build_callback("m", "home"))],
         ]

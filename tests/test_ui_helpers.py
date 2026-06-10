@@ -24,6 +24,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     renewal_plan_button,
     reseller_actions,
     reseller_card_actions,
+    reseller_detail_actions,
     seller_section_menu,
     service_actions,
     seller_admin_reply_menu,
@@ -64,6 +65,7 @@ def test_main_menus_have_buttons() -> None:
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert reseller_card_actions(12345).inline_keyboard
+    assert reseller_detail_actions(12345).inline_keyboard
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
     assert seller_report_menu().inline_keyboard
@@ -89,6 +91,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_section_menu("system"),
         reseller_actions(123456789),
         reseller_card_actions(123456789),
+        reseller_detail_actions(123456789),
         master_seller_bot_actions(uuid),
         seller_buyer_menu(),
         seller_admin_menu(),
