@@ -429,4 +429,4 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Seller admin flows can be operated mostly through buttons.
 - [x] Existing slash commands still work.
 - [x] Tests cover keyboard builders, callback parsing, permission checks, and critical FSM flows.
-- [ ] Production deploy verifies the new button UX starts without polling/runtime errors.
+- [x] Production deploy verifies the new button UX starts without polling/runtime errors.
