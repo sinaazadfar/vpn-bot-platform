@@ -210,18 +210,18 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 ### Master Bot Panel UX
 
 - [x] Add panel list screen with active/disabled status.
-- [ ] Add panel detail screen:
-  - [ ] Name
-  - [ ] Base URL
-  - [ ] Auth type
-  - [ ] Active status
-  - [ ] Assignment count
+- [x] Add panel detail screen:
+  - [x] Name
+  - [x] Base URL
+  - [x] Auth type
+  - [x] Active status
+  - [x] Assignment count
 - [ ] Add panel action buttons:
   - [x] Add Token Panel
   - [x] Add Password Panel
   - [x] Assign To Reseller
-  - [ ] Disable Panel
-  - [ ] Test Connection
+  - [x] Disable Panel
+  - [x] Test Connection
 - [x] Add guided FSM flow for token panel registration.
 - [x] Add guided FSM flow for password panel registration.
 - [x] Add guided FSM flow for assignment:

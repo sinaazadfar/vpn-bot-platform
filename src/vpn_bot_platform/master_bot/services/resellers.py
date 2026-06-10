@@ -23,6 +23,7 @@ from vpn_bot_platform.common.repositories import (
     create_plan,
     create_reseller,
     create_seller_bot,
+    count_panel_assignments,
     get_marzban_panel,
     get_global_broadcast,
     get_global_setting,
@@ -36,6 +37,7 @@ from vpn_bot_platform.common.repositories import (
     list_seller_bots,
     mark_broadcast_sent,
     record_audit_log,
+    set_marzban_panel_active,
     set_global_setting,
     list_marzban_panels,
     list_resellers,
@@ -58,6 +60,7 @@ from vpn_bot_platform.common.models import (
     BroadcastRecipient,
 )
 from vpn_bot_platform.integrations.docker_runtime import seller_container_name
+from vpn_bot_platform.integrations.marzban import MarzbanClient, MarzbanCredentials
 from vpn_bot_platform.integrations.runtime_controller import (
     DockerSellerRuntimeController,
     SellerRuntimeController,
@@ -87,6 +90,20 @@ class BroadcastDraft:
 class ResellerPanelSummary:
     assignment: ResellerPanelAssignment
     panel: MarzbanPanel
+
+
+@dataclass(frozen=True)
+class PanelDetail:
+    panel: MarzbanPanel
+    assignment_count: int
+    auth_type: str
+
+
+@dataclass(frozen=True)
+class PanelTestResult:
+    panel: MarzbanPanel
+    ok: bool
+    message: str
 
 
 class ResellerService:
@@ -275,6 +292,67 @@ class ResellerService:
                 ResellerPanelSummary(assignment=assignment, panel=panel)
                 for assignment, panel in rows
             ]
+
+    async def get_panel_detail(self, *, panel_id: str) -> PanelDetail:
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            assignment_count = await count_panel_assignments(session, panel_id=panel.id)
+            auth_type = "token" if panel.token_encrypted else "password"
+            return PanelDetail(panel=panel, assignment_count=assignment_count, auth_type=auth_type)
+
+    async def disable_panel(
+        self,
+        *,
+        panel_id: str,
+        actor_telegram_id: int | None = None,
+    ) -> PanelDetail:
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            await set_marzban_panel_active(session, panel=panel, is_active=False)
+            await record_audit_log(
+                session,
+                action="marzban_panel.disable",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="marzban_panel",
+                target_id=panel.id,
+                metadata={"name": panel.name, "base_url": panel.base_url},
+            )
+            assignment_count = await count_panel_assignments(session, panel_id=panel.id)
+            await session.flush()
+            auth_type = "token" if panel.token_encrypted else "password"
+            return PanelDetail(panel=panel, assignment_count=assignment_count, auth_type=auth_type)
+
+    async def test_panel_connection(self, *, panel_id: str) -> PanelTestResult:
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            token = self.secret_box.decrypt(panel.token_encrypted)
+            username = self.secret_box.decrypt(panel.username_encrypted)
+            password = self.secret_box.decrypt(panel.password_encrypted)
+            auth_method = "token" if token else "password"
+            client = MarzbanClient(
+                MarzbanCredentials(
+                    base_url=panel.base_url,
+                    auth_method=auth_method,
+                    token=token,
+                    username=username,
+                    password=password,
+                    token_path=self.settings.marzban_token_path if self.settings else "/api/admin/token",
+                )
+            )
+            try:
+                current_admin = await client.get_current_admin()
+            except Exception as exc:
+                return PanelTestResult(panel=panel, ok=False, message=str(exc)[:300])
+            username_value = current_admin.get("username") if isinstance(current_admin, dict) else None
+            message = f"Connected as {username_value}" if username_value else "Connection succeeded."
+            return PanelTestResult(panel=panel, ok=True, message=message)
 
     async def assign_panel(
         self,

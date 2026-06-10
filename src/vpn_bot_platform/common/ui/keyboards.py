@@ -277,6 +277,20 @@ def reseller_detail_actions(telegram_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def panel_actions(panel_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [("Details", build_callback("m", "panel_detail", panel_id))],
+            [
+                ("Test Connection", build_callback("m", "panel_test", panel_id)),
+                ("Disable", build_callback("m", "panel_disable_confirm", panel_id)),
+            ],
+            [("Assign To Reseller", build_callback("m", "guide_assign_panel"))],
+            [("Back", build_callback("m", "panels")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
 def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

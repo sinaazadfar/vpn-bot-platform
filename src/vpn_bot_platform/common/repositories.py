@@ -141,6 +141,30 @@ async def get_marzban_panel(session: AsyncSession, *, panel_id: str) -> MarzbanP
     return await session.get(MarzbanPanel, panel_id)
 
 
+async def set_marzban_panel_active(
+    session: AsyncSession,
+    *,
+    panel: MarzbanPanel,
+    is_active: bool,
+) -> MarzbanPanel:
+    panel.is_active = is_active
+    return panel
+
+
+async def count_panel_assignments(
+    session: AsyncSession,
+    *,
+    panel_id: str,
+) -> int:
+    result = await session.execute(
+        select(func.count(ResellerPanelAssignment.id)).where(
+            ResellerPanelAssignment.panel_id == panel_id,
+            ResellerPanelAssignment.is_active.is_(True),
+        )
+    )
+    return int(result.scalar_one())
+
+
 async def assign_panel_to_reseller(
     session: AsyncSession,
     *,

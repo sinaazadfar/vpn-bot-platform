@@ -19,6 +19,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     master_main_menu,
     master_section_menu,
     master_seller_bot_actions,
+    panel_actions,
     reseller_card_actions,
     reseller_detail_actions,
     reseller_actions,
@@ -446,6 +447,89 @@ async def master_menu_callback(
         await callback.message.edit_text(
             await _panels_text(reseller_service),
             reply_markup=master_section_menu("panels"),
+        )
+        for panel in (await reseller_service.list_marzban_panels())[:5]:
+            await callback.message.answer(
+                "\n".join(
+                    [
+                        title("Panel Action"),
+                        f"Name: {panel.name}",
+                        f"URL: {panel.base_url}",
+                        f"Status: {status_label('active' if panel.is_active else 'disabled')}",
+                        f"ID: {panel.id}",
+                    ]
+                ),
+                reply_markup=panel_actions(panel.id),
+            )
+    elif action.action == "panel_detail":
+        if not action.value:
+            await callback.answer("Panel is missing.", show_alert=True)
+            return
+        try:
+            detail = await reseller_service.get_panel_detail(panel_id=action.value)
+        except ValueError:
+            await callback.answer("Panel not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _panel_detail_text(detail),
+            reply_markup=panel_actions(detail.panel.id),
+        )
+    elif action.action == "panel_test":
+        if not action.value:
+            await callback.answer("Panel is missing.", show_alert=True)
+            return
+        try:
+            result = await reseller_service.test_panel_connection(panel_id=action.value)
+        except ValueError:
+            await callback.answer("Panel not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Panel Test"),
+                    f"Name: {result.panel.name}",
+                    f"Status: {status_label('active' if result.panel.is_active else 'disabled')}",
+                    f"Result: {status_label('active' if result.ok else 'failed')}",
+                    f"Message: {result.message}",
+                ]
+            ),
+            reply_markup=panel_actions(result.panel.id),
+        )
+    elif action.action == "panel_disable_confirm":
+        if not action.value:
+            await callback.answer("Panel is missing.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Disable Panel"),
+                    f"Panel ID: {action.value}",
+                    "",
+                    "Confirm only if this panel should stop receiving new provisioning.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="m",
+                confirm_action="panel_disable_apply",
+                cancel_action="panels",
+                value=action.value,
+            ),
+        )
+    elif action.action == "panel_disable_apply":
+        if not action.value:
+            await callback.answer("Panel is missing.", show_alert=True)
+            return
+        try:
+            detail = await reseller_service.disable_panel(
+                panel_id=action.value,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Panel not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _panel_detail_text(detail),
+            reply_markup=panel_actions(detail.panel.id),
         )
     elif action.action == "guide_add_panel_token":
         await state.clear()
@@ -2453,6 +2537,21 @@ def _panel_assignment_detail_text(assignment) -> str:
             f"Priority: {assignment.priority}",
             f"Weight: {assignment.weight}",
             f"Status: {status_label('active' if assignment.is_active else 'disabled')}",
+        ]
+    )
+
+
+def _panel_detail_text(detail) -> str:
+    panel = detail.panel
+    return "\n".join(
+        [
+            title("Panel Detail"),
+            f"Name: {panel.name}",
+            f"Base URL: {panel.base_url}",
+            f"Auth type: {detail.auth_type}",
+            f"Status: {status_label('active' if panel.is_active else 'disabled')}",
+            f"Assignments: {detail.assignment_count}",
+            f"ID: {panel.id}",
         ]
     )
 
