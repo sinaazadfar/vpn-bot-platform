@@ -430,3 +430,83 @@ Telegram UI note: Telegram bots cannot render arbitrary button colors in normal 
 - [x] Existing slash commands still work.
 - [x] Tests cover keyboard builders, callback parsing, permission checks, and critical FSM flows.
 - [x] Production deploy verifies the new button UX starts without polling/runtime errors.
+
+## Phase 8 - Approved Product Flow Completion
+
+Source of truth: `docs/PRODUCT_FLOW.md`.
+
+Goal: turn the approved combined flow into complete production behavior, using the best storefront flow from ZanborPanel/BotMirzaPanel, the cleaner Python structure from Marzbot-free, and the management/health concepts from Marzban.
+
+### Buyer Storefront
+
+- [ ] Add buyer-facing location/panel choice before plan selection when multiple active routed panels are available.
+- [ ] Add explicit plan purpose/type support:
+  - [ ] Purchase plan.
+  - [ ] Trial plan.
+  - [ ] Renewal plan.
+  - [ ] Extra-volume plan.
+- [ ] Add direct order payment path in addition to wallet-first payment.
+- [ ] Add receipt upload handling for direct order payments.
+- [ ] Auto-provision direct order after reseller approval.
+- [ ] Add service-specific support shortcut from service detail.
+- [ ] Add buyer account screen with wallet, service counts, and recent activity.
+
+### Renewal And Extra Volume
+
+- [ ] Split renewal and extra-volume plan selection.
+- [ ] Implement extra-volume purchase flow.
+- [ ] Apply extra volume to Marzban data limit.
+- [ ] Improve renewal to preserve remaining time where panel behavior allows it.
+- [ ] Add payment/audit records for renewal and extra-volume changes.
+
+### Seller Admin Operations
+
+- [ ] Add customer search by Telegram ID, username, or service username.
+- [ ] Add customer detail screen:
+  - [ ] Wallet balance.
+  - [ ] Service count.
+  - [ ] Orders.
+  - [ ] Tickets.
+- [ ] Add reseller manual wallet adjustment with confirmation and audit log.
+- [ ] Add reseller send-message-to-customer action.
+- [ ] Add buyer block/unblock action scoped to reseller.
+- [ ] Add seller admin service management:
+  - [ ] View service detail.
+  - [ ] Disable service.
+  - [ ] Revoke subscription.
+  - [ ] Reset usage where Marzban supports it.
+
+### Master Platform Controls
+
+- [ ] Add payment settings editor in Master Bot.
+- [ ] Add trial settings editor in Master Bot.
+- [ ] Add rate limit settings editor in Master Bot.
+- [ ] Add plan purpose/type editor in Master Bot.
+- [ ] Add reseller-specific discount management.
+- [ ] Add reseller-specific payment instruction management.
+- [ ] Add richer system health screen with live database, worker, seller runtime, and panel checks.
+
+### Marzban Management
+
+- [ ] Add panel node/system stats screen.
+- [ ] Add panel host/inbound summary screen.
+- [ ] Add panel-level provisioning error history.
+- [ ] Add panel route preview for a reseller before saving routing changes.
+- [ ] Add optional dedicated trial panel route.
+
+### UX Polish
+
+- [ ] Use a single Persian-first text style for buyer and reseller screens.
+- [ ] Add compact receipt messages for every successful purchase, renewal, wallet charge, and extra-volume action.
+- [ ] Add clearer empty states for no plans, no services, no tickets, and no payments.
+- [ ] Add safer retry screens for failed Marzban provisioning.
+- [ ] Add stronger Telegram-safe truncation for all admin broadcast and log screens.
+
+### Tests And Deploy
+
+- [ ] Add tests for buyer location selection.
+- [ ] Add tests for direct order approval provisioning.
+- [ ] Add tests for extra-volume Marzban update.
+- [ ] Add tests for customer search and admin wallet adjustment.
+- [ ] Add tests for master callback permission coverage.
+- [ ] Deploy Phase 8 increments to `server-04` after each stable slice.
