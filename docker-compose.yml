@@ -32,6 +32,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./external:/app/external:ro
     extra_hosts:
       - "api.telegram.org:${TELEGRAM_API_IP:-149.154.167.220}"
     command: ["python", "-m", "vpn_bot_platform.master_bot.main"]
