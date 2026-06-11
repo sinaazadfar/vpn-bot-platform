@@ -294,8 +294,11 @@ class ResellerService:
                             timeout=10,
                         )
                         commit = result.stdout.strip()
-                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                        error = str(exc)
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+                        if len(template.ref) >= 7:
+                            commit = template.ref
+                        else:
+                            error = str(exc)
 
             await update_external_bot_template_sync_state(
                 session,
