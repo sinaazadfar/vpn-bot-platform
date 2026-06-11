@@ -30,6 +30,8 @@ from vpn_bot_platform.common.ui.keyboards import (
     reseller_card_actions,
     reseller_detail_actions,
     reseller_actions,
+    seller_bot_list_menu,
+    seller_bot_type_menu,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
@@ -50,10 +52,15 @@ class ResellerRenameStates(StatesGroup):
 
 
 class SellerBotCreateStates(StatesGroup):
+    bot_type = State()
     reseller = State()
     name = State()
     token = State()
     confirm = State()
+
+
+class SellerBotSearchStates(StatesGroup):
+    query = State()
 
 
 class GlobalBroadcastCreateStates(StatesGroup):
@@ -131,6 +138,84 @@ def _parse_args(raw: str | None) -> list[str]:
         return []
 
 
+async def _show_add_seller_bot_start(
+    message: Message,
+    state: FSMContext,
+    reseller_service: ResellerService,
+) -> None:
+    await state.clear()
+    templates = await reseller_service.list_external_bot_templates()
+    await state.set_state(SellerBotCreateStates.bot_type)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Choose which seller bot codebase to use.",
+                "",
+                "Our Seller Bot is the built-in platform bot.",
+                "External Template Bot uses a registered external template.",
+            ]
+        ),
+        reply_markup=seller_bot_type_menu(has_external_templates=bool(templates)),
+    )
+
+
+async def _edit_add_seller_bot_start(
+    callback: CallbackQuery,
+    state: FSMContext,
+    reseller_service: ResellerService,
+) -> None:
+    if callback.message is None:
+        return
+    await state.clear()
+    templates = await reseller_service.list_external_bot_templates()
+    await state.set_state(SellerBotCreateStates.bot_type)
+    await callback.message.edit_text(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Choose which seller bot codebase to use.",
+                "",
+                "Our Seller Bot is the built-in platform bot.",
+                "External Template Bot uses a registered external template.",
+            ]
+        ),
+        reply_markup=seller_bot_type_menu(has_external_templates=bool(templates)),
+    )
+
+
+async def _edit_add_seller_bot_reseller_step(
+    callback: CallbackQuery,
+    state: FSMContext,
+    reseller_service: ResellerService,
+) -> None:
+    if callback.message is None:
+        return
+    resellers = await reseller_service.list_resellers()
+    if not resellers:
+        await callback.message.edit_text(
+            "\n".join([title("Add Seller Bot"), "Create a reseller/admin first."]),
+            reply_markup=master_section_menu("platform_settings"),
+        )
+        return
+    await state.set_state(SellerBotCreateStates.reseller)
+    await callback.message.edit_text(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Select the reseller/admin who owns this bot.",
+                "",
+                "This person becomes the current bot admin.",
+            ]
+        ),
+        reply_markup=_reseller_select_keyboard(
+            resellers[:10],
+            action_name="sellerbot_reseller",
+            cancel_action="sellerbot_cancel",
+        ),
+    )
+
+
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext | None = None) -> None:
     if state is not None:
@@ -161,17 +246,19 @@ async def cancel_flow(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text.in_({"Resellers", "Seller Bots", "Panels", "Plans", "Reports", "Settings"}))
+@router.message(F.text.in_({"Seller Bots", "Add Seller Bot", "Resellers", "Panels", "Plans", "Reports", "Settings"}))
 async def master_reply_menu_alias(
     message: Message,
     reseller_service: ResellerService,
     state: FSMContext,
 ) -> None:
     await state.clear()
-    if message.text == "Resellers":
+    if message.text == "Seller Bots":
+        await message.answer(await _seller_bots_text(reseller_service), reply_markup=seller_bot_list_menu(page=1, total_pages=1))
+    elif message.text == "Add Seller Bot":
+        await _show_add_seller_bot_start(message, state, reseller_service)
+    elif message.text == "Resellers":
         await message.answer(await _resellers_text(reseller_service), reply_markup=master_section_menu("resellers"))
-    elif message.text == "Seller Bots":
-        await message.answer(await _seller_bots_text(reseller_service), reply_markup=master_section_menu("seller_bots"))
     elif message.text == "Panels":
         await message.answer(await _panels_text(reseller_service), reply_markup=master_section_menu("panels"))
     elif message.text == "Plans":
@@ -203,6 +290,17 @@ async def master_menu_callback(
     if action.action == "home":
         await state.clear()
         await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
+    elif action.action == "platform_settings":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Platform Settings"),
+                    "Advanced controls are here so daily seller-bot work stays simple.",
+                ]
+            ),
+            reply_markup=master_section_menu("platform_settings"),
+        )
     elif action.action == "resellers":
         page_number = _parse_positive_int(action.value) or 1
         resellers = await reseller_service.list_resellers()
@@ -350,28 +448,52 @@ async def master_menu_callback(
             reply_markup=reseller_actions(reseller.telegram_user_id),
         )
     elif action.action == "seller_bots":
-        await callback.message.edit_text(
-            await _seller_bots_text(reseller_service),
-            reply_markup=master_section_menu("seller_bots"),
-        )
-        active_seller_bots = [
+        page_number = _parse_positive_int(action.value) or 1
+        seller_bots = [
             seller_bot
             for seller_bot in await reseller_service.list_seller_bots()
             if seller_bot.status != "disabled"
         ]
-        for seller_bot in active_seller_bots[:5]:
+        page = paginate(seller_bots, page=page_number, per_page=5)
+        await callback.message.edit_text(
+            _seller_bots_page_text(page),
+            reply_markup=seller_bot_list_menu(page=page.page, total_pages=page.total_pages),
+        )
+        for seller_bot in page.items:
             await callback.message.answer(
-                "\n".join(
-                    [
-                        title("Seller Bot Action"),
-                        f"Name: {seller_bot.name}",
-                        f"ID: {seller_bot.id}",
-                        f"Status: {status_label(seller_bot.status)}",
-                        f"Container: {seller_bot.container_name or '-'}",
-                    ]
-                ),
+                _seller_bot_card_text(seller_bot),
                 reply_markup=master_seller_bot_actions(seller_bot.id),
             )
+    elif action.action == "add_seller_bot":
+        await _edit_add_seller_bot_start(callback, state, reseller_service)
+    elif action.action == "seller_search":
+        await state.clear()
+        await state.set_state(SellerBotSearchStates.query)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Search Seller Bots"),
+                    "Send bot name, short ID, full ID, status, or container name.",
+                ]
+            ),
+            reply_markup=master_section_menu("seller_bots"),
+        )
+    elif action.action in {"seller_config_panel", "seller_config_pricing", "seller_config_admins"}:
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
+        if seller_bot is None:
+            await callback.answer("Seller bot not found.", show_alert=True)
+            return
+        reseller = await _find_reseller_by_id(reseller_service, reseller_id=seller_bot.reseller_id)
+        if reseller is None:
+            await callback.answer("Seller bot owner not found.", show_alert=True)
+            return
+        if action.action == "seller_config_panel":
+            text = await _reseller_panels_text(reseller_service, reseller)
+        elif action.action == "seller_config_pricing":
+            text = await _reseller_plans_text(reseller_service, reseller)
+        else:
+            text = _seller_bot_admins_text(seller_bot, reseller)
+        await callback.message.edit_text(text, reply_markup=master_seller_bot_actions(seller_bot.id))
     elif action.action == "external_bots":
         await callback.message.edit_text(
             await _external_bots_text(reseller_service),
@@ -1450,6 +1572,35 @@ async def master_menu_callback(
             reply_markup=master_section_menu("resellers"),
         )
     elif action.action == "guide_add_seller_bot":
+        await _edit_add_seller_bot_start(callback, state, reseller_service)
+    elif action.action == "sellerbot_type":
+        if action.value not in {"native", "external"}:
+            await callback.answer("Invalid bot type.", show_alert=True)
+            return
+        if action.value == "external":
+            templates = await reseller_service.list_external_bot_templates()
+            if not templates:
+                await callback.message.edit_text(
+                    "\n".join([title("Add Seller Bot"), "No external bot templates are registered."]),
+                    reply_markup=master_section_menu("seller_bots"),
+                )
+                return
+            await state.update_data(sellerbot_runtime_type="external")
+            await state.set_state(SellerBotCreateStates.bot_type)
+            await callback.message.edit_text(
+                "\n".join([title("Add Seller Bot"), "Choose which external bot template to use."]),
+                reply_markup=_external_template_select_keyboard(templates[:10]),
+            )
+            return
+        await state.update_data(sellerbot_runtime_type="native", sellerbot_template_key=None)
+        await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
+    elif action.action == "sellerbot_template":
+        if not action.value:
+            await callback.answer("Template is missing.", show_alert=True)
+            return
+        await state.update_data(sellerbot_runtime_type="external", sellerbot_template_key=action.value)
+        await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
+    elif action.action == "add_seller_bot_legacy":
         await state.clear()
         resellers = await reseller_service.list_resellers()
         if not resellers:
@@ -1494,16 +1645,30 @@ async def master_menu_callback(
         reseller_telegram_id = data.get("sellerbot_reseller_telegram_id")
         bot_name = str(data.get("sellerbot_name") or "").strip()
         bot_token = str(data.get("sellerbot_token") or "").strip()
+        runtime_type = str(data.get("sellerbot_runtime_type") or "native")
+        template_key = str(data.get("sellerbot_template_key") or "").strip()
         if not reseller_telegram_id or not bot_name or not bot_token:
             await callback.answer("Seller bot draft is incomplete.", show_alert=True)
             await state.clear()
             return
         try:
-            seller_bot = await reseller_service.register_seller_bot(
-                reseller_telegram_id=int(reseller_telegram_id),
-                bot_name=bot_name,
-                bot_token=bot_token,
-            )
+            if runtime_type == "external":
+                if not template_key:
+                    await callback.answer("External template is missing.", show_alert=True)
+                    return
+                seller_bot = await reseller_service.register_external_seller_bot(
+                    reseller_telegram_id=int(reseller_telegram_id),
+                    bot_name=bot_name,
+                    bot_token=bot_token,
+                    template_id_or_key=template_key,
+                    actor_telegram_id=callback.from_user.id,
+                )
+            else:
+                seller_bot = await reseller_service.register_seller_bot(
+                    reseller_telegram_id=int(reseller_telegram_id),
+                    bot_name=bot_name,
+                    bot_token=bot_token,
+                )
         except ValueError as exc:
             await callback.answer(str(exc), show_alert=True)
             return
@@ -1673,6 +1838,13 @@ async def sellerbot_create_waiting_for_reseller(message: Message) -> None:
     )
 
 
+@router.message(SellerBotCreateStates.bot_type)
+async def sellerbot_create_waiting_for_type(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Add Seller Bot"), "Choose the bot type using the buttons."])
+    )
+
+
 @router.message(SellerBotCreateStates.name)
 async def sellerbot_create_name(message: Message, state: FSMContext) -> None:
     bot_name = (message.text or "").strip()
@@ -1715,6 +1887,8 @@ async def sellerbot_create_token(message: Message, state: FSMContext) -> None:
         "\n".join(
             [
                 title("Confirm Seller Bot"),
+                f"Type: {data.get('sellerbot_runtime_type') or 'native'}",
+                f"Template: {data.get('sellerbot_template_key') or '-'}",
                 f"Reseller Telegram: {data.get('sellerbot_reseller_telegram_id')}",
                 f"Bot name: {data.get('sellerbot_name')}",
                 "Token: valid and hidden",
@@ -1733,6 +1907,39 @@ async def sellerbot_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Seller Bot"), "Use Confirm or Cancel below the preview."])
     )
+
+
+@router.message(SellerBotSearchStates.query)
+async def sellerbot_search_query(
+    message: Message,
+    state: FSMContext,
+    reseller_service: ResellerService,
+) -> None:
+    query = (message.text or "").strip()
+    if not query or query.startswith("/"):
+        await message.answer(
+            "\n".join([title("Search Seller Bots"), "Send a search phrase, not a command."]),
+            reply_markup=master_section_menu("seller_bots"),
+        )
+        return
+    seller_bots = [
+        seller_bot
+        for seller_bot in await reseller_service.list_seller_bots()
+        if _seller_bot_matches_query(seller_bot, query)
+    ]
+    await state.clear()
+    if not seller_bots:
+        await message.answer(
+            "\n".join([title("Search Seller Bots"), "No matching seller bots found."]),
+            reply_markup=seller_bot_list_menu(page=1, total_pages=1),
+        )
+        return
+    await message.answer(
+        _seller_bots_search_text(query, seller_bots),
+        reply_markup=seller_bot_list_menu(page=1, total_pages=1),
+    )
+    for seller_bot in seller_bots[:10]:
+        await message.answer(_seller_bot_card_text(seller_bot), reply_markup=master_seller_bot_actions(seller_bot.id))
 
 
 @router.message(GlobalBroadcastCreateStates.title)
@@ -3000,17 +3207,7 @@ def _master_dashboard_text() -> str:
     return "\n".join(
         [
             title("Master Dashboard"),
-            "Use the buttons below for daily operations.",
-            "",
-            section(
-                "Quick commands",
-                [
-                    "- /add_reseller <telegram_id> <display_name>",
-                    "- /add_seller_bot <reseller_telegram_id> <bot_name> <bot_token>",
-                    "- /add_panel_token <name> <base_url> <token>",
-                    "- /global_report [days]",
-                ],
-            ),
+            "Choose a button. Daily work starts with seller bots.",
         ]
     )
 
@@ -3049,6 +3246,16 @@ def _resellers_page_text(page) -> str:
 async def _find_reseller_by_telegram_id(reseller_service: ResellerService, *, telegram_id: int):
     resellers = await reseller_service.list_resellers()
     return next((reseller for reseller in resellers if reseller.telegram_user_id == telegram_id), None)
+
+
+async def _find_reseller_by_id(reseller_service: ResellerService, *, reseller_id: str):
+    resellers = await reseller_service.list_resellers()
+    return next((reseller for reseller in resellers if reseller.id == reseller_id), None)
+
+
+async def _find_seller_bot(reseller_service: ResellerService, *, seller_bot_id: str):
+    seller_bots = await reseller_service.list_seller_bots()
+    return next((seller_bot for seller_bot in seller_bots if seller_bot.id == seller_bot_id), None)
 
 
 async def _reseller_detail_text(reseller_service: ResellerService, reseller) -> str:
@@ -3114,6 +3321,12 @@ def _reseller_select_keyboard(resellers, *, action_name: str, cancel_action: str
             ("Home", "m:home"),
         ]
     )
+    return inline_keyboard(rows)
+
+
+def _external_template_select_keyboard(templates):
+    rows = [[(template.name, f"m:sellerbot_template:{template.key}")] for template in templates]
+    rows.append([("Cancel", "m:sellerbot_cancel"), ("Home", "m:home")])
     return inline_keyboard(rows)
 
 
@@ -3197,6 +3410,67 @@ async def _seller_bots_text(reseller_service: ResellerService) -> str:
     ]
     rows.extend(["", "Use the buttons below to add or manage seller bots."])
     return "\n".join([title("Seller Bots"), section("Registered bots", rows)])
+
+
+def _seller_bots_page_text(page) -> str:
+    rows = [
+        f"- {seller_bot.name} | {status_label(seller_bot.status)} | id={short_id(seller_bot.id)}"
+        for seller_bot in page.items
+    ]
+    if not rows:
+        rows.append("No seller bots yet. Use Add Seller Bot to create one.")
+    rows.extend(["", f"Page: {page.page}/{page.total_pages}", f"Total: {page.total_items}"])
+    return "\n".join([title("Seller Bots"), section("Bots", rows)])
+
+
+def _seller_bot_card_text(seller_bot) -> str:
+    return "\n".join(
+        [
+            title("Seller Bot"),
+            f"Name: {seller_bot.name}",
+            f"ID: {seller_bot.id}",
+            f"Runtime: {getattr(seller_bot, 'runtime_type', 'native')}",
+            f"Status: {status_label(seller_bot.status)}",
+            f"Container: {seller_bot.container_name or '-'}",
+        ]
+    )
+
+
+def _seller_bot_admins_text(seller_bot, reseller) -> str:
+    return "\n".join(
+        [
+            title("Bot Admins"),
+            f"Bot: {seller_bot.name}",
+            "",
+            "Current owner/admin:",
+            f"- {reseller.display_name} | Telegram: {reseller.telegram_user_id}",
+            "",
+            "Extra bot-admin add/remove needs a dedicated bot-admin table. For now, change the reseller owner from Platform Settings > Resellers.",
+        ]
+    )
+
+
+def _seller_bot_matches_query(seller_bot, query: str) -> bool:
+    normalized_query = query.strip().lower()
+    values = [
+        seller_bot.id,
+        short_id(seller_bot.id),
+        seller_bot.name,
+        seller_bot.status,
+        getattr(seller_bot, "runtime_type", ""),
+        seller_bot.container_name or "",
+        seller_bot.container_id or "",
+    ]
+    return any(normalized_query in str(value).lower() for value in values)
+
+
+def _seller_bots_search_text(query: str, seller_bots) -> str:
+    rows = [
+        f"- {seller_bot.name} | {status_label(seller_bot.status)} | id={short_id(seller_bot.id)}"
+        for seller_bot in seller_bots[:10]
+    ]
+    rows.extend(["", f"Matches: {len(seller_bots)}"])
+    return "\n".join([title("Search Seller Bots"), f"Query: {query}", "", section("Matches", rows)])
 
 
 async def _external_bots_text(reseller_service: ResellerService) -> str:

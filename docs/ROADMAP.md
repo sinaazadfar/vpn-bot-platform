@@ -521,6 +521,37 @@ Goal: turn the approved combined flow into complete production behavior, using t
 - [ ] Add safer retry screens for failed Marzban provisioning.
 - [ ] Add stronger Telegram-safe truncation for all admin broadcast and log screens.
 
+### Master Bot Rework
+
+- [x] Simplify master main menu around daily seller-bot work:
+  - [x] `Seller Bots`
+  - [x] `Add Seller Bot`
+  - [x] Move advanced platform sections behind `Platform Settings`.
+- [x] Replace seller-bot management with a button-first screen:
+  - [x] Paginated seller-bot list.
+  - [x] Search by name, ID, status, runtime, container ID, or container name.
+  - [x] Per-bot configure card.
+- [x] Add seller-bot configure buttons:
+  - [x] Bot panel screen routed to the owner reseller's panel assignments.
+  - [x] Pricing rules screen routed to the owner reseller's plans.
+  - [x] Bot admins screen showing current owner/admin.
+  - [x] Start/stop/health/logs remain available from the same card.
+- [x] Rework add-seller-bot wizard:
+  - [x] Choose built-in seller bot or external template bot first.
+  - [x] Choose reseller/admin owner by button.
+  - [x] Ask bot name.
+  - [x] Ask token and hide it after validation.
+  - [x] Confirm before creating.
+- [ ] Add dedicated bot-admin table:
+  - [ ] Add/remove extra Telegram admins per seller bot.
+  - [ ] Give bot admins scoped permissions.
+- [ ] Add dedicated per-bot panel assignment:
+  - [ ] Assign panel directly to bot, not only to reseller owner.
+  - [ ] Show selected panel on bot detail screen.
+- [ ] Add dedicated per-bot pricing rules:
+  - [ ] Override global/reseller plan prices per bot.
+  - [ ] Show effective pricing preview before saving.
+
 ### Tests And Deploy
 
 - [ ] Add tests for buyer location selection.

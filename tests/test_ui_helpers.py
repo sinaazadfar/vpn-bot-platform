@@ -45,6 +45,9 @@ from vpn_bot_platform.common.ui.keyboards import (
     seller_admin_menu,
     seller_buyer_reply_menu,
     seller_buyer_menu,
+    seller_bot_config_menu,
+    seller_bot_list_menu,
+    seller_bot_type_menu,
     seller_report_menu,
     support_menu,
     wallet_charge_menu,
@@ -79,6 +82,9 @@ def test_main_menus_have_buttons() -> None:
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert external_template_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
+    assert seller_bot_config_menu("12345678-1234-1234-1234-123456789abc").inline_keyboard
+    assert seller_bot_list_menu(page=1, total_pages=3).inline_keyboard
+    assert seller_bot_type_menu(has_external_templates=True).inline_keyboard
     assert reseller_list_menu(page=1, total_pages=3).inline_keyboard
     assert panel_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert reseller_card_actions(12345).inline_keyboard
@@ -103,6 +109,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_section_menu("resellers"),
         master_section_menu("seller_bots"),
         master_section_menu("external_bots"),
+        master_section_menu("platform_settings"),
         master_section_menu("panels"),
         master_section_menu("plans"),
         master_section_menu("discounts"),
@@ -124,6 +131,10 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         forced_join_blocked_menu(),
         master_seller_bot_actions(uuid),
         external_template_actions(uuid),
+        seller_bot_config_menu(uuid),
+        seller_bot_list_menu(page=1, total_pages=3),
+        seller_bot_type_menu(has_external_templates=True),
+        seller_bot_type_menu(has_external_templates=False),
         seller_buyer_menu(),
         seller_admin_menu(),
         seller_report_menu(),

@@ -109,9 +109,7 @@ def reply_keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
 def master_reply_menu() -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
-            ["Resellers", "Seller Bots"],
-            ["Panels", "Plans"],
-            ["Reports", "Settings"],
+            ["Seller Bots", "Add Seller Bot"],
         ]
     )
 
@@ -141,24 +139,12 @@ def seller_admin_reply_menu() -> ReplyKeyboardMarkup:
 def master_main_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
+            [("🤖 Seller Bots", build_callback("m", "seller_bots"))],
+            [("➕ Add Seller Bot", build_callback("m", "add_seller_bot"))],
             [
-                ("Resellers", build_callback("m", "resellers")),
-                ("Seller Bots", build_callback("m", "seller_bots")),
+                ("⚙️ Platform Settings", build_callback("m", "platform_settings")),
+                ("📊 Reports", build_callback("m", "reports")),
             ],
-            [("External Bots", build_callback("m", "external_bots"))],
-            [
-                ("Panels", build_callback("m", "panels")),
-                ("Plans", build_callback("m", "plans")),
-            ],
-            [
-                ("Discounts", build_callback("m", "discounts")),
-                ("Broadcasts", build_callback("m", "broadcasts")),
-            ],
-            [
-                ("Reports", build_callback("m", "reports")),
-                ("Settings", build_callback("m", "settings")),
-            ],
-            [("System", build_callback("m", "system"))],
         ]
     )
 
@@ -175,11 +161,30 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
     elif section == "seller_bots":
         rows.append(
             [
-                ("Add Seller Bot", build_callback("m", "guide_add_seller_bot")),
-                ("BotFather", build_callback("m", "guide_botfather")),
+                ("➕ Add Seller Bot", build_callback("m", "add_seller_bot")),
+                ("🔎 Search", build_callback("m", "seller_search")),
             ]
         )
-        rows.append([("External Bots", build_callback("m", "external_bots"))])
+        rows.append([("🧩 Bot Templates", build_callback("m", "external_bots"))])
+    elif section == "platform_settings":
+        rows.append(
+            [
+                ("Resellers", build_callback("m", "resellers")),
+                ("Panels", build_callback("m", "panels")),
+            ]
+        )
+        rows.append(
+            [
+                ("Plans", build_callback("m", "plans")),
+                ("Discounts", build_callback("m", "discounts")),
+            ]
+        )
+        rows.append(
+            [
+                ("Broadcasts", build_callback("m", "broadcasts")),
+                ("System", build_callback("m", "system")),
+            ]
+        )
     elif section == "external_bots":
         rows.append(
             [
@@ -282,6 +287,53 @@ def external_template_actions(template_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def seller_bot_list_menu(*, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [
+        [
+            ("➕ Add Seller Bot", build_callback("m", "add_seller_bot")),
+            ("🔎 Search", build_callback("m", "seller_search")),
+        ]
+    ]
+    page_row = pagination_row(scope="m", action="seller_bots", page=page, total_pages=total_pages)
+    if page_row:
+        rows.append(page_row)
+    rows.append(nav_row(scope="m", refresh_action="seller_bots", home_action="home"))
+    return inline_keyboard(rows)
+
+
+def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("🧩 Configure", build_callback("m", "seller_detail", seller_bot_id)),
+                ("📡 Bot Panel", build_callback("m", "seller_config_panel", seller_bot_id)),
+            ],
+            [
+                ("💰 Pricing Rules", build_callback("m", "seller_config_pricing", seller_bot_id)),
+                ("👥 Bot Admins", build_callback("m", "seller_config_admins", seller_bot_id)),
+            ],
+            [
+                ("Start", build_callback("m", "seller_start", seller_bot_id)),
+                ("Stop", build_callback("m", "seller_stop", seller_bot_id)),
+            ],
+            [
+                ("Health", build_callback("m", "seller_health", seller_bot_id)),
+                ("Logs", build_callback("m", "seller_logs", seller_bot_id)),
+            ],
+            [("Disable", build_callback("m", "seller_disable", seller_bot_id))],
+            [("Back", build_callback("m", "seller_bots")), ("Home", build_callback("m", "home"))],
+        ]
+    )
+
+
+def seller_bot_type_menu(*, has_external_templates: bool) -> InlineKeyboardMarkup:
+    rows = [[("Our Seller Bot", build_callback("m", "sellerbot_type", "native"))]]
+    if has_external_templates:
+        rows.append([("External Template Bot", build_callback("m", "sellerbot_type", "external"))])
+    rows.append([("Cancel", build_callback("m", "sellerbot_cancel")), ("Home", build_callback("m", "home"))])
+    return inline_keyboard(rows)
+
+
 def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
     value = str(telegram_id)
     return inline_keyboard(
@@ -371,23 +423,7 @@ def discount_actions(discount_id: str, *, is_active: bool = True) -> InlineKeybo
 
 
 def master_seller_bot_actions(seller_bot_id: str) -> InlineKeyboardMarkup:
-    return inline_keyboard(
-        [
-            [("Details", build_callback("m", "seller_detail", seller_bot_id))],
-            [
-                ("Start", build_callback("m", "seller_start", seller_bot_id)),
-                ("Stop", build_callback("m", "seller_stop", seller_bot_id)),
-            ],
-            [("Restart", build_callback("m", "seller_restart", seller_bot_id))],
-            [
-                ("Health", build_callback("m", "seller_health", seller_bot_id)),
-                ("Logs", build_callback("m", "seller_logs", seller_bot_id)),
-            ],
-            [("Refresh Logs", build_callback("m", "seller_logs", seller_bot_id))],
-            [("Disable", build_callback("m", "seller_disable", seller_bot_id))],
-            [("Back", build_callback("m", "seller_bots")), ("Home", build_callback("m", "home"))],
-        ]
-    )
+    return seller_bot_config_menu(seller_bot_id)
 
 
 def broadcast_actions(broadcast_id: str, *, status: str = "draft") -> InlineKeyboardMarkup:
