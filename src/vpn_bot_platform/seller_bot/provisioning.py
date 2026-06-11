@@ -13,6 +13,7 @@ from vpn_bot_platform.common.models import Order, Plan, SellerBot, VpnService
 from vpn_bot_platform.common.repositories import (
     create_trial_grant,
     create_vpn_service,
+    get_extra_volume_order_context,
     get_provisioning_order_context,
     get_renewal_order_context,
     get_seller_bot_with_reseller,
@@ -191,6 +192,64 @@ class ProvisioningService:
             await session.flush()
             return ProvisionedService(order=order, vpn_service=vpn_service)
 
+    async def apply_extra_volume(self, *, admin_telegram_id: int, order_id: str) -> ProvisionedService:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            if seller_bot.reseller.telegram_user_id != admin_telegram_id:
+                raise PermissionError("not_reseller_admin")
+            context = await get_extra_volume_order_context(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                order_id=order_id,
+            )
+            if context is None:
+                raise ValueError("extra_volume_not_ready")
+            order, vpn_service, plan = context
+            panel = await get_marzban_panel(session, panel_id=vpn_service.panel_id)
+            if panel is None or not panel.is_active:
+                await mark_order_failed(session, order=order)
+                raise ValueError("panel_not_found")
+
+            new_data_limit_gb = _increased_data_limit(vpn_service.data_limit_gb, plan.data_limit_gb)
+            update = MarzbanUserUpdate(
+                data_limit=gb_to_bytes(new_data_limit_gb) if new_data_limit_gb is not None else None,
+                status="active",
+            )
+            try:
+                await self.marzban_client_factory(self._panel_credentials(panel)).update_user(
+                    vpn_service.marzban_username,
+                    update,
+                )
+            except Exception:
+                await mark_order_failed(session, order=order)
+                raise
+
+            vpn_service.data_limit_gb = new_data_limit_gb
+            vpn_service.is_active = True
+            await mark_order_completed(session, order=order)
+            await record_audit_log(
+                session,
+                action="vpn_service.extra_volume",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="vpn_service",
+                target_id=vpn_service.id,
+                metadata={
+                    "order_id": order.id,
+                    "panel_id": panel.id,
+                    "added_gb": plan.data_limit_gb,
+                    "new_data_limit_gb": new_data_limit_gb,
+                },
+            )
+            await session.flush()
+            return ProvisionedService(order=order, vpn_service=vpn_service)
+
     async def provision_trial(
         self,
         *,
@@ -324,3 +383,9 @@ def _renewed_expire_timestamp(current_expire: dt.datetime | None, duration_days:
         current_expire = current_expire.replace(tzinfo=dt.UTC)
     base = current_expire if current_expire and current_expire > now else now
     return int((base + dt.timedelta(days=duration_days)).timestamp())
+
+
+def _increased_data_limit(current_limit_gb: int | None, add_limit_gb: int | None) -> int | None:
+    if current_limit_gb is None or add_limit_gb is None:
+        return None
+    return current_limit_gb + add_limit_gb

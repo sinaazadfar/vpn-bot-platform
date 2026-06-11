@@ -519,8 +519,9 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
             ],
             [
                 ("Renew", build_callback("s", "renew", service_id)),
-                ("Guide", build_callback("s", "service_guide", service_id)),
+                ("Extra Volume", build_callback("s", "extra_volume", service_id)),
             ],
+            [("Guide", build_callback("s", "service_guide", service_id))],
             [("Back", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
         ]
     )
@@ -531,6 +532,18 @@ def renewal_plan_button(plan_id: str) -> InlineKeyboardMarkup:
         [
             [
                 ("Select", build_callback("s", "renew_plan", plan_id)),
+                ("Services", build_callback("s", "services")),
+                ("Home", build_callback("s", "home")),
+            ]
+        ]
+    )
+
+
+def extra_volume_plan_button(plan_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Select", build_callback("s", "extra_plan", plan_id)),
                 ("Services", build_callback("s", "services")),
                 ("Home", build_callback("s", "home")),
             ]
@@ -555,6 +568,26 @@ def renewal_confirm_menu() -> InlineKeyboardMarkup:
         scope="s",
         confirm_action="renew_create",
         cancel_action="renew_cancel",
+    )
+
+
+def extra_volume_coupon_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Enter Coupon", build_callback("s", "extra_coupon")),
+                ("Skip Coupon", build_callback("s", "extra_no_coupon")),
+            ],
+            [("Services", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
+        ]
+    )
+
+
+def extra_volume_confirm_menu() -> InlineKeyboardMarkup:
+    return confirm_keyboard(
+        scope="s",
+        confirm_action="extra_create",
+        cancel_action="extra_cancel",
     )
 
 
@@ -630,9 +663,16 @@ def admin_payment_actions(payment_id: str) -> InlineKeyboardMarkup:
     )
 
 
-def admin_order_actions(order_id: str, *, renewal: bool = False) -> InlineKeyboardMarkup:
-    action = "confirm_renewal" if renewal else "confirm_provision"
-    label = "Apply Renewal" if renewal else "Provision"
+def admin_order_actions(order_id: str, *, renewal: bool = False, extra_volume: bool = False) -> InlineKeyboardMarkup:
+    if extra_volume:
+        action = "confirm_extra_volume"
+        label = "Apply Extra Volume"
+    elif renewal:
+        action = "confirm_renewal"
+        label = "Apply Renewal"
+    else:
+        action = "confirm_provision"
+        label = "Provision"
     return inline_keyboard(
         [
             [

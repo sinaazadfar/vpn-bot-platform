@@ -14,6 +14,7 @@ from vpn_bot_platform.common.models import (
     OrderType,
     Payment,
     Plan,
+    PlanPurpose,
     Reseller,
     SellerBot,
     TelegramUser,
@@ -197,7 +198,7 @@ class SellerContextService:
             await session.flush()
             return BuyerProfile(buyer=buyer, reseller=reseller, seller_bot=seller_bot)
 
-    async def list_plans(self) -> list[Plan]:
+    async def list_plans(self, *, purpose: PlanPurpose | None = PlanPurpose.PURCHASE) -> list[Plan]:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
                 session,
@@ -208,6 +209,7 @@ class SellerContextService:
             return await list_active_plans_for_reseller(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                purpose=purpose,
             )
 
     async def request_card_to_card_payment(
@@ -233,6 +235,7 @@ class SellerContextService:
                 session,
                 reseller_id=seller_bot.reseller_id,
                 plan_id=plan_id,
+                purpose=PlanPurpose.PURCHASE,
             )
             if plan is None:
                 raise ValueError("plan_not_found")
@@ -284,6 +287,7 @@ class SellerContextService:
                 session,
                 reseller_id=seller_bot.reseller_id,
                 plan_id=plan_id,
+                purpose=PlanPurpose.PURCHASE,
             )
             if plan is None:
                 raise ValueError("plan_not_found")
@@ -351,6 +355,7 @@ class SellerContextService:
                 session,
                 reseller_id=seller_bot.reseller_id,
                 plan_id=plan_id,
+                purpose=PlanPurpose.RENEWAL,
             )
             if plan is None:
                 raise ValueError("plan_not_found")
@@ -378,6 +383,65 @@ class SellerContextService:
             intent = self.payment_gateways.get("card_to_card").create_payment_intent(
                 amount=amount,
                 description=f"renewal:{order.id}",
+                buyer_telegram_id=buyer_telegram_id,
+            )
+            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=intent.instructions)
+
+    async def request_extra_volume_payment(
+        self,
+        *,
+        buyer_telegram_id: int,
+        service_id: str,
+        plan_id: str,
+        coupon_code: str | None = None,
+    ) -> PaymentRequest:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            service = await get_vpn_service_for_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+                service_id=service_id,
+            )
+            if service is None:
+                raise ValueError("service_not_found")
+            plan = await get_active_plan_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                plan_id=plan_id,
+                purpose=PlanPurpose.EXTRA_VOLUME,
+            )
+            if plan is None:
+                raise ValueError("plan_not_found")
+            discount = None
+            if coupon_code:
+                discount = await get_active_discount_code(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    code=coupon_code,
+                )
+                if discount is None:
+                    raise ValueError("discount_not_found")
+            amount = apply_discount_amount(price=float(plan.price), discount=discount)
+            order, payment = await create_order_with_pending_payment(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=service.buyer_id,
+                plan_id=plan.id,
+                amount=amount,
+                order_type=OrderType.EXTRA_VOLUME,
+                target_service_id=service.id,
+            )
+            increment_discount_usage(discount)
+            await session.flush()
+            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                amount=amount,
+                description=f"extra_volume:{order.id}",
                 buyer_telegram_id=buyer_telegram_id,
             )
             return PaymentRequest(order=order, payment=payment, plan=plan, instructions=intent.instructions)

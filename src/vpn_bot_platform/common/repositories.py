@@ -25,6 +25,7 @@ from vpn_bot_platform.common.models import (
     Payment,
     PaymentGateway,
     PaymentGatewayStatus,
+    PlanPurpose,
     PaymentStatus,
     PlatformSetting,
     Plan,
@@ -339,10 +340,12 @@ async def create_plan(
     duration_days: int,
     data_limit_gb: int | None,
     reseller_id: str | None = None,
+    purpose: PlanPurpose = PlanPurpose.PURCHASE,
 ) -> Plan:
     plan = Plan(
         reseller_id=reseller_id,
         scope=PlanScope.RESELLER.value if reseller_id else PlanScope.GLOBAL.value,
+        purpose=purpose.value,
         name=name,
         price=price,
         duration_days=duration_days,
@@ -356,13 +359,17 @@ async def list_active_plans_for_reseller(
     session: AsyncSession,
     *,
     reseller_id: str,
+    purpose: PlanPurpose | None = None,
 ) -> list[Plan]:
+    where_clauses = [
+        Plan.is_active.is_(True),
+        (Plan.reseller_id == reseller_id) | (Plan.scope == PlanScope.GLOBAL.value),
+    ]
+    if purpose is not None:
+        where_clauses.append(Plan.purpose == purpose.value)
     result = await session.execute(
         select(Plan)
-        .where(
-            Plan.is_active.is_(True),
-            (Plan.reseller_id == reseller_id) | (Plan.scope == PlanScope.GLOBAL.value),
-        )
+        .where(*where_clauses)
         .order_by(Plan.reseller_id.desc().nullslast(), Plan.price.asc(), Plan.created_at.asc())
     )
     return list(result.scalars().all())
@@ -389,13 +396,17 @@ async def get_active_plan_for_reseller(
     *,
     reseller_id: str,
     plan_id: str,
+    purpose: PlanPurpose | None = None,
 ) -> Plan | None:
+    where_clauses = [
+        Plan.id == plan_id,
+        Plan.is_active.is_(True),
+        (Plan.reseller_id == reseller_id) | (Plan.scope == PlanScope.GLOBAL.value),
+    ]
+    if purpose is not None:
+        where_clauses.append(Plan.purpose == purpose.value)
     result = await session.execute(
-        select(Plan).where(
-            Plan.id == plan_id,
-            Plan.is_active.is_(True),
-            (Plan.reseller_id == reseller_id) | (Plan.scope == PlanScope.GLOBAL.value),
-        )
+        select(Plan).where(*where_clauses)
     )
     return result.scalar_one_or_none()
 
@@ -806,6 +817,26 @@ async def get_renewal_order_context(
             Order.id == order_id,
             Order.reseller_id == reseller_id,
             Order.order_type == OrderType.RENEWAL.value,
+            Order.status == OrderStatus.PROVISIONING.value,
+        )
+    )
+    return result.one_or_none()
+
+
+async def get_extra_volume_order_context(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    order_id: str,
+) -> tuple[Order, VpnService, Plan] | None:
+    result = await session.execute(
+        select(Order, VpnService, Plan)
+        .join(VpnService, Order.target_service_id == VpnService.id)
+        .join(Plan, Order.plan_id == Plan.id)
+        .where(
+            Order.id == order_id,
+            Order.reseller_id == reseller_id,
+            Order.order_type == OrderType.EXTRA_VOLUME.value,
             Order.status == OrderStatus.PROVISIONING.value,
         )
     )

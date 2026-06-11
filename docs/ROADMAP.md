@@ -440,11 +440,11 @@ Goal: turn the approved combined flow into complete production behavior, using t
 ### Buyer Storefront
 
 - [ ] Add buyer-facing location/panel choice before plan selection when multiple active routed panels are available.
-- [ ] Add explicit plan purpose/type support:
-  - [ ] Purchase plan.
-  - [ ] Trial plan.
-  - [ ] Renewal plan.
-  - [ ] Extra-volume plan.
+- [x] Add explicit plan purpose/type support:
+  - [x] Purchase plan.
+  - [x] Trial plan.
+  - [x] Renewal plan.
+  - [x] Extra-volume plan.
 - [ ] Add direct order payment path in addition to wallet-first payment.
 - [ ] Add receipt upload handling for direct order payments.
 - [ ] Auto-provision direct order after reseller approval.
@@ -453,11 +453,11 @@ Goal: turn the approved combined flow into complete production behavior, using t
 
 ### Renewal And Extra Volume
 
-- [ ] Split renewal and extra-volume plan selection.
-- [ ] Implement extra-volume purchase flow.
-- [ ] Apply extra volume to Marzban data limit.
+- [x] Split renewal and extra-volume plan selection.
+- [x] Implement extra-volume purchase flow.
+- [x] Apply extra volume to Marzban data limit.
 - [ ] Improve renewal to preserve remaining time where panel behavior allows it.
-- [ ] Add payment/audit records for renewal and extra-volume changes.
+- [x] Add payment/audit records for renewal and extra-volume changes.
 
 ### Seller Admin Operations
 
@@ -482,6 +482,7 @@ Goal: turn the approved combined flow into complete production behavior, using t
 - [ ] Add trial settings editor in Master Bot.
 - [ ] Add rate limit settings editor in Master Bot.
 - [ ] Add plan purpose/type editor in Master Bot.
+  - [x] Add command-level purpose support for purchase, trial, renewal, and extra-volume plans.
 - [ ] Add reseller-specific discount management.
 - [ ] Add reseller-specific payment instruction management.
 - [ ] Add richer system health screen with live database, worker, seller runtime, and panel checks.
@@ -506,7 +507,7 @@ Goal: turn the approved combined flow into complete production behavior, using t
 
 - [ ] Add tests for buyer location selection.
 - [ ] Add tests for direct order approval provisioning.
-- [ ] Add tests for extra-volume Marzban update.
+- [x] Add tests for extra-volume Marzban update.
 - [ ] Add tests for customer search and admin wallet adjustment.
 - [ ] Add tests for master callback permission coverage.
 - [ ] Deploy Phase 8 increments to `server-04` after each stable slice.

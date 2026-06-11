@@ -62,6 +62,7 @@ from vpn_bot_platform.common.models import (
     SellerBot,
     SellerBotStatus,
     Plan,
+    PlanPurpose,
     DiscountCode,
     DiscountType,
     Broadcast,
@@ -648,6 +649,7 @@ class ResellerService:
         price: float,
         duration_days: int,
         data_limit_gb: int | None,
+        purpose: PlanPurpose = PlanPurpose.PURCHASE,
     ) -> Plan:
         async with session_scope() as session:
             plan = await create_plan(
@@ -656,6 +658,7 @@ class ResellerService:
                 price=price,
                 duration_days=duration_days,
                 data_limit_gb=data_limit_gb,
+                purpose=purpose,
             )
             await record_audit_log(
                 session,
@@ -676,6 +679,7 @@ class ResellerService:
         price: float,
         duration_days: int,
         data_limit_gb: int | None,
+        purpose: PlanPurpose = PlanPurpose.PURCHASE,
     ) -> Plan:
         async with session_scope() as session:
             reseller = await get_reseller_by_telegram_id(
@@ -691,6 +695,7 @@ class ResellerService:
                 price=price,
                 duration_days=duration_days,
                 data_limit_gb=data_limit_gb,
+                purpose=purpose,
             )
             await session.flush()
             return plan

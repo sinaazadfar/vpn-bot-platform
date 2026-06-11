@@ -6,7 +6,7 @@ from cryptography.fernet import Fernet
 from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
-from vpn_bot_platform.common.models import DiscountType
+from vpn_bot_platform.common.models import DiscountType, PlanPurpose
 from vpn_bot_platform.integrations.marzban import (
     MarzbanCredentials,
     MarzbanUserCreate,
@@ -119,6 +119,20 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             duration_days=30,
             data_limit_gb=30,
         )
+        renewal_plan = await master_service.create_global_plan(
+            name="renew30",
+            price=90000,
+            duration_days=30,
+            data_limit_gb=30,
+            purpose=PlanPurpose.RENEWAL,
+        )
+        extra_volume_plan = await master_service.create_global_plan(
+            name="extra10",
+            price=30000,
+            duration_days=0,
+            data_limit_gb=10,
+            purpose=PlanPurpose.EXTRA_VOLUME,
+        )
         reseller_plan = await master_service.create_reseller_plan(
             reseller_telegram_id=111,
             name="reseller60",
@@ -173,7 +187,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         renewal_request = await seller_context.request_renewal_payment(
             buyer_telegram_id=222,
             service_id=provisioned.vpn_service.id,
-            plan_id=global_plan.id,
+            plan_id=renewal_plan.id,
         )
         renewal_approved = await seller_context.approve_payment(
             admin_telegram_id=111,
@@ -182,6 +196,19 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         renewed = await provisioning.apply_renewal(
             admin_telegram_id=111,
             order_id=renewal_approved.order.id,
+        )
+        extra_volume_request = await seller_context.request_extra_volume_payment(
+            buyer_telegram_id=222,
+            service_id=provisioned.vpn_service.id,
+            plan_id=extra_volume_plan.id,
+        )
+        extra_volume_approved = await seller_context.approve_payment(
+            admin_telegram_id=111,
+            payment_id=extra_volume_request.payment.id,
+        )
+        volume_applied = await provisioning.apply_extra_volume(
+            admin_telegram_id=111,
+            order_id=extra_volume_approved.order.id,
         )
         reseller_report = await seller_context.sales_report(admin_telegram_id=111, days=7)
         global_report = await master_service.global_report(days=7)
@@ -238,10 +265,15 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert renewal_request.order.target_service_id == provisioned.vpn_service.id
     assert renewed.order.status == "completed"
     assert renewed.vpn_service.id == provisioned.vpn_service.id
-    assert renewed.vpn_service.data_limit_gb == global_plan.data_limit_gb
-    assert reseller_report["completed_orders"] >= 2
+    assert renewed.vpn_service.data_limit_gb == renewal_plan.data_limit_gb
+    assert extra_volume_request.order.order_type == "extra_volume"
+    assert extra_volume_request.order.target_service_id == provisioned.vpn_service.id
+    assert volume_applied.order.status == "completed"
+    assert volume_applied.vpn_service.id == provisioned.vpn_service.id
+    assert volume_applied.vpn_service.data_limit_gb == renewal_plan.data_limit_gb + extra_volume_plan.data_limit_gb
+    assert reseller_report["completed_orders"] >= 3
     assert reseller_report["new_services"] >= 1
-    assert global_report["completed_orders"] >= 2
+    assert global_report["completed_orders"] >= 3
     assert global_report["resellers"] == 1
     assert trial_service.data_limit_gb == 1
     assert trial_service.subscription_url is not None

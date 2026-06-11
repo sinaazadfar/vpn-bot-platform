@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.token import TokenValidationError, validate_token
 
-from vpn_bot_platform.common.models import DiscountType, ResellerStatus
+from vpn_bot_platform.common.models import DiscountType, PlanPurpose, ResellerStatus
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
@@ -3388,12 +3388,18 @@ async def add_global_plan(
     reseller_service: ResellerService,
 ) -> None:
     args = _parse_args(command.args)
-    if len(args) != 4:
-        await message.answer("Usage: /add_global_plan <name> <price> <duration_days> <data_limit_gb|unlimited>")
+    if len(args) not in {4, 5}:
+        await message.answer(
+            "Usage: /add_global_plan <name> <price> <duration_days> <data_limit_gb|unlimited> [purchase|renewal|extra_volume|trial]"
+        )
         return
-    parsed = _parse_plan_args(args[1:])
+    parsed = _parse_plan_args(args[1:4])
     if parsed is None:
         await message.answer("Price, duration, and data limit must be valid numbers. Use unlimited for no data limit.")
+        return
+    purpose = _parse_plan_purpose(args[4] if len(args) == 5 else None)
+    if purpose is None:
+        await message.answer("Plan purpose must be purchase, renewal, extra_volume, or trial.")
         return
     price, duration_days, data_limit_gb = parsed
     plan = await reseller_service.create_global_plan(
@@ -3401,6 +3407,7 @@ async def add_global_plan(
         price=price,
         duration_days=duration_days,
         data_limit_gb=data_limit_gb,
+        purpose=purpose,
     )
     await message.answer(f"Global plan created.\nID: {plan.id}\nName: {plan.name}")
 
@@ -3412,12 +3419,18 @@ async def add_reseller_plan(
     reseller_service: ResellerService,
 ) -> None:
     args = _parse_args(command.args)
-    if len(args) != 5 or not args[0].isdigit():
-        await message.answer("Usage: /add_reseller_plan <reseller_telegram_id> <name> <price> <duration_days> <data_limit_gb|unlimited>")
+    if len(args) not in {5, 6} or not args[0].isdigit():
+        await message.answer(
+            "Usage: /add_reseller_plan <reseller_telegram_id> <name> <price> <duration_days> <data_limit_gb|unlimited> [purchase|renewal|extra_volume|trial]"
+        )
         return
-    parsed = _parse_plan_args(args[2:])
+    parsed = _parse_plan_args(args[2:5])
     if parsed is None:
         await message.answer("Price, duration, and data limit must be valid numbers. Use unlimited for no data limit.")
+        return
+    purpose = _parse_plan_purpose(args[5] if len(args) == 6 else None)
+    if purpose is None:
+        await message.answer("Plan purpose must be purchase, renewal, extra_volume, or trial.")
         return
     price, duration_days, data_limit_gb = parsed
     try:
@@ -3427,6 +3440,7 @@ async def add_reseller_plan(
             price=price,
             duration_days=duration_days,
             data_limit_gb=data_limit_gb,
+            purpose=purpose,
         )
     except ValueError as exc:
         if str(exc) == "reseller_not_found":
@@ -3446,7 +3460,9 @@ async def list_plans(message: Message, reseller_service: ResellerService) -> Non
     for plan in plans:
         traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
         owner = "global" if plan.reseller_id is None else f"reseller={plan.reseller_id}"
-        lines.append(f"- {plan.name} | {owner} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}")
+        lines.append(
+            f"- {plan.name} | {plan.purpose} | {owner} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
+        )
     await message.answer("\n".join(lines))
 
 
@@ -3462,6 +3478,15 @@ def _parse_plan_args(args: list[str]) -> tuple[float, int, int | None] | None:
     if price < 0 or duration_days <= 0 or (data_limit_gb is not None and data_limit_gb <= 0):
         return None
     return price, duration_days, data_limit_gb
+
+
+def _parse_plan_purpose(value: str | None) -> PlanPurpose | None:
+    if value is None:
+        return PlanPurpose.PURCHASE
+    try:
+        return PlanPurpose(value.strip().lower())
+    except ValueError:
+        return None
 
 
 def _parse_positive_float(raw: str | None) -> float | None:

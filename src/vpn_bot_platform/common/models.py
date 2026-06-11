@@ -43,6 +43,13 @@ class PlanScope(StrEnum):
     RESELLER = "reseller"
 
 
+class PlanPurpose(StrEnum):
+    PURCHASE = "purchase"
+    TRIAL = "trial"
+    RENEWAL = "renewal"
+    EXTRA_VOLUME = "extra_volume"
+
+
 class OrderStatus(StrEnum):
     DRAFT = "draft"
     WAITING_PAYMENT = "waiting_payment"
@@ -56,6 +63,7 @@ class OrderStatus(StrEnum):
 class OrderType(StrEnum):
     NEW_SERVICE = "new_service"
     RENEWAL = "renewal"
+    EXTRA_VOLUME = "extra_volume"
 
 
 class PaymentStatus(StrEnum):
@@ -209,6 +217,7 @@ class Plan(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     reseller_id: Mapped[str | None] = mapped_column(ForeignKey("resellers.id"), nullable=True)
     scope: Mapped[str] = mapped_column(String(16), default=PlanScope.GLOBAL.value)
+    purpose: Mapped[str] = mapped_column(String(24), default=PlanPurpose.PURCHASE.value)
     name: Mapped[str] = mapped_column(String(128))
     price: Mapped[float] = mapped_column(Numeric(18, 2))
     duration_days: Mapped[int] = mapped_column(Integer)

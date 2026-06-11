@@ -16,6 +16,9 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_wallet_charge_actions,
     buyer_ticket_actions,
     confirm_keyboard,
+    extra_volume_confirm_menu,
+    extra_volume_coupon_menu,
+    extra_volume_plan_button,
     forced_join_blocked_menu,
     payment_request_actions,
     plan_buy_button,
@@ -35,7 +38,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     wallet_transaction_actions,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
-from vpn_bot_platform.common.models import OrderType
+from vpn_bot_platform.common.models import OrderType, PlanPurpose
 from vpn_bot_platform.seller_bot.forced_join import missing_required_chats
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
 from vpn_bot_platform.seller_bot.services import SellerContextService
@@ -65,6 +68,12 @@ class PurchaseCreateStates(StatesGroup):
 
 
 class RenewalCreateStates(StatesGroup):
+    plan = State()
+    coupon = State()
+    confirm = State()
+
+
+class ExtraVolumeCreateStates(StatesGroup):
     plan = State()
     coupon = State()
     confirm = State()
@@ -268,7 +277,7 @@ async def seller_menu_callback(
         if not action.value:
             await callback.answer("Plan is missing.", show_alert=True)
             return
-        plan = await _find_plan(seller_context, plan_id=action.value)
+        plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.RENEWAL)
         if plan is None:
             await callback.answer("Plan not found.", show_alert=True)
             return
@@ -419,11 +428,36 @@ async def seller_menu_callback(
             await _renewal_text(seller_context, service_id=service.id),
             reply_markup=service_actions(service.id),
         )
-        plans = await seller_context.list_plans()
+        plans = await seller_context.list_plans(purpose=PlanPurpose.RENEWAL)
         for plan in plans[:8]:
             await callback.message.answer(
                 _renewal_plan_card_text(plan),
                 reply_markup=renewal_plan_button(plan.id),
+            )
+    elif action.action == "extra_volume":
+        if not action.value:
+            await callback.answer("Service is missing.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=action.value,
+        )
+        if service is None:
+            await callback.answer("Service not found.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(extra_service_id=service.id)
+        await state.set_state(ExtraVolumeCreateStates.plan)
+        await callback.message.edit_text(
+            await _extra_volume_text(seller_context, service_id=service.id),
+            reply_markup=service_actions(service.id),
+        )
+        plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
+        for plan in plans[:8]:
+            await callback.message.answer(
+                _extra_volume_plan_card_text(plan),
+                reply_markup=extra_volume_plan_button(plan.id),
             )
     elif action.action == "renew_services":
         await state.clear()
@@ -465,6 +499,34 @@ async def seller_menu_callback(
             _renewal_coupon_text(service, plan),
             reply_markup=renewal_coupon_menu(),
         )
+    elif action.action == "extra_plan":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        data = await state.get_data()
+        service_id = data.get("extra_service_id")
+        if not service_id:
+            await callback.answer("Choose a service first.", show_alert=True)
+            return
+        plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.EXTRA_VOLUME)
+        if plan is None:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        service = await _find_buyer_service(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            service_id=str(service_id),
+        )
+        if service is None:
+            await callback.answer("Service not found.", show_alert=True)
+            await state.clear()
+            return
+        await state.update_data(extra_plan_id=plan.id, extra_coupon=None)
+        await state.set_state(ExtraVolumeCreateStates.coupon)
+        await callback.message.edit_text(
+            _extra_volume_coupon_text(service, plan),
+            reply_markup=extra_volume_coupon_menu(),
+        )
     elif action.action == "renew_coupon":
         data = await state.get_data()
         if not data.get("renew_service_id") or not data.get("renew_plan_id"):
@@ -477,6 +539,18 @@ async def seller_menu_callback(
         )
     elif action.action == "renew_no_coupon":
         await _show_renewal_confirm(callback, state, seller_context, coupon=None)
+    elif action.action == "extra_coupon":
+        data = await state.get_data()
+        if not data.get("extra_service_id") or not data.get("extra_plan_id"):
+            await callback.answer("Extra-volume draft is missing.", show_alert=True)
+            return
+        await state.set_state(ExtraVolumeCreateStates.coupon)
+        await callback.message.edit_text(
+            "\n".join([title("Extra Volume Coupon"), "Send the coupon code for this extra-volume purchase."]),
+            reply_markup=extra_volume_coupon_menu(),
+        )
+    elif action.action == "extra_no_coupon":
+        await _show_extra_volume_confirm(callback, state, seller_context, coupon=None)
     elif action.action == "renew_create":
         data = await state.get_data()
         service_id = data.get("renew_service_id")
@@ -509,10 +583,48 @@ async def seller_menu_callback(
             _payment_request_text(payment_request),
             reply_markup=payment_request_actions(payment_request.order.id),
         )
+    elif action.action == "extra_create":
+        data = await state.get_data()
+        service_id = data.get("extra_service_id")
+        plan_id = data.get("extra_plan_id")
+        if not service_id or not plan_id:
+            await callback.answer("Extra-volume draft is missing.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            payment_request = await seller_context.request_extra_volume_payment(
+                buyer_telegram_id=callback.from_user.id,
+                service_id=str(service_id),
+                plan_id=str(plan_id),
+                coupon_code=data.get("extra_coupon"),
+            )
+        except ValueError as exc:
+            if str(exc) == "service_not_found":
+                await callback.answer("Service not found.", show_alert=True)
+                await state.clear()
+                return
+            if str(exc) == "plan_not_found":
+                await callback.answer("Plan not found.", show_alert=True)
+                return
+            if str(exc) == "discount_not_found":
+                await callback.answer("Coupon not found.", show_alert=True)
+                return
+            raise
+        await state.clear()
+        await callback.message.edit_text(
+            _payment_request_text(payment_request),
+            reply_markup=payment_request_actions(payment_request.order.id),
+        )
     elif action.action == "renew_cancel":
         await state.clear()
         await callback.message.edit_text(
             "\n".join([title("Renewal Canceled"), "No renewal payment request was created."]),
+            reply_markup=seller_section_menu("services"),
+        )
+    elif action.action == "extra_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Extra Volume Canceled"), "No extra-volume payment request was created."]),
             reply_markup=seller_section_menu("services"),
         )
     elif action.action == "wallet":
@@ -948,6 +1060,7 @@ async def seller_menu_callback(
             await callback.answer("Pending payment not found.", show_alert=True)
             return
         is_renewal = approved.order.order_type == OrderType.RENEWAL.value
+        is_extra_volume = approved.order.order_type == OrderType.EXTRA_VOLUME.value
         await callback.message.edit_text(
             "\n".join(
                 [
@@ -957,7 +1070,11 @@ async def seller_menu_callback(
                     f"Order status: {status_label(approved.order.status)}",
                 ]
             ),
-            reply_markup=admin_order_actions(approved.order.id, renewal=is_renewal),
+            reply_markup=admin_order_actions(
+                approved.order.id,
+                renewal=is_renewal,
+                extra_volume=is_extra_volume,
+            ),
         )
     elif action.action == "pay_reject_confirm":
         if not action.value:
@@ -1006,18 +1123,27 @@ async def seller_menu_callback(
             ),
             reply_markup=seller_admin_menu(),
         )
-    elif action.action in {"confirm_provision", "confirm_renewal"}:
+    elif action.action in {"confirm_provision", "confirm_renewal", "confirm_extra_volume"}:
         if not action.value:
             await callback.answer("Order is missing.", show_alert=True)
             return
         is_renewal = action.action == "confirm_renewal"
-        confirm_action = "apply_renewal" if is_renewal else "provision_order"
+        is_extra_volume = action.action == "confirm_extra_volume"
+        if is_extra_volume:
+            confirm_action = "apply_extra_volume"
+            action_label = "Apply extra volume"
+        elif is_renewal:
+            confirm_action = "apply_renewal"
+            action_label = "Apply renewal"
+        else:
+            confirm_action = "provision_order"
+            action_label = "Provision VPN service"
         await callback.message.edit_text(
             "\n".join(
                 [
                     title("Confirm Provision"),
                     f"Order ID: {action.value}",
-                    f"Action: {'Apply renewal' if is_renewal else 'Provision VPN service'}",
+                    f"Action: {action_label}",
                     "",
                     "Confirm only after checking the approved payment.",
                 ]
@@ -1065,6 +1191,25 @@ async def seller_menu_callback(
             return
         await callback.message.edit_text(
             _service_created_text("VPN service renewed.", service),
+            reply_markup=seller_admin_menu(),
+        )
+    elif action.action == "apply_extra_volume":
+        if not action.value:
+            await callback.answer("Order is missing.", show_alert=True)
+            return
+        try:
+            service = await provisioning_service.apply_extra_volume(
+                admin_telegram_id=callback.from_user.id,
+                order_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError as exc:
+            await callback.answer(f"Could not add volume: {exc}", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _service_created_text("Extra volume applied.", service),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "wallet_ok":
@@ -1213,6 +1358,38 @@ async def renewal_waiting_for_plan(message: Message) -> None:
 async def renewal_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Renewal"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(ExtraVolumeCreateStates.coupon)
+async def extra_volume_coupon_input(
+    message: Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+) -> None:
+    if message.from_user is None:
+        return
+    coupon = (message.text or "").strip()
+    if not coupon or coupon.startswith("/"):
+        await message.answer(
+            "\n".join([title("Extra Volume Coupon"), "Send a coupon code, or use Skip Coupon."]),
+            reply_markup=extra_volume_coupon_menu(),
+        )
+        return
+    await _show_extra_volume_confirm(message, state, seller_context, coupon=coupon)
+
+
+@router.message(ExtraVolumeCreateStates.plan)
+async def extra_volume_waiting_for_plan(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Extra Volume"), "Choose one of the extra-volume plan buttons."])
+    )
+
+
+@router.message(ExtraVolumeCreateStates.confirm)
+async def extra_volume_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Extra Volume"), "Use Confirm or Cancel below the preview."])
     )
 
 
@@ -1484,7 +1661,7 @@ async def _send_legacy_start(message: Message, seller_context: SellerContextServ
 async def plans(message: Message, seller_context: SellerContextService) -> None:
     if await _blocked_by_forced_join(message):
         return
-    available_plans = await seller_context.list_plans()
+    available_plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
     if not available_plans:
         await message.answer("No active plans are available yet.")
         return
@@ -2129,7 +2306,7 @@ def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:
 
 
 async def _plans_text(seller_context: SellerContextService) -> str:
-    plans = await seller_context.list_plans()
+    plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
     if not plans:
         return "\n".join([title("Buy VPN"), "No active plans are available yet."])
     rows = []
@@ -2168,8 +2345,13 @@ async def _find_buyer_service(
     return next((service for service in services if service.id == service_id), None)
 
 
-async def _find_plan(seller_context: SellerContextService, *, plan_id: str):
-    plans = await seller_context.list_plans()
+async def _find_plan(
+    seller_context: SellerContextService,
+    *,
+    plan_id: str,
+    purpose: PlanPurpose | None = PlanPurpose.PURCHASE,
+):
+    plans = await seller_context.list_plans(purpose=purpose)
     return next((plan for plan in plans if plan.id == plan_id), None)
 
 
@@ -2222,7 +2404,7 @@ def _service_guide_text(service_id: str) -> str:
 
 
 async def _renewal_text(seller_context: SellerContextService, *, service_id: str) -> str:
-    plans = await seller_context.list_plans()
+    plans = await seller_context.list_plans(purpose=PlanPurpose.RENEWAL)
     if not plans:
         return "\n".join([title("Renew Service"), "No active renewal plans are available."])
     rows = []
@@ -2243,6 +2425,31 @@ def _renewal_plan_card_text(plan) -> str:
             f"Name: {plan.name}",
             f"Price: {plan.price:,.0f}",
             f"Duration: {plan.duration_days} days",
+            f"Traffic: {traffic}",
+            f"ID: {short_id(plan.id)}",
+        ]
+    )
+
+
+async def _extra_volume_text(seller_context: SellerContextService, *, service_id: str) -> str:
+    plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
+    if not plans:
+        return "\n".join([title("Extra Volume"), "No active extra-volume plans are available."])
+    rows = []
+    for plan in plans[:12]:
+        traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+        rows.append(f"- {plan.name} | {plan.price:,.0f} | {traffic} | id={plan.id}")
+    rows.extend(["", f"Service ID: {short_id(service_id)}", "Choose a volume button below to continue."])
+    return "\n".join([title("Extra Volume"), section("Plans", rows)])
+
+
+def _extra_volume_plan_card_text(plan) -> str:
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Extra Volume Plan"),
+            f"Name: {plan.name}",
+            f"Price: {plan.price:,.0f}",
             f"Traffic: {traffic}",
             f"ID: {short_id(plan.id)}",
         ]
@@ -2354,6 +2561,37 @@ def _renewal_confirm_text(service, plan, *, coupon: str | None) -> str:
     )
 
 
+def _extra_volume_coupon_text(service, plan) -> str:
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Extra Volume Coupon"),
+            f"Service: {service.marzban_username}",
+            f"Plan: {plan.name}",
+            f"Traffic: {traffic}",
+            f"Amount: {plan.price:,.0f}",
+            "",
+            "Enter a coupon code or skip this step.",
+        ]
+    )
+
+
+def _extra_volume_confirm_text(service, plan, *, coupon: str | None) -> str:
+    traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+    return "\n".join(
+        [
+            title("Confirm Extra Volume"),
+            f"Service: {service.marzban_username}",
+            f"Plan: {plan.name}",
+            f"Traffic: {traffic}",
+            f"Amount: {plan.price:,.0f}",
+            f"Coupon: {coupon or '-'}",
+            "",
+            "Confirm to create the extra-volume payment request.",
+        ]
+    )
+
+
 async def _show_renewal_confirm(
     target: CallbackQuery | Message,
     state: FSMContext,
@@ -2377,7 +2615,7 @@ async def _show_renewal_confirm(
         buyer_telegram_id=from_user.id,
         service_id=str(service_id),
     )
-    plan = await _find_plan(seller_context, plan_id=str(plan_id))
+    plan = await _find_plan(seller_context, plan_id=str(plan_id), purpose=PlanPurpose.RENEWAL)
     if service is None or plan is None:
         if isinstance(target, CallbackQuery):
             await target.answer("Renewal draft is no longer valid.", show_alert=True)
@@ -2393,6 +2631,47 @@ async def _show_renewal_confirm(
             await target.message.edit_text(text, reply_markup=renewal_confirm_menu())
     else:
         await target.answer(text, reply_markup=renewal_confirm_menu())
+
+
+async def _show_extra_volume_confirm(
+    target: CallbackQuery | Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+    *,
+    coupon: str | None,
+) -> None:
+    from_user = target.from_user
+    data = await state.get_data()
+    service_id = data.get("extra_service_id")
+    plan_id = data.get("extra_plan_id")
+    if not service_id or not plan_id:
+        if isinstance(target, CallbackQuery):
+            await target.answer("Extra-volume draft is missing.", show_alert=True)
+        else:
+            await target.answer("Extra-volume draft is missing. Start again from My Services.")
+        await state.clear()
+        return
+    service = await _find_buyer_service(
+        seller_context,
+        buyer_telegram_id=from_user.id,
+        service_id=str(service_id),
+    )
+    plan = await _find_plan(seller_context, plan_id=str(plan_id), purpose=PlanPurpose.EXTRA_VOLUME)
+    if service is None or plan is None:
+        if isinstance(target, CallbackQuery):
+            await target.answer("Extra-volume draft is no longer valid.", show_alert=True)
+        else:
+            await target.answer("Extra-volume draft is no longer valid. Start again from My Services.")
+        await state.clear()
+        return
+    await state.update_data(extra_coupon=coupon)
+    await state.set_state(ExtraVolumeCreateStates.confirm)
+    text = _extra_volume_confirm_text(service, plan, coupon=coupon)
+    if isinstance(target, CallbackQuery):
+        if target.message is not None:
+            await target.message.edit_text(text, reply_markup=extra_volume_confirm_menu())
+    else:
+        await target.answer(text, reply_markup=extra_volume_confirm_menu())
 
 
 async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
@@ -2697,9 +2976,10 @@ async def _show_admin_orders(callback: CallbackQuery, seller_context: SellerCont
     )
     for item in orders[:5]:
         is_renewal = item.order.order_type == OrderType.RENEWAL.value
+        is_extra_volume = item.order.order_type == OrderType.EXTRA_VOLUME.value
         await callback.message.answer(
             _admin_order_card_text(item),
-            reply_markup=admin_order_actions(item.order.id, renewal=is_renewal),
+            reply_markup=admin_order_actions(item.order.id, renewal=is_renewal, extra_volume=is_extra_volume),
         )
 
 
@@ -2717,9 +2997,10 @@ async def _send_admin_orders(message: Message, seller_context: SellerContextServ
     )
     for item in orders[:5]:
         is_renewal = item.order.order_type == OrderType.RENEWAL.value
+        is_extra_volume = item.order.order_type == OrderType.EXTRA_VOLUME.value
         await message.answer(
             _admin_order_card_text(item),
-            reply_markup=admin_order_actions(item.order.id, renewal=is_renewal),
+            reply_markup=admin_order_actions(item.order.id, renewal=is_renewal, extra_volume=is_extra_volume),
         )
 
 
@@ -2967,6 +3248,47 @@ async def apply_renewal(
                 f"Service ID: {renewed.vpn_service.id}",
                 f"Username: {renewed.vpn_service.marzban_username}",
                 f"New expiry: {renewed.vpn_service.expire_at.isoformat() if renewed.vpn_service.expire_at else 'Unlimited'}",
+            ]
+        )
+    )
+
+
+@router.message(Command("apply_extra_volume"))
+async def apply_extra_volume(
+    message: Message,
+    command: CommandObject,
+    provisioning_service: ProvisioningService,
+) -> None:
+    if message.from_user is None:
+        return
+    order_id = (command.args or "").strip()
+    if not order_id:
+        await message.answer("Usage: /apply_extra_volume <order_id>")
+        return
+    try:
+        applied = await provisioning_service.apply_extra_volume(
+            admin_telegram_id=message.from_user.id,
+            order_id=order_id,
+        )
+    except PermissionError:
+        await message.answer("You do not have reseller admin access.")
+        return
+    except ValueError as exc:
+        if str(exc) == "extra_volume_not_ready":
+            await message.answer("Extra-volume order is not ready.")
+            return
+        if str(exc) == "panel_not_found":
+            await message.answer("Panel for this service is not available.")
+            return
+        raise
+    await message.answer(
+        "\n".join(
+            [
+                "Extra volume applied.",
+                f"Order ID: {applied.order.id}",
+                f"Service ID: {applied.vpn_service.id}",
+                f"Username: {applied.vpn_service.marzban_username}",
+                f"New traffic: {'Unlimited' if applied.vpn_service.data_limit_gb is None else f'{applied.vpn_service.data_limit_gb} GB'}",
             ]
         )
     )
