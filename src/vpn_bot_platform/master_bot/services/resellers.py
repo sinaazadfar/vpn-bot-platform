@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 import datetime as dt
+from pathlib import Path
+import subprocess
 
 from aiogram.utils.token import TokenValidationError, validate_token
 
@@ -17,6 +19,7 @@ from vpn_bot_platform.common.forced_join import (
 )
 from vpn_bot_platform.common.repositories import (
     assign_panel_to_reseller,
+    create_external_bot_template,
     create_discount_code,
     create_global_broadcast,
     create_marzban_panel,
@@ -25,6 +28,8 @@ from vpn_bot_platform.common.repositories import (
     create_seller_bot,
     count_panel_assignments,
     get_marzban_panel,
+    get_external_bot_template,
+    get_external_bot_template_by_key,
     get_global_broadcast,
     get_global_setting,
     get_discount_code,
@@ -33,6 +38,7 @@ from vpn_bot_platform.common.repositories import (
     global_sales_report,
     get_reseller_by_telegram_id,
     get_seller_bot,
+    list_external_bot_templates,
     list_all_plans,
     list_active_panel_assignments,
     list_discount_codes,
@@ -49,6 +55,7 @@ from vpn_bot_platform.common.repositories import (
     list_marzban_panels,
     list_resellers,
     update_panel_assignment_routing,
+    update_external_bot_template_sync_state,
     update_seller_runtime_state,
     update_reseller_profile,
     upsert_telegram_user,
@@ -68,6 +75,8 @@ from vpn_bot_platform.common.models import (
     Broadcast,
     BroadcastRecipient,
     AuditLog,
+    ExternalBotTemplate,
+    SellerBotRuntimeType,
 )
 from vpn_bot_platform.integrations.docker_runtime import seller_container_name
 from vpn_bot_platform.integrations.marzban import MarzbanClient, MarzbanCredentials
@@ -88,6 +97,13 @@ class SellerRuntimeStatus:
     seller_bot: SellerBot
     health: str
     logs: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalTemplateSyncResult:
+    template: ExternalBotTemplate
+    ok: bool
+    message: str
 
 
 @dataclass(frozen=True)
@@ -191,6 +207,161 @@ class ResellerService:
                 target_type="seller_bot",
                 target_id=seller_bot.id,
                 metadata={"reseller_telegram_id": reseller_telegram_id, "bot_name": bot_name},
+            )
+            await session.flush()
+            return seller_bot
+
+    async def register_external_bot_template(
+        self,
+        *,
+        key: str,
+        name: str,
+        repo_url: str,
+        ref: str = "main",
+        local_path: str | None = None,
+        license_name: str | None = None,
+        runtime_adapter: str = "manual",
+        actor_telegram_id: int | None = None,
+    ) -> ExternalBotTemplate:
+        key = key.strip().lower()
+        if not key or any(char.isspace() for char in key):
+            raise ValueError("invalid_template_key")
+        async with session_scope() as session:
+            existing = await get_external_bot_template_by_key(session, key=key)
+            if existing is not None:
+                raise ValueError("external_template_exists")
+            template = await create_external_bot_template(
+                session,
+                key=key,
+                name=name.strip(),
+                repo_url=repo_url.strip(),
+                ref=(ref or "main").strip(),
+                local_path=local_path.strip() if local_path else None,
+                license_name=license_name.strip() if license_name else None,
+                runtime_adapter=(runtime_adapter or "manual").strip(),
+            )
+            await record_audit_log(
+                session,
+                action="external_bot_template.register",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="external_bot_template",
+                target_id=template.id,
+                metadata={
+                    "key": template.key,
+                    "name": template.name,
+                    "repo_url": template.repo_url,
+                    "ref": template.ref,
+                    "local_path": template.local_path,
+                    "runtime_adapter": template.runtime_adapter,
+                },
+            )
+            await session.flush()
+            return template
+
+    async def list_external_bot_templates(self) -> list[ExternalBotTemplate]:
+        async with session_scope() as session:
+            return await list_external_bot_templates(session)
+
+    async def sync_external_bot_template(
+        self,
+        *,
+        template_id_or_key: str,
+        actor_telegram_id: int | None = None,
+    ) -> ExternalTemplateSyncResult:
+        async with session_scope() as session:
+            template = await get_external_bot_template(session, template_id=template_id_or_key)
+            if template is None:
+                template = await get_external_bot_template_by_key(session, key=template_id_or_key)
+            if template is None:
+                raise ValueError("external_template_not_found")
+
+            commit: str | None = None
+            error: str | None = None
+            if not template.local_path:
+                error = "local_path_not_configured"
+            else:
+                path = Path(template.local_path)
+                if not path.exists():
+                    error = f"local_path_missing: {template.local_path}"
+                else:
+                    try:
+                        result = subprocess.run(
+                            ["git", "-C", str(path), "rev-parse", "HEAD"],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        commit = result.stdout.strip()
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                        error = str(exc)
+
+            await update_external_bot_template_sync_state(
+                session,
+                template=template,
+                commit=commit,
+                error=error,
+            )
+            await record_audit_log(
+                session,
+                action="external_bot_template.sync",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="external_bot_template",
+                target_id=template.id,
+                metadata={"key": template.key, "commit": commit, "error": error},
+            )
+            await session.flush()
+            return ExternalTemplateSyncResult(
+                template=template,
+                ok=error is None,
+                message=commit or error or "synced",
+            )
+
+    async def register_external_seller_bot(
+        self,
+        *,
+        reseller_telegram_id: int,
+        bot_name: str,
+        bot_token: str,
+        template_id_or_key: str,
+        actor_telegram_id: int | None = None,
+    ) -> SellerBot:
+        async with session_scope() as session:
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            template = await get_external_bot_template(session, template_id=template_id_or_key)
+            if template is None:
+                template = await get_external_bot_template_by_key(session, key=template_id_or_key)
+            if template is None or not template.is_active:
+                raise ValueError("external_template_not_found")
+            seller_bot = await create_seller_bot(
+                session,
+                reseller_id=reseller.id,
+                name=bot_name,
+                token=bot_token,
+                secret_box=self.secret_box,
+                runtime_type=SellerBotRuntimeType.EXTERNAL_TEMPLATE,
+                external_template_id=template.id,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.register_external",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "bot_name": bot_name,
+                    "external_template_key": template.key,
+                },
             )
             await session.flush()
             return seller_bot
@@ -447,6 +618,8 @@ class ResellerService:
             seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
+            if seller_bot.runtime_type != SellerBotRuntimeType.NATIVE.value:
+                raise RuntimeError("external_runtime_adapter_not_implemented")
             token = self.secret_box.decrypt(seller_bot.token_encrypted)
             if not token:
                 await update_seller_runtime_state(
@@ -539,6 +712,8 @@ class ResellerService:
             seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
+            if seller_bot.runtime_type != SellerBotRuntimeType.NATIVE.value:
+                raise RuntimeError("external_runtime_adapter_not_implemented")
             token = self.secret_box.decrypt(seller_bot.token_encrypted)
             if not token:
                 await update_seller_runtime_state(

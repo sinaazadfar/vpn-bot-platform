@@ -5,7 +5,7 @@ from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
-from vpn_bot_platform.common.models import ResellerStatus
+from vpn_bot_platform.common.models import ResellerStatus, SellerBotRuntimeType
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 
@@ -45,6 +45,24 @@ async def test_register_reseller_and_seller_bot() -> None:
             status=ResellerStatus.DISABLED,
             actor_telegram_id=999,
         )
+        template = await service.register_external_bot_template(
+            key="marzbot-free",
+            name="Marzbot Free",
+            repo_url="https://github.com/govfvck/Marzbot-free",
+            ref="main",
+            local_path="external/seller-bots/marzbot-free",
+            license_name="AGPL-3.0",
+            runtime_adapter="manual",
+            actor_telegram_id=999,
+        )
+        external_seller_bot = await service.register_external_seller_bot(
+            reseller_telegram_id=12345,
+            bot_name="external-test",
+            bot_token="456:secret",
+            template_id_or_key="marzbot-free",
+            actor_telegram_id=999,
+        )
+        templates = await service.list_external_bot_templates()
     finally:
         await dispose_engine()
 
@@ -58,3 +76,7 @@ async def test_register_reseller_and_seller_bot() -> None:
     assert assignment.panel_id == panel.id
     assert renamed.display_name == "Renamed Reseller"
     assert disabled.status == "disabled"
+    assert template.key == "marzbot-free"
+    assert templates[0].id == template.id
+    assert external_seller_bot.external_template_id == template.id
+    assert external_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value

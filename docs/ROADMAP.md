@@ -505,6 +505,17 @@ Goal: turn the approved combined flow into complete production behavior, using t
   - [x] Add `govfvck/Marzbot-free` as `external/seller-bots/marzbot-free`.
   - [x] Keep our current seller bot as production runtime.
   - [x] Document AGPL-3.0 licensing note before any source-level adoption.
+- [x] Add master-bot external seller template registry:
+  - [x] Store external bot templates with repo URL, ref, local path, license, adapter, and sync state.
+  - [x] Add master commands and buttons for listing/syncing templates.
+  - [x] Add external seller bot records linked to a template.
+  - [x] Block native container runner from starting external-template bots until an adapter exists.
+- [ ] Add external-template runtime adapter:
+  - [ ] Build per-template env rendering.
+  - [ ] Run external bot database migrations safely.
+  - [ ] Build or pull external bot Docker image.
+  - [ ] Start/stop/restart external-template containers through runtime-controller.
+  - [ ] Add update policy per external repo and license.
 - [ ] Add compact receipt messages for every successful purchase, renewal, wallet charge, and extra-volume action.
 - [ ] Add clearer empty states for no plans, no services, no tickets, and no payments.
 - [ ] Add safer retry screens for failed Marzban provisioning.

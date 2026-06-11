@@ -14,6 +14,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     broadcast_actions,
     confirm_keyboard,
     discount_actions,
+    external_template_actions,
     extra_volume_confirm_menu,
     extra_volume_coupon_menu,
     extra_volume_plan_button,
@@ -77,6 +78,7 @@ def test_callback_rejects_too_long_data() -> None:
 def test_main_menus_have_buttons() -> None:
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
+    assert external_template_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert reseller_list_menu(page=1, total_pages=3).inline_keyboard
     assert panel_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert reseller_card_actions(12345).inline_keyboard
@@ -100,6 +102,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_main_menu(),
         master_section_menu("resellers"),
         master_section_menu("seller_bots"),
+        master_section_menu("external_bots"),
         master_section_menu("panels"),
         master_section_menu("plans"),
         master_section_menu("discounts"),
@@ -120,6 +123,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         forced_join_menu(),
         forced_join_blocked_menu(),
         master_seller_bot_actions(uuid),
+        external_template_actions(uuid),
         seller_buyer_menu(),
         seller_admin_menu(),
         seller_report_menu(),

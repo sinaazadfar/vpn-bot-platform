@@ -18,6 +18,7 @@ from vpn_bot_platform.common.models import (
     AuditLog,
     DiscountCode,
     DiscountType,
+    ExternalBotTemplate,
     MarzbanPanel,
     Order,
     OrderStatus,
@@ -35,6 +36,7 @@ from vpn_bot_platform.common.models import (
     ResellerPanelAssignment,
     SettingScope,
     SellerBot,
+    SellerBotRuntimeType,
     SellerBotStatus,
     TelegramUser,
     Ticket,
@@ -217,15 +219,80 @@ async def create_seller_bot(
     name: str,
     token: str,
     secret_box: SecretBox,
+    runtime_type: SellerBotRuntimeType = SellerBotRuntimeType.NATIVE,
+    external_template_id: str | None = None,
 ) -> SellerBot:
     seller_bot = SellerBot(
         reseller_id=reseller_id,
+        external_template_id=external_template_id,
         name=name,
         token_encrypted=secret_box.encrypt(token) or "",
         token_hash=hash_secret(token),
+        runtime_type=runtime_type.value,
     )
     session.add(seller_bot)
     return seller_bot
+
+
+async def create_external_bot_template(
+    session: AsyncSession,
+    *,
+    key: str,
+    name: str,
+    repo_url: str,
+    ref: str = "main",
+    local_path: str | None = None,
+    license_name: str | None = None,
+    runtime_adapter: str = "manual",
+) -> ExternalBotTemplate:
+    template = ExternalBotTemplate(
+        key=key,
+        name=name,
+        repo_url=repo_url,
+        ref=ref,
+        local_path=local_path,
+        license_name=license_name,
+        runtime_adapter=runtime_adapter,
+    )
+    session.add(template)
+    return template
+
+
+async def get_external_bot_template(
+    session: AsyncSession,
+    *,
+    template_id: str,
+) -> ExternalBotTemplate | None:
+    return await session.get(ExternalBotTemplate, template_id)
+
+
+async def get_external_bot_template_by_key(
+    session: AsyncSession,
+    *,
+    key: str,
+) -> ExternalBotTemplate | None:
+    result = await session.execute(select(ExternalBotTemplate).where(ExternalBotTemplate.key == key))
+    return result.scalar_one_or_none()
+
+
+async def list_external_bot_templates(session: AsyncSession) -> list[ExternalBotTemplate]:
+    result = await session.execute(
+        select(ExternalBotTemplate).order_by(ExternalBotTemplate.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def update_external_bot_template_sync_state(
+    session: AsyncSession,
+    *,
+    template: ExternalBotTemplate,
+    commit: str | None,
+    error: str | None,
+) -> ExternalBotTemplate:
+    template.last_synced_commit = commit
+    template.last_sync_error = error
+    template.updated_at = utcnow()
+    return template
 
 
 async def get_seller_bot(session: AsyncSession, *, seller_bot_id: str) -> SellerBot | None:

@@ -17,6 +17,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     broadcast_actions,
     confirm_keyboard,
     discount_actions,
+    external_template_actions,
     forced_join_menu,
     inline_keyboard,
     master_main_menu,
@@ -371,6 +372,40 @@ async def master_menu_callback(
                 ),
                 reply_markup=master_seller_bot_actions(seller_bot.id),
             )
+    elif action.action == "external_bots":
+        await callback.message.edit_text(
+            await _external_bots_text(reseller_service),
+            reply_markup=master_section_menu("external_bots"),
+        )
+        for template in (await reseller_service.list_external_bot_templates())[:5]:
+            await callback.message.answer(
+                _external_template_text(template),
+                reply_markup=external_template_actions(template.id),
+            )
+    elif action.action == "ext_sync":
+        if not action.value:
+            await callback.answer("Template is missing.", show_alert=True)
+            return
+        try:
+            result = await reseller_service.sync_external_bot_template(
+                template_id_or_key=action.value,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("External template not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("External Bot Template Sync"),
+                    f"Name: {result.template.name}",
+                    f"Key: {result.template.key}",
+                    f"Status: {'OK' if result.ok else 'Failed'}",
+                    f"Result: {result.message}",
+                ]
+            ),
+            reply_markup=external_template_actions(result.template.id),
+        )
     elif action.action in {
         "seller_detail",
         "seller_start",
@@ -2581,6 +2616,122 @@ async def add_seller_bot(
     )
 
 
+@router.message(Command("add_external_template"))
+async def add_external_template(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    args = _parse_args(command.args)
+    if len(args) < 4:
+        await message.answer(
+            "Usage: /add_external_template <key> <name> <repo_url> <ref> "
+            "[local_path] [license] [runtime_adapter]"
+        )
+        return
+    try:
+        template = await reseller_service.register_external_bot_template(
+            key=args[0],
+            name=args[1],
+            repo_url=args[2],
+            ref=args[3],
+            local_path=args[4] if len(args) >= 5 else None,
+            license_name=args[5] if len(args) >= 6 else None,
+            runtime_adapter=args[6] if len(args) >= 7 else "manual",
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError as exc:
+        if str(exc) == "external_template_exists":
+            await message.answer("External template already exists.")
+            return
+        if str(exc) == "invalid_template_key":
+            await message.answer("Template key must not be empty or contain spaces.")
+            return
+        raise
+    await message.answer(_external_template_text(template), reply_markup=external_template_actions(template.id))
+
+
+@router.message(Command("list_external_templates"))
+async def list_external_templates(message: Message, reseller_service: ResellerService) -> None:
+    await message.answer(
+        await _external_bots_text(reseller_service),
+        reply_markup=master_section_menu("external_bots"),
+    )
+
+
+@router.message(Command("sync_external_template"))
+async def sync_external_template(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    template_id_or_key = (command.args or "").strip()
+    if not template_id_or_key:
+        await message.answer("Usage: /sync_external_template <template_id_or_key>")
+        return
+    try:
+        result = await reseller_service.sync_external_bot_template(
+            template_id_or_key=template_id_or_key,
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError:
+        await message.answer("External template not found.")
+        return
+    await message.answer(
+        "\n".join(
+            [
+                "External template sync complete." if result.ok else "External template sync failed.",
+                f"Name: {result.template.name}",
+                f"Key: {result.template.key}",
+                f"Result: {result.message}",
+            ]
+        ),
+        reply_markup=external_template_actions(result.template.id),
+    )
+
+
+@router.message(Command("add_external_seller_bot"))
+async def add_external_seller_bot(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    args = _parse_args(command.args)
+    if len(args) != 4 or not args[0].isdigit():
+        await message.answer(
+            "Usage: /add_external_seller_bot <reseller_telegram_id> "
+            '<bot_name> <bot_token> <template_id_or_key>'
+        )
+        return
+    try:
+        seller_bot = await reseller_service.register_external_seller_bot(
+            reseller_telegram_id=int(args[0]),
+            bot_name=args[1].strip(),
+            bot_token=args[2].strip(),
+            template_id_or_key=args[3].strip(),
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError as exc:
+        if str(exc) == "reseller_not_found":
+            await message.answer("Reseller not found. Add reseller first.")
+            return
+        if str(exc) == "external_template_not_found":
+            await message.answer("External template not found or disabled.")
+            return
+        raise
+    await message.answer(
+        "\n".join(
+            [
+                "External seller bot registered.",
+                f"ID: {seller_bot.id}",
+                f"Name: {seller_bot.name}",
+                f"Runtime: {seller_bot.runtime_type}",
+                f"Status: {seller_bot.status}",
+            ]
+        )
+    )
+
+
 @router.message(Command("add_panel_token"))
 async def add_panel_token(
     message: Message,
@@ -3048,6 +3199,39 @@ async def _seller_bots_text(reseller_service: ResellerService) -> str:
     return "\n".join([title("Seller Bots"), section("Registered bots", rows)])
 
 
+async def _external_bots_text(reseller_service: ResellerService) -> str:
+    templates = await reseller_service.list_external_bot_templates()
+    rows = [
+        (
+            f"- {template.name} | key={template.key} | adapter={template.runtime_adapter} | "
+            f"commit={short_id(template.last_synced_commit) if template.last_synced_commit else '-'}"
+        )
+        for template in templates[:20]
+    ]
+    if not rows:
+        rows.append("No external bot templates registered yet.")
+    rows.extend(["", "Use templates only after checking license and runtime requirements."])
+    return "\n".join([title("External Bot Templates"), section("Templates", rows)])
+
+
+def _external_template_text(template) -> str:
+    return "\n".join(
+        [
+            title("External Bot Template"),
+            f"Name: {template.name}",
+            f"Key: {template.key}",
+            f"Repo: {template.repo_url}",
+            f"Ref: {template.ref}",
+            f"Path: {template.local_path or '-'}",
+            f"License: {template.license_name or '-'}",
+            f"Adapter: {template.runtime_adapter}",
+            f"Commit: {template.last_synced_commit or '-'}",
+            f"Last error: {template.last_sync_error or '-'}",
+            f"ID: {template.id}",
+        ]
+    )
+
+
 async def _plans_text(reseller_service: ResellerService) -> str:
     plans = await reseller_service.list_plans()
     rows = []
@@ -3302,6 +3486,23 @@ def _master_action_guide_text(action: str) -> str:
             "Create a Telegram bot with BotFather, copy the token, then return here and add it.",
             ['/add_seller_bot <reseller_telegram_id> "Bot Name" <bot_token>'],
         ),
+        "guide_add_external_template": (
+            "Add External Template",
+            "Register a GitHub seller bot as a managed template. This does not run it yet.",
+            [
+                '/add_external_template marzbot-free "Marzbot Free" '
+                "https://github.com/govfvck/Marzbot-free main "
+                "external/seller-bots/marzbot-free AGPL-3.0 manual"
+            ],
+        ),
+        "guide_add_external_seller_bot": (
+            "Add External Seller Bot",
+            "Create a seller bot record that points to an external template.",
+            [
+                '/add_external_seller_bot <reseller_telegram_id> "Bot Name" '
+                "<bot_token> <template_key>"
+            ],
+        ),
         "guide_add_panel_token": (
             "Add Panel With Token",
             "Connect a Marzban panel using an existing admin token.",
@@ -3358,6 +3559,8 @@ def _master_action_guide_text(action: str) -> str:
 def _guide_reply_markup(action: str):
     if "reseller" in action and "plan" not in action:
         return master_section_menu("resellers")
+    if "external" in action:
+        return master_section_menu("external_bots")
     if "seller_bot" in action or "botfather" in action:
         return master_section_menu("seller_bots")
     if "panel" in action:

@@ -145,6 +145,7 @@ def master_main_menu() -> InlineKeyboardMarkup:
                 ("Resellers", build_callback("m", "resellers")),
                 ("Seller Bots", build_callback("m", "seller_bots")),
             ],
+            [("External Bots", build_callback("m", "external_bots"))],
             [
                 ("Panels", build_callback("m", "panels")),
                 ("Plans", build_callback("m", "plans")),
@@ -176,6 +177,14 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
             [
                 ("Add Seller Bot", build_callback("m", "guide_add_seller_bot")),
                 ("BotFather", build_callback("m", "guide_botfather")),
+            ]
+        )
+        rows.append([("External Bots", build_callback("m", "external_bots"))])
+    elif section == "external_bots":
+        rows.append(
+            [
+                ("Add Template", build_callback("m", "guide_add_external_template")),
+                ("Add External Bot", build_callback("m", "guide_add_external_seller_bot")),
             ]
         )
     elif section == "panels":
@@ -257,6 +266,18 @@ def reseller_actions(telegram_id: int) -> InlineKeyboardMarkup:
                 ("Cancel", build_callback("m", "resellers")),
                 ("Home", build_callback("m", "home")),
             ],
+        ]
+    )
+
+
+def external_template_actions(template_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Sync", build_callback("m", "ext_sync", template_id)),
+                ("External Bots", build_callback("m", "external_bots")),
+            ],
+            nav_row(scope="m", back_action="seller_bots", home_action="home"),
         ]
     )
 

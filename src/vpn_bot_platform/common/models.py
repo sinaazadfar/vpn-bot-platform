@@ -38,6 +38,11 @@ class SellerBotStatus(StrEnum):
     ERROR = "error"
 
 
+class SellerBotRuntimeType(StrEnum):
+    NATIVE = "native"
+    EXTERNAL_TEMPLATE = "external_template"
+
+
 class PlanScope(StrEnum):
     GLOBAL = "global"
     RESELLER = "reseller"
@@ -167,9 +172,14 @@ class SellerBot(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     reseller_id: Mapped[str] = mapped_column(ForeignKey("resellers.id"), index=True)
+    external_template_id: Mapped[str | None] = mapped_column(
+        ForeignKey("external_bot_templates.id"),
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(128))
     token_encrypted: Mapped[str] = mapped_column(Text)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    runtime_type: Mapped[str] = mapped_column(String(32), default=SellerBotRuntimeType.NATIVE.value)
     status: Mapped[str] = mapped_column(String(24), default=SellerBotStatus.PENDING.value)
     container_name: Mapped[str | None] = mapped_column(String(128))
     container_id: Mapped[str | None] = mapped_column(String(128))
@@ -182,6 +192,29 @@ class SellerBot(Base):
     )
 
     reseller: Mapped[Reseller] = relationship()
+    external_template: Mapped[ExternalBotTemplate | None] = relationship()
+
+
+class ExternalBotTemplate(Base):
+    __tablename__ = "external_bot_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    repo_url: Mapped[str] = mapped_column(String(512))
+    ref: Mapped[str] = mapped_column(String(128), default="main")
+    local_path: Mapped[str | None] = mapped_column(String(512))
+    license_name: Mapped[str | None] = mapped_column(String(64))
+    runtime_adapter: Mapped[str] = mapped_column(String(64), default="manual")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_synced_commit: Mapped[str | None] = mapped_column(String(64))
+    last_sync_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
 
 
 class MarzbanPanel(Base):
