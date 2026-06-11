@@ -34,3 +34,15 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = [
+  ".git",
+  ".venv",
+  "external",
+]
+
+[tool.pytest.ini_options]
+norecursedirs = [
+  ".git",
+  ".venv",
+  "external",
+]

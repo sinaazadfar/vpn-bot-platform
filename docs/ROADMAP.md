@@ -501,6 +501,10 @@ Goal: turn the approved combined flow into complete production behavior, using t
   - [x] Switch buyer reply/inline menus to Persian labels similar to ZanborPanel, BotMirzaPanel, and Marzbot-free.
   - [x] Persian-first buyer storefront, service, wallet, invoice, renewal, and extra-volume texts.
   - [ ] Persian-first seller admin operation texts.
+- [x] Clone best external seller bot candidate for reference:
+  - [x] Add `govfvck/Marzbot-free` as `external/seller-bots/marzbot-free`.
+  - [x] Keep our current seller bot as production runtime.
+  - [x] Document AGPL-3.0 licensing note before any source-level adoption.
 - [ ] Add compact receipt messages for every successful purchase, renewal, wallet charge, and extra-volume action.
 - [ ] Add clearer empty states for no plans, no services, no tickets, and no payments.
 - [ ] Add safer retry screens for failed Marzban provisioning.

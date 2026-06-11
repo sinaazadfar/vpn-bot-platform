@@ -1,0 +1,3 @@
+[submodule "external/seller-bots/marzbot-free"]
+	path = external/seller-bots/marzbot-free
+	url = https://github.com/govfvck/Marzbot-free.git
