@@ -12,6 +12,9 @@ from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     admin_order_actions,
     admin_payment_actions,
+    admin_customer_card_actions,
+    admin_customer_detail_actions,
+    admin_customers_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
     buyer_ticket_actions,
@@ -87,6 +90,10 @@ class SellerBroadcastCreateStates(StatesGroup):
 
 class SellerReportCustomStates(StatesGroup):
     days = State()
+
+
+class AdminCustomerSearchStates(StatesGroup):
+    query = State()
 
 
 @router.message(CommandStart())
@@ -887,6 +894,39 @@ async def seller_menu_callback(
         await _show_admin_wallet(callback, seller_context)
     elif action.action == "admin_customers":
         await _show_admin_customers(callback, seller_context)
+    elif action.action == "admin_customer_search":
+        await state.clear()
+        await state.set_state(AdminCustomerSearchStates.query)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Customer Search"),
+                    "Send Telegram ID, @username, customer name, or VPN username.",
+                ]
+            ),
+            reply_markup=admin_customers_menu(),
+        )
+    elif action.action == "admin_customer_detail":
+        if not action.value:
+            await callback.answer("Customer is missing.", show_alert=True)
+            return
+        try:
+            detail = await seller_context.get_customer_detail(
+                admin_telegram_id=callback.from_user.id,
+                buyer_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Customer not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _admin_customer_detail_text(detail),
+            reply_markup=admin_customer_detail_actions(detail.buyer.id),
+        )
+    elif action.action in {"admin_customer_message", "admin_customer_wallet", "admin_customer_block"}:
+        await callback.answer("This customer action is next in the roadmap.", show_alert=True)
     elif action.action == "admin_tickets":
         await _show_admin_tickets(callback, seller_context)
     elif action.action == "admin_plans":
@@ -1621,6 +1661,39 @@ async def seller_report_custom_days(
         _format_report(f"Sales Report - Last {days} Days", report),
         reply_markup=seller_report_menu(),
     )
+
+
+@router.message(AdminCustomerSearchStates.query)
+async def admin_customer_search_query(
+    message: Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+) -> None:
+    if message.from_user is None or message.text is None:
+        return
+    query = message.text.strip()
+    if not query:
+        await message.answer("Send Telegram ID, @username, customer name, or VPN username.")
+        return
+    try:
+        customers = await seller_context.search_customers(
+            admin_telegram_id=message.from_user.id,
+            query=query,
+        )
+    except PermissionError:
+        await state.clear()
+        await message.answer("You do not have reseller admin access.")
+        return
+    await state.clear()
+    await message.answer(
+        _admin_customers_text(customers, heading=f"Customer Search: {query}"),
+        reply_markup=admin_customers_menu(),
+    )
+    for item in customers[:8]:
+        await message.answer(
+            _admin_customer_card_text(item),
+            reply_markup=admin_customer_card_actions(item.buyer.id),
+        )
 
 
 async def _send_legacy_start(message: Message, seller_context: SellerContextService) -> None:
@@ -3062,11 +3135,15 @@ async def _show_admin_customers(callback: CallbackQuery, seller_context: SellerC
     except PermissionError:
         await callback.answer("You do not have reseller admin access.", show_alert=True)
         return
-    rows = [_admin_customer_row(item) for item in customers[:20]]
     await callback.message.edit_text(
-        "\n".join([title("Customers"), section("Recent customers", rows)]),
-        reply_markup=seller_admin_menu(),
+        _admin_customers_text(customers),
+        reply_markup=admin_customers_menu(),
     )
+    for item in customers[:8]:
+        await callback.message.answer(
+            _admin_customer_card_text(item),
+            reply_markup=admin_customer_card_actions(item.buyer.id),
+        )
 
 
 async def _send_admin_customers(message: Message, seller_context: SellerContextService) -> None:
@@ -3075,11 +3152,15 @@ async def _send_admin_customers(message: Message, seller_context: SellerContextS
     except PermissionError:
         await message.answer("You do not have reseller admin access.")
         return
-    rows = [_admin_customer_row(item) for item in customers[:20]]
     await message.answer(
-        "\n".join([title("Customers"), section("Recent customers", rows)]),
-        reply_markup=seller_admin_menu(),
+        _admin_customers_text(customers),
+        reply_markup=admin_customers_menu(),
     )
+    for item in customers[:8]:
+        await message.answer(
+            _admin_customer_card_text(item),
+            reply_markup=admin_customer_card_actions(item.buyer.id),
+        )
 
 
 async def _show_admin_plans(callback: CallbackQuery, seller_context: SellerContextService) -> None:
@@ -3128,6 +3209,50 @@ def _admin_customer_row(item) -> str:
     return (
         f"- tg={user.id} | {username} | {name} | "
         f"wallet={item.buyer.wallet_balance:,.0f} | id={short_id(item.buyer.id)}"
+    )
+
+
+def _admin_customer_card_text(item) -> str:
+    user = item.telegram_user
+    username = f"@{user.username}" if user.username else "-"
+    name = " ".join(part for part in [user.first_name, user.last_name] if part) or "-"
+    return "\n".join(
+        [
+            title("Customer"),
+            f"Buyer ID: {item.buyer.id}",
+            f"Telegram ID: {user.id}",
+            f"Username: {username}",
+            f"Name: {name}",
+            f"Wallet: {item.buyer.wallet_balance:,.0f}",
+        ]
+    )
+
+
+def _admin_customers_text(customers, *, heading: str = "Customers") -> str:
+    if not customers:
+        return "\n".join([title(heading), "No customers found.", "", "Use Search to find by Telegram ID, username, name, or VPN username."])
+    rows = [_admin_customer_row(item) for item in customers[:20]]
+    rows.extend(["", "Tap a customer card below to open details."])
+    return "\n".join([title(heading), section("Recent customers", rows)])
+
+
+def _admin_customer_detail_text(detail) -> str:
+    user = detail.telegram_user
+    username = f"@{user.username}" if user.username else "-"
+    name = " ".join(part for part in [user.first_name, user.last_name] if part) or "-"
+    return "\n".join(
+        [
+            title("Customer Detail"),
+            f"Buyer ID: {detail.buyer.id}",
+            f"Telegram ID: {user.id}",
+            f"Username: {username}",
+            f"Name: {name}",
+            f"Wallet: {detail.buyer.wallet_balance:,.0f}",
+            "",
+            f"Services: {detail.service_count}",
+            f"Orders: {detail.order_count}",
+            f"Tickets: {detail.ticket_count}",
+        ]
     )
 
 

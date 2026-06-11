@@ -461,12 +461,12 @@ Goal: turn the approved combined flow into complete production behavior, using t
 
 ### Seller Admin Operations
 
-- [ ] Add customer search by Telegram ID, username, or service username.
-- [ ] Add customer detail screen:
-  - [ ] Wallet balance.
-  - [ ] Service count.
-  - [ ] Orders.
-  - [ ] Tickets.
+- [x] Add customer search by Telegram ID, username, or service username.
+- [x] Add customer detail screen:
+  - [x] Wallet balance.
+  - [x] Service count.
+  - [x] Orders.
+  - [x] Tickets.
 - [ ] Add reseller manual wallet adjustment with confirmation and audit log.
 - [ ] Add reseller send-message-to-customer action.
 - [ ] Add buyer block/unblock action scoped to reseller.
@@ -509,5 +509,6 @@ Goal: turn the approved combined flow into complete production behavior, using t
 - [ ] Add tests for direct order approval provisioning.
 - [x] Add tests for extra-volume Marzban update.
 - [ ] Add tests for customer search and admin wallet adjustment.
+  - [x] Customer search and detail coverage.
 - [ ] Add tests for master callback permission coverage.
 - [ ] Deploy Phase 8 increments to `server-04` after each stable slice.

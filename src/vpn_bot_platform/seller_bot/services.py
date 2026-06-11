@@ -37,6 +37,8 @@ from vpn_bot_platform.common.repositories import (
     get_active_plan_for_reseller,
     get_active_discount_code,
     get_buyer_order_status,
+    get_customer_counts,
+    get_customer_for_reseller,
     get_seller_bot_with_reseller,
     get_ticket_for_buyer,
     get_ticket_for_reseller,
@@ -58,6 +60,7 @@ from vpn_bot_platform.common.repositories import (
     reject_payment,
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
+    search_customers_for_reseller,
     upsert_buyer,
 )
 from vpn_bot_platform.integrations.payments import (
@@ -113,6 +116,15 @@ class ProvisioningOrder:
 class SellerCustomer:
     buyer: Buyer
     telegram_user: TelegramUser
+
+
+@dataclass(frozen=True)
+class SellerCustomerDetail:
+    buyer: Buyer
+    telegram_user: TelegramUser
+    service_count: int
+    order_count: int
+    ticket_count: int
 
 
 @dataclass(frozen=True)
@@ -499,6 +511,55 @@ class SellerContextService:
                 SellerCustomer(buyer=buyer, telegram_user=telegram_user)
                 for buyer, telegram_user in rows
             ]
+
+    async def search_customers(self, *, admin_telegram_id: int, query: str) -> list[SellerCustomer]:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            rows = await search_customers_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                query=query,
+            )
+            return [
+                SellerCustomer(buyer=buyer, telegram_user=telegram_user)
+                for buyer, telegram_user in rows
+            ]
+
+    async def get_customer_detail(self, *, admin_telegram_id: int, buyer_id: str) -> SellerCustomerDetail:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            customer = await get_customer_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer_id,
+            )
+            if customer is None:
+                raise ValueError("customer_not_found")
+            buyer, telegram_user = customer
+            counts = await get_customer_counts(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer.id,
+            )
+            return SellerCustomerDetail(
+                buyer=buyer,
+                telegram_user=telegram_user,
+                service_count=counts["services"],
+                order_count=counts["orders"],
+                ticket_count=counts["tickets"],
+            )
 
     async def list_admin_plans(self, *, admin_telegram_id: int) -> list[Plan]:
         async with session_scope() as session:

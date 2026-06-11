@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -64,10 +64,14 @@ async def upsert_telegram_user(
     if user is None:
         user = TelegramUser(id=telegram_id)
         session.add(user)
-    user.username = username
-    user.first_name = first_name
-    user.last_name = last_name
-    user.language_code = language_code
+    if username is not None:
+        user.username = username
+    if first_name is not None:
+        user.first_name = first_name
+    if last_name is not None:
+        user.last_name = last_name
+    if language_code is not None:
+        user.language_code = language_code
     return user
 
 
@@ -571,6 +575,101 @@ async def list_customers_for_reseller(
         .order_by(Buyer.created_at.desc())
     )
     return list(result.all())
+
+
+async def search_customers_for_reseller(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    query: str,
+) -> list[tuple[Buyer, TelegramUser]]:
+    raw_query = query.strip()
+    is_username_query = raw_query.startswith("@")
+    normalized = raw_query.lstrip("@")
+    filters = []
+    if normalized.isdigit():
+        filters.append(TelegramUser.id == int(normalized))
+    if normalized:
+        like_query = f"%{normalized.lower()}%"
+        username_filter = or_(
+            func.lower(TelegramUser.username) == normalized.lower(),
+            func.lower(TelegramUser.username) == raw_query.lower(),
+        )
+        if not is_username_query:
+            username_filter = func.lower(TelegramUser.username).like(like_query)
+        filters.extend(
+            [
+                username_filter,
+            ]
+        )
+        if not is_username_query:
+            filters.extend(
+                [
+                    func.lower(TelegramUser.first_name).like(like_query),
+                    func.lower(TelegramUser.last_name).like(like_query),
+                    func.lower(VpnService.marzban_username).like(like_query),
+                ]
+            )
+    if not filters:
+        return []
+    result = await session.execute(
+        select(Buyer, TelegramUser)
+        .join(TelegramUser, Buyer.telegram_user_id == TelegramUser.id)
+        .outerjoin(VpnService, VpnService.buyer_id == Buyer.id)
+        .where(Buyer.reseller_id == reseller_id)
+        .where(or_(*filters))
+        .group_by(Buyer.id, TelegramUser.id)
+        .order_by(Buyer.created_at.desc())
+    )
+    return list(result.all())
+
+
+async def get_customer_for_reseller(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    buyer_id: str,
+) -> tuple[Buyer, TelegramUser] | None:
+    result = await session.execute(
+        select(Buyer, TelegramUser)
+        .join(TelegramUser, Buyer.telegram_user_id == TelegramUser.id)
+        .where(
+            Buyer.id == buyer_id,
+            Buyer.reseller_id == reseller_id,
+        )
+    )
+    return result.one_or_none()
+
+
+async def get_customer_counts(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    buyer_id: str,
+) -> dict[str, int]:
+    service_count = await session.scalar(
+        select(func.count(VpnService.id)).where(
+            VpnService.reseller_id == reseller_id,
+            VpnService.buyer_id == buyer_id,
+        )
+    )
+    order_count = await session.scalar(
+        select(func.count(Order.id)).where(
+            Order.reseller_id == reseller_id,
+            Order.buyer_id == buyer_id,
+        )
+    )
+    ticket_count = await session.scalar(
+        select(func.count(Ticket.id)).where(
+            Ticket.reseller_id == reseller_id,
+            Ticket.buyer_id == buyer_id,
+        )
+    )
+    return {
+        "services": int(service_count or 0),
+        "orders": int(order_count or 0),
+        "tickets": int(ticket_count or 0),
+    }
 
 
 async def get_buyer_order_status(

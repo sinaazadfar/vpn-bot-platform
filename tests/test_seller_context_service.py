@@ -184,6 +184,16 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             order_id=approved.order.id,
         )
         buyer_services = await seller_context.list_buyer_services(buyer_telegram_id=222)
+        customer_search_by_id = await seller_context.search_customers(admin_telegram_id=111, query="222")
+        customer_search_by_username = await seller_context.search_customers(admin_telegram_id=111, query="@buyer")
+        customer_search_by_service = await seller_context.search_customers(
+            admin_telegram_id=111,
+            query=provisioned.vpn_service.marzban_username,
+        )
+        customer_detail = await seller_context.get_customer_detail(
+            admin_telegram_id=111,
+            buyer_id=profile.buyer.id,
+        )
         renewal_request = await seller_context.request_renewal_payment(
             buyer_telegram_id=222,
             service_id=provisioned.vpn_service.id,
@@ -261,6 +271,13 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert provisioned.vpn_service.panel_id == panel.id
     assert provisioned.vpn_service.subscription_url is not None
     assert [service.id for service in buyer_services] == [provisioned.vpn_service.id]
+    assert [item.buyer.id for item in customer_search_by_id] == [profile.buyer.id]
+    assert [item.buyer.id for item in customer_search_by_username] == [profile.buyer.id]
+    assert [item.buyer.id for item in customer_search_by_service] == [profile.buyer.id]
+    assert customer_detail.buyer.id == profile.buyer.id
+    assert customer_detail.service_count == 1
+    assert customer_detail.order_count == 1
+    assert customer_detail.ticket_count == 1
     assert renewal_request.order.order_type == "renewal"
     assert renewal_request.order.target_service_id == provisioned.vpn_service.id
     assert renewed.order.status == "completed"

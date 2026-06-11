@@ -443,6 +443,46 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
     )
 
 
+def admin_customers_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Search", build_callback("s", "admin_customer_search")),
+                ("Refresh", build_callback("s", "admin_customers")),
+            ],
+            [("Admin Home", build_callback("s", "admin")), ("Buyer Home", build_callback("s", "home"))],
+        ]
+    )
+
+
+def admin_customer_card_actions(buyer_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Details", build_callback("s", "admin_customer_detail", buyer_id)),
+                ("Search", build_callback("s", "admin_customer_search")),
+            ],
+            [("Customers", build_callback("s", "admin_customers")), ("Admin Home", build_callback("s", "admin"))],
+        ]
+    )
+
+
+def admin_customer_detail_actions(buyer_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Message", build_callback("s", "admin_customer_message", buyer_id)),
+                ("Adjust Wallet", build_callback("s", "admin_customer_wallet", buyer_id)),
+            ],
+            [
+                ("Block", build_callback("s", "admin_customer_block", buyer_id)),
+                ("Customers", build_callback("s", "admin_customers")),
+            ],
+            [("Admin Home", build_callback("s", "admin"))],
+        ]
+    )
+
+
 def seller_report_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

@@ -5,6 +5,9 @@ import pytest
 from vpn_bot_platform.common.ui.callbacks import build_callback, parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     admin_order_actions,
+    admin_customer_card_actions,
+    admin_customer_detail_actions,
+    admin_customers_menu,
     admin_payment_actions,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -135,7 +138,11 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         wallet_charge_menu(),
         wallet_transaction_actions(uuid),
         support_menu(),
+        admin_customers_menu(),
         admin_payment_actions(uuid),
+        admin_customers_menu(),
+        admin_customer_card_actions(uuid),
+        admin_customer_detail_actions(uuid),
         admin_order_actions(uuid),
         admin_order_actions(uuid, renewal=True),
         admin_order_actions(uuid, extra_volume=True),
