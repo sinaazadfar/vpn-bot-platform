@@ -173,9 +173,9 @@ def test_pagination_helper_clamps_pages() -> None:
     assert page.total_pages == 3
     assert page.items == [20, 21, 22, 23, 24]
     assert pagination_row(scope="m", action="resellers", page=2, total_pages=3) == [
-        ("Prev", "m:resellers:1"),
+        ("قبلی", "m:resellers:1"),
         ("2/3", "m:resellers:2"),
-        ("Next", "m:resellers:3"),
+        ("بعدی", "m:resellers:3"),
     ]
 
 

@@ -119,11 +119,11 @@ async def start(
         _buyer_dashboard_text(seller_name=profile.seller_bot.name, reseller_name=profile.reseller.display_name),
         reply_markup=seller_buyer_menu(),
     )
-    await message.answer("Shortcuts are ready.", reply_markup=seller_buyer_reply_menu())
+    await message.answer("🚀 یکی از دکمه های زیر را انتخاب کنید.", reply_markup=seller_buyer_reply_menu())
 
 
 @router.message(Command("cancel"))
-@router.message(F.text.in_({"Cancel", "cancel"}))
+@router.message(F.text.in_({"Cancel", "cancel", "❌ انصراف", "❌ لغو"}))
 async def cancel_flow(
     message: Message,
     seller_context: SellerContextService,
@@ -140,30 +140,46 @@ async def cancel_flow(
         language_code=message.from_user.language_code,
     )
     await message.answer(
-        "\n".join([title("Canceled"), "Current flow was cleared.", "", f"Seller: {profile.reseller.display_name}"]),
+        "\n".join([title("❌ عملیات لغو شد"), "به صفحه اصلی ربات بازگشتید.", "", f"فروشنده: {profile.reseller.display_name}"]),
         reply_markup=seller_buyer_menu(),
     )
-    await message.answer("Shortcuts are ready.", reply_markup=seller_buyer_reply_menu())
+    await message.answer("🚀 یکی از دکمه های زیر را انتخاب کنید.", reply_markup=seller_buyer_reply_menu())
 
 
 @router.message(
     F.text.in_(
         {
             "Buy VPN",
+            "🛒 خرید سرویس",
             "My Services",
+            "🛍 سرویس های من",
             "Renew",
+            "افزایش اعتبار زمانی",
             "Wallet",
+            "💸 شارژ حساب",
+            "👤 پروفایل",
             "Support",
+            "📮 پشتیبانی آنلاین",
             "Trial",
+            "🎁 سرویس تستی (رایگان)",
             "Guides",
+            "🔗 راهنمای اتصال",
             "Pending Payments",
+            "💳 پرداخت ها",
             "Provision Orders",
+            "🧾 سفارش ها",
             "Wallet Charges",
+            "💸 شارژ کیف پول",
             "Customers",
+            "👤 مدیریت کاربران",
             "Tickets",
+            "📮 تیکت ها",
             "Plans",
+            "🛒 تعرفه خدمات",
             "Sales Report",
+            "📊 گزارش فروش",
             "Buyer Home",
+            "📱 منوی اصلی",
         }
     )
 )
@@ -176,14 +192,14 @@ async def seller_reply_menu_alias(
     if message.from_user is None:
         return
     await state.clear()
-    if message.text == "Buy VPN":
+    if message.text in {"Buy VPN", "🛒 خرید سرویس"}:
         await message.answer(await _plans_text(seller_context), reply_markup=seller_section_menu("plans"))
-    elif message.text == "My Services":
+    elif message.text in {"My Services", "🛍 سرویس های من"}:
         await message.answer(
             await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
             reply_markup=seller_section_menu("services"),
         )
-    elif message.text == "Renew":
+    elif message.text in {"Renew", "افزایش اعتبار زمانی"}:
         await message.answer(
             await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
             reply_markup=seller_section_menu("services"),
@@ -194,7 +210,7 @@ async def seller_reply_menu_alias(
                 _service_card_text(service),
                 reply_markup=service_actions(service.id),
             )
-    elif message.text == "Wallet":
+    elif message.text in {"Wallet", "💸 شارژ حساب", "👤 پروفایل"}:
         await message.answer(
             await _wallet_text(seller_context, buyer_telegram_id=message.from_user.id),
             reply_markup=wallet_charge_menu(),
@@ -205,46 +221,46 @@ async def seller_reply_menu_alias(
                 _wallet_transaction_card_text(transaction),
                 reply_markup=wallet_transaction_actions(transaction.id),
             )
-    elif message.text == "Support":
+    elif message.text in {"Support", "📮 پشتیبانی آنلاین"}:
         await message.answer(
             _guided_text(
-                "Support",
-                "Use the buttons below to see tickets or open a new one.",
-                ["For a new ticket, send: /ticket <subject> | <message>"],
+                "📮 پشتیبانی آنلاین",
+                "پیام خود را در قالب یک پیام جهت بررسی مشکل ارسال کنید.",
+                ["برای تیکت جدید روی «🎟 ارسال پیام به پشتیبانی» بزنید."],
             ),
             reply_markup=support_menu(),
         )
-    elif message.text == "Trial":
+    elif message.text in {"Trial", "🎁 سرویس تستی (رایگان)"}:
         await trial(message, provisioning_service)
-    elif message.text == "Guides":
+    elif message.text in {"Guides", "🔗 راهنمای اتصال"}:
         await message.answer(
             _guided_text(
-                "Connection Guides",
-                "Use your subscription link in V2RayNG, Streisand, Hiddify, or Nekobox.",
+                "🔗 راهنمای اتصال",
+                "برای اتصال، لینک اشتراک را داخل برنامه‌هایی مثل Hiddify، V2RayNG، Streisand یا Nekobox وارد کنید.",
                 [],
             ),
             reply_markup=seller_section_menu("guides"),
         )
-    elif message.text == "Pending Payments":
+    elif message.text in {"Pending Payments", "💳 پرداخت ها"}:
         await _send_admin_payments(message, seller_context)
-    elif message.text == "Provision Orders":
+    elif message.text in {"Provision Orders", "🧾 سفارش ها"}:
         await _send_admin_orders(message, seller_context)
-    elif message.text == "Wallet Charges":
+    elif message.text in {"Wallet Charges", "💸 شارژ کیف پول"}:
         await _send_admin_wallet(message, seller_context)
-    elif message.text == "Customers":
+    elif message.text in {"Customers", "👤 مدیریت کاربران"}:
         await _send_admin_customers(message, seller_context)
-    elif message.text == "Tickets":
+    elif message.text in {"Tickets", "📮 تیکت ها"}:
         await _send_admin_tickets(message, seller_context)
-    elif message.text == "Plans":
+    elif message.text in {"Plans", "🛒 تعرفه خدمات"}:
         await _send_admin_plans(message, seller_context)
-    elif message.text == "Sales Report":
+    elif message.text in {"Sales Report", "📊 گزارش فروش"}:
         try:
             report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=1)
         except PermissionError:
             await message.answer("You do not have reseller admin access.")
             return
         await message.answer(_format_report("Sales Report - Today", report), reply_markup=seller_report_menu())
-    elif message.text == "Buyer Home":
+    elif message.text in {"Buyer Home", "📱 منوی اصلی"}:
         await start(message, seller_context)
 
 
@@ -2370,10 +2386,10 @@ def _parse_bounded_days(raw: str | None) -> int | None:
 def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:
     return "\n".join(
         [
-            title(seller_name),
-            f"Seller: {reseller_name}",
+            title(f"🐝 {seller_name}"),
+            f"فروشنده: {reseller_name}",
             "",
-            "Choose an action from the buttons below.",
+            "🚀 یکی از دکمه های زیر را انتخاب کنید !",
         ]
     )
 
@@ -2381,31 +2397,31 @@ def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:
 async def _plans_text(seller_context: SellerContextService) -> str:
     plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
     if not plans:
-        return "\n".join([title("Buy VPN"), "No active plans are available yet."])
+        return "\n".join([title("🛒 خرید سرویس"), "😢 در حال حاضر سرویسی برای خرید موجود نمی‌باشد!"])
     rows = []
     for plan in plans[:12]:
-        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
         rows.append(
-            f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={short_id(plan.id)}"
+            f"▫️ {plan.name} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic} | کد: {short_id(plan.id)}"
         )
-    rows.extend(["", "Tap Buy on a plan message to start checkout."])
-    return "\n".join([title("Buy VPN"), section("Available plans", rows)])
+    rows.extend(["", "👇🏻 برای خرید و فعالسازی سرویس، دکمه خرید را روی کارت پلن بزنید."])
+    return "\n".join([title("🛒 خرید سرویس"), section("📲 سرویس‌های موجود", rows)])
 
 
 async def _services_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
     services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
     if not services:
-        return "\n".join([title("My Services"), "You do not have any VPN services yet."])
+        return "\n".join([title("🛍 سرویس های من"), "❌ شما در ربات ما هیچ سرویس فعالی ندارید!"])
     rows = []
     for service in services[:12]:
-        traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
-        expire = service.expire_at.date().isoformat() if service.expire_at else "Unlimited"
+        traffic = "نامحدود" if service.data_limit_gb is None else f"{service.data_limit_gb} گیگ"
+        expire = service.expire_at.date().isoformat() if service.expire_at else "نامحدود"
         rows.append(
-            f"- {service.marzban_username} | {status_label('active' if service.is_active else 'disabled')} | "
-            f"{traffic} | expires={expire} | id={short_id(service.id)}"
+            f"▫️ {service.marzban_username} | {status_label('active' if service.is_active else 'disabled')} | "
+            f"{traffic} | اعتبار تا: {expire} | کد: {short_id(service.id)}"
         )
-    rows.extend(["", "Tap a service action message for subscription, QR code, or renewal."])
-    return "\n".join([title("My Services"), section("Services", rows)])
+    rows.extend(["", "🎯 یکی از سرویس های خود را انتخاب کنید تا وارد پنل تنظیمات و مدیریت سرویس شوید."])
+    return "\n".join([title("🛍 سرویس های من"), section("سرویس ها", rows)])
 
 
 async def _find_buyer_service(
@@ -2429,34 +2445,34 @@ async def _find_plan(
 
 
 def _service_card_text(service) -> str:
-    traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
-    expire = service.expire_at.date().isoformat() if service.expire_at else "Unlimited"
+    traffic = "نامحدود" if service.data_limit_gb is None else f"{service.data_limit_gb} گیگ"
+    expire = service.expire_at.date().isoformat() if service.expire_at else "نامحدود"
     return "\n".join(
         [
-            title("Service"),
-            f"Username: {service.marzban_username}",
-            f"Status: {status_label('active' if service.is_active else 'disabled')}",
-            f"Traffic: {traffic}",
-            f"Expires: {expire}",
-            f"ID: {short_id(service.id)}",
+            title("🌐 اطلاعات سرویس"),
+            f"کد سرویس: {short_id(service.id)}",
+            f"نام کاربری: {service.marzban_username}",
+            f"وضعیت سرویس: {status_label('active' if service.is_active else 'disabled')}",
+            f"حجم سرویس: {traffic}",
+            f"فعال تا تاریخ: {expire}",
         ]
     )
 
 
 def _service_detail_text(service) -> str:
-    traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
-    expire = service.expire_at.isoformat() if service.expire_at else "Unlimited"
+    traffic = "نامحدود" if service.data_limit_gb is None else f"{service.data_limit_gb} گیگ"
+    expire = service.expire_at.isoformat() if service.expire_at else "نامحدود"
     subscription = service.subscription_url or "-"
     return "\n".join(
         [
-            title("Service Detail"),
-            f"Username: {service.marzban_username}",
-            f"Traffic: {traffic}",
-            f"Expires: {expire}",
-            f"Status: {status_label('active' if service.is_active else 'disabled')}",
-            f"Service ID: {service.id}",
+            title("🌐 اطلاعات سرویس شما"),
+            f"🔎 وضعیت سرویس: {status_label('active' if service.is_active else 'disabled')}",
+            f"👤 نام کاربری: {service.marzban_username}",
+            f"♾ حجم سرویس: {traffic}",
+            f"📅 فعال تا تاریخ: {expire}",
+            f"#️⃣ کد سرویس: {service.id}",
             "",
-            "Subscription:",
+            "🔗 لینک اتصال:",
             subscription,
         ]
     )
@@ -2465,13 +2481,13 @@ def _service_detail_text(service) -> str:
 def _service_guide_text(service_id: str) -> str:
     return "\n".join(
         [
-            title("Connection Guide"),
-            f"Service ID: {service_id}",
+            title("🔗 راهنمای اتصال"),
+            f"کد سرویس: {service_id}",
             "",
-            "1. Copy the subscription link from Subscription.",
-            "2. Open Hiddify, V2RayNG, Streisand, or Nekobox.",
-            "3. Add a new profile from clipboard or subscription URL.",
-            "4. Update subscriptions, then connect.",
+            "1️⃣ لینک اشتراک را از بخش «دریافت لینک اشتراک» کپی کنید.",
+            "2️⃣ برنامه Hiddify، V2RayNG، Streisand یا Nekobox را باز کنید.",
+            "3️⃣ لینک را به عنوان Subscription یا از Clipboard اضافه کنید.",
+            "4️⃣ اشتراک را Update کنید و سپس متصل شوید.",
         ]
     )
 
@@ -2479,27 +2495,27 @@ def _service_guide_text(service_id: str) -> str:
 async def _renewal_text(seller_context: SellerContextService, *, service_id: str) -> str:
     plans = await seller_context.list_plans(purpose=PlanPurpose.RENEWAL)
     if not plans:
-        return "\n".join([title("Renew Service"), "No active renewal plans are available."])
+        return "\n".join([title("💊 تمدید سرویس"), "❌ پلنی برای افزایش اعتبار زمانی یافت نشد."])
     rows = []
     for plan in plans[:12]:
-        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
         rows.append(
-            f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
+            f"▫️ {plan.name} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic}"
         )
-    rows.extend(["", f"Service ID: {short_id(service_id)}", "Choose a plan button below to continue."])
-    return "\n".join([title("Renew Service"), section("Plans", rows)])
+    rows.extend(["", f"کد سرویس: {short_id(service_id)}", "👇🏻 یکی از پلن‌های زیر را برای افزایش اعتبار زمانی انتخاب کنید."])
+    return "\n".join([title("💊 تمدید سرویس"), section("پلن ها", rows)])
 
 
 def _renewal_plan_card_text(plan) -> str:
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Renewal Plan"),
-            f"Name: {plan.name}",
-            f"Price: {plan.price:,.0f}",
-            f"Duration: {plan.duration_days} days",
-            f"Traffic: {traffic}",
-            f"ID: {short_id(plan.id)}",
+            title("💊 پلن تمدید"),
+            f"نام پلن: {plan.name}",
+            f"قیمت: {plan.price:,.0f} تومان",
+            f"مدت زمان: {plan.duration_days} روز",
+            f"حجم: {traffic}",
+            f"کد: {short_id(plan.id)}",
         ]
     )
 
@@ -2507,39 +2523,39 @@ def _renewal_plan_card_text(plan) -> str:
 async def _extra_volume_text(seller_context: SellerContextService, *, service_id: str) -> str:
     plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
     if not plans:
-        return "\n".join([title("Extra Volume"), "No active extra-volume plans are available."])
+        return "\n".join([title("خرید حجم اضافه"), "❌ پلنی برای خرید حجم اضافه یافت نشد."])
     rows = []
     for plan in plans[:12]:
-        traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
-        rows.append(f"- {plan.name} | {plan.price:,.0f} | {traffic} | id={plan.id}")
-    rows.extend(["", f"Service ID: {short_id(service_id)}", "Choose a volume button below to continue."])
-    return "\n".join([title("Extra Volume"), section("Plans", rows)])
+        traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
+        rows.append(f"▫️ {plan.name} | {plan.price:,.0f} تومان | {traffic}")
+    rows.extend(["", f"کد سرویس: {short_id(service_id)}", "👇🏻 یکی از پلن‌های زیر را برای افزایش حجم اضافه انتخاب کنید."])
+    return "\n".join([title("خرید حجم اضافه"), section("پلن ها", rows)])
 
 
 def _extra_volume_plan_card_text(plan) -> str:
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Extra Volume Plan"),
-            f"Name: {plan.name}",
-            f"Price: {plan.price:,.0f}",
-            f"Traffic: {traffic}",
-            f"ID: {short_id(plan.id)}",
+            title("پلن حجم اضافه"),
+            f"نام پلن: {plan.name}",
+            f"قیمت: {plan.price:,.0f} تومان",
+            f"حجم: {traffic}",
+            f"کد: {short_id(plan.id)}",
         ]
     )
 
 
 def _purchase_coupon_text(plan) -> str:
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Purchase Coupon"),
-            f"Plan: {plan.name}",
-            f"Price: {plan.price:,.0f}",
-            f"Duration: {plan.duration_days} days",
-            f"Traffic: {traffic}",
+            title("🎁 کد تخفیف"),
+            f"پلن انتخابی: {plan.name}",
+            f"قیمت: {plan.price:,.0f} تومان",
+            f"مدت زمان: {plan.duration_days} روز",
+            f"حجم: {traffic}",
             "",
-            "Enter a coupon code or skip this step.",
+            "اگر کد تخفیف دارید ارسال کنید، در غیر این صورت ادامه بدون کد را بزنید.",
         ]
     )
 
@@ -2548,16 +2564,16 @@ def _purchase_confirm_text(quote) -> str:
     plan = quote.plan
     original_amount = float(plan.price)
     rows = [
-        title("Confirm Purchase"),
-        f"Plan: {plan.name}",
-        f"Duration: {plan.duration_days} days",
-        f"Original amount: {original_amount:,.0f}",
-        f"Coupon: {quote.coupon_code or '-'}",
-        f"Payable amount: {quote.amount:,.0f}",
+        title("ℹ️ فاکتور سرویس"),
+        f"پلن انتخابی: {plan.name}",
+        f"مدت زمان: {plan.duration_days} روز",
+        f"مبلغ سرویس: {original_amount:,.0f} تومان",
+        f"کد تخفیف: {quote.coupon_code or '-'}",
+        f"مبلغ قابل پرداخت: {quote.amount:,.0f} تومان",
     ]
     if quote.amount < original_amount:
-        rows.append(f"Discount: {original_amount - quote.amount:,.0f}")
-    rows.extend(["", "Confirm to create the payment request."])
+        rows.append(f"مبلغ تخفیف: {original_amount - quote.amount:,.0f} تومان")
+    rows.extend(["", "👇🏻 در صورت تایید اطلاعات بالا، روی دکمه تایید کلیک کنید."])
     return "\n".join(rows)
 
 
@@ -2611,11 +2627,11 @@ def _renewal_coupon_text(service, plan) -> str:
     return "\n".join(
         [
             title("Renew Coupon"),
-            f"Service: {service.marzban_username}",
-            f"Plan: {plan.name}",
-            f"Amount: {plan.price:,.0f}",
+            f"سرویس انتخابی: {service.marzban_username}",
+            f"پلن انتخابی: {plan.name}",
+            f"مبلغ: {plan.price:,.0f} تومان",
             "",
-            "Enter a coupon code or skip this step.",
+            "اگر کد تخفیف دارید ارسال کنید، در غیر این صورت ادامه بدون کد را بزنید.",
         ]
     )
 
@@ -2623,44 +2639,44 @@ def _renewal_coupon_text(service, plan) -> str:
 def _renewal_confirm_text(service, plan, *, coupon: str | None) -> str:
     return "\n".join(
         [
-            title("Confirm Renewal"),
-            f"Service: {service.marzban_username}",
-            f"Plan: {plan.name}",
-            f"Amount: {plan.price:,.0f}",
-            f"Coupon: {coupon or '-'}",
+            title("🧾 فاکتور تمدید"),
+            f"سرویس انتخابی: {service.marzban_username}",
+            f"پلن انتخابی: {plan.name}",
+            f"مبلغ تمدید: {plan.price:,.0f} تومان",
+            f"کد تخفیف: {coupon or '-'}",
             "",
-            "Confirm to create the renewal payment request.",
+            "✅ برای تایید و تمدید سرویس روی دکمه تایید کلیک کنید.",
         ]
     )
 
 
 def _extra_volume_coupon_text(service, plan) -> str:
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Extra Volume Coupon"),
-            f"Service: {service.marzban_username}",
-            f"Plan: {plan.name}",
-            f"Traffic: {traffic}",
-            f"Amount: {plan.price:,.0f}",
+            title("🎁 کد تخفیف حجم اضافه"),
+            f"سرویس انتخابی: {service.marzban_username}",
+            f"پلن انتخابی: {plan.name}",
+            f"حجم: {traffic}",
+            f"مبلغ: {plan.price:,.0f} تومان",
             "",
-            "Enter a coupon code or skip this step.",
+            "اگر کد تخفیف دارید ارسال کنید، در غیر این صورت ادامه بدون کد را بزنید.",
         ]
     )
 
 
 def _extra_volume_confirm_text(service, plan, *, coupon: str | None) -> str:
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Confirm Extra Volume"),
-            f"Service: {service.marzban_username}",
-            f"Plan: {plan.name}",
-            f"Traffic: {traffic}",
-            f"Amount: {plan.price:,.0f}",
-            f"Coupon: {coupon or '-'}",
+            title("🟢 فاکتور خرید حجم اضافه"),
+            f"سرویس انتخابی: {service.marzban_username}",
+            f"پلن انتخابی: {plan.name}",
+            f"حجم اضافه: {traffic}",
+            f"قیمت فاکتور: {plan.price:,.0f} تومان",
+            f"کد تخفیف: {coupon or '-'}",
             "",
-            "Confirm to create the extra-volume payment request.",
+            "ℹ️ در صورت تایید و افزایش حجم سرویس روی دکمه تایید کلیک کنید.",
         ]
     )
 
@@ -2754,8 +2770,8 @@ async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_i
         f"- {transaction.transaction_type} | {status_label(transaction.status)} | {transaction.amount:,.0f}"
         for transaction in wallet_info.transactions[:8]
     ]
-    rows.extend(["", "Use the amount buttons below, or choose Custom."])
-    return "\n".join([title("Wallet"), f"Balance: {balance:,.0f}", "", section("Recent transactions", rows)])
+    rows.extend(["", "💵 یکی از مبلغ‌های زیر را جهت شارژ حساب انتخاب کنید."])
+    return "\n".join([title("👤 پروفایل"), f"💰 موجودی: {balance:,.0f} تومان", "", section("تراکنش های اخیر", rows)])
 
 
 def _wallet_transaction_card_text(transaction) -> str:
@@ -2835,17 +2851,17 @@ def _payment_request_text(payment_request) -> str:
     traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
     return "\n".join(
         [
-            title("Payment Request"),
-            f"Order ID: {payment_request.order.id}",
-            f"Payment ID: {payment_request.payment.id}",
-            f"Plan: {plan.name}",
-            f"Amount: {payment_request.payment.amount:,.0f}",
-            f"Duration: {plan.duration_days} days",
-            f"Traffic: {traffic}",
+            title("☑️ فاکتور شما با موفقیت ساخته شد"),
+            f"🔖 شماره سفارش: {payment_request.order.id}",
+            f"💳 شماره پرداخت: {payment_request.payment.id}",
+            f"پلن انتخابی: {plan.name}",
+            f"💳 مبلغ قابل پرداخت: {payment_request.payment.amount:,.0f} تومان",
+            f"مدت زمان: {plan.duration_days} روز",
+            f"حجم: {traffic}",
             "",
             payment_request.instructions,
             "",
-            "After approval, your VPN service will be provisioned.",
+            "بعد از تایید پرداخت، سرویس شما ساخته یا بروزرسانی می‌شود.",
         ]
     )
 
@@ -2855,34 +2871,33 @@ def _buyer_order_status_text(order_status) -> str:
     payment = order_status.payment
     plan = order_status.plan
     rows = [
-        title("Order Status"),
-        f"Order ID: {order.id}",
-        f"Order type: {order.order_type}",
-        f"Order status: {status_label(order.status)}",
-        f"Amount: {order.total_amount:,.0f}",
-        f"Plan: {plan.name if plan else '-'}",
+        title("🔎 وضعیت سفارش"),
+        f"شماره سفارش: {order.id}",
+        f"نوع سفارش: {order.order_type}",
+        f"وضعیت سفارش: {status_label(order.status)}",
+        f"مبلغ: {order.total_amount:,.0f} تومان",
+        f"پلن: {plan.name if plan else '-'}",
     ]
     if payment is not None:
         rows.extend(
             [
                 "",
-                f"Payment ID: {payment.id}",
-                f"Payment status: {status_label(payment.status)}",
-                f"Method: {payment.method}",
+                f"شماره پرداخت: {payment.id}",
+                f"وضعیت پرداخت: {status_label(payment.status)}",
+                f"روش پرداخت: {payment.method}",
             ]
         )
-    rows.extend(["", "Admin approval is required before provisioning."])
+    rows.extend(["", "پرداخت باید توسط ادمین تایید شود."])
     return "\n".join(rows)
 
 
 def _receipt_upload_placeholder_text(order_id: str) -> str:
     return "\n".join(
         [
-            title("Receipt Upload"),
-            f"Order ID: {order_id}",
+            title("📤 ارسال فیش"),
+            f"شماره سفارش: {order_id}",
             "",
-            "Automatic receipt review is not enabled yet.",
-            "For now, send your receipt in Support and include this order ID.",
+            "فیش پرداخت را در بخش پشتیبانی ارسال کنید و شماره سفارش را داخل پیام بنویسید.",
         ]
     )
 

@@ -56,9 +56,9 @@ def pagination_row(
     previous_page = max(1, page - 1)
     next_page = min(total_pages, page + 1)
     return [
-        ("Prev", build_callback(scope, action, str(previous_page))),
+        ("قبلی", build_callback(scope, action, str(previous_page))),
         (f"{page}/{total_pages}", build_callback(scope, action, str(page))),
-        ("Next", build_callback(scope, action, str(next_page))),
+        ("بعدی", build_callback(scope, action, str(next_page))),
     ]
 
 
@@ -72,12 +72,12 @@ def nav_row(
 ) -> list[tuple[str, str]]:
     row: list[tuple[str, str]] = []
     if back_action:
-        row.append(("Back", build_callback(scope, back_action)))
+        row.append(("🔙 بازگشت", build_callback(scope, back_action)))
     if refresh_action:
-        row.append(("Refresh", build_callback(scope, refresh_action)))
+        row.append(("🔄 بروزرسانی", build_callback(scope, refresh_action)))
     if cancel_action:
-        row.append(("Cancel", build_callback(scope, cancel_action)))
-    row.append(("Home", build_callback(scope, home_action)))
+        row.append(("❌ انصراف", build_callback(scope, cancel_action)))
+    row.append(("📱 منوی اصلی", build_callback(scope, home_action)))
     return row
 
 
@@ -91,8 +91,8 @@ def confirm_keyboard(
     return inline_keyboard(
         [
             [
-                ("Confirm", build_callback(scope, confirm_action, value)),
-                ("Cancel", build_callback(scope, cancel_action, value)),
+                ("✅ تایید", build_callback(scope, confirm_action, value)),
+                ("❌ لغو", build_callback(scope, cancel_action, value)),
             ]
         ]
     )
@@ -119,10 +119,10 @@ def master_reply_menu() -> ReplyKeyboardMarkup:
 def seller_buyer_reply_menu() -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
-            ["Buy VPN", "My Services"],
-            ["Renew", "Wallet"],
-            ["Trial", "Support"],
-            ["Guides"],
+            ["🛒 خرید سرویس", "🛍 سرویس های من"],
+            ["💸 شارژ حساب", "👤 پروفایل"],
+            ["🎁 سرویس تستی (رایگان)"],
+            ["🔗 راهنمای اتصال", "📮 پشتیبانی آنلاین"],
         ]
     )
 
@@ -130,10 +130,10 @@ def seller_buyer_reply_menu() -> ReplyKeyboardMarkup:
 def seller_admin_reply_menu() -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
-            ["Pending Payments", "Provision Orders"],
-            ["Wallet Charges", "Customers"],
-            ["Tickets", "Plans"],
-            ["Sales Report", "Buyer Home"],
+            ["💳 پرداخت ها", "🧾 سفارش ها"],
+            ["💸 شارژ کیف پول", "👤 مدیریت کاربران"],
+            ["📮 تیکت ها", "🛒 تعرفه خدمات"],
+            ["📊 گزارش فروش", "📱 منوی اصلی"],
         ]
     )
 
@@ -393,7 +393,7 @@ def forced_join_menu() -> InlineKeyboardMarkup:
 def forced_join_blocked_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
-            [("Check Again", build_callback("s", "home"))],
+            [("✅ عضو شدم", build_callback("s", "home"))],
         ]
     )
 
@@ -402,19 +402,21 @@ def seller_buyer_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Buy VPN", build_callback("s", "plans")),
-                ("My Services", build_callback("s", "services")),
+                ("🛒 خرید سرویس", build_callback("s", "plans")),
+                ("🛍 سرویس های من", build_callback("s", "services")),
             ],
             [
-                ("Wallet", build_callback("s", "wallet")),
-                ("Renew", build_callback("s", "renew_services")),
+                ("👤 پروفایل", build_callback("s", "wallet")),
+                ("💸 شارژ حساب", build_callback("s", "wallet")),
             ],
             [
-                ("Trial", build_callback("s", "trial")),
-                ("Support", build_callback("s", "support")),
-                ("Guides", build_callback("s", "guides")),
+                ("🎁 سرویس تستی (رایگان)", build_callback("s", "trial")),
             ],
-            [("Admin", build_callback("s", "admin"))],
+            [
+                ("🔗 راهنمای اتصال", build_callback("s", "guides")),
+                ("📮 پشتیبانی آنلاین", build_callback("s", "support")),
+            ],
+            [("🔧 مدیریت", build_callback("s", "admin"))],
         ]
     )
 
@@ -423,22 +425,22 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Pending Payments", build_callback("s", "admin_payments")),
-                ("Provision Orders", build_callback("s", "admin_orders")),
+                ("💳 پرداخت ها", build_callback("s", "admin_payments")),
+                ("🧾 سفارش ها", build_callback("s", "admin_orders")),
             ],
             [
-                ("Wallet Charges", build_callback("s", "admin_wallet")),
-                ("Customers", build_callback("s", "admin_customers")),
+                ("💸 شارژ کیف پول", build_callback("s", "admin_wallet")),
+                ("👤 مدیریت کاربران", build_callback("s", "admin_customers")),
             ],
             [
-                ("Tickets", build_callback("s", "admin_tickets")),
-                ("Plans", build_callback("s", "admin_plans")),
+                ("📮 تیکت ها", build_callback("s", "admin_tickets")),
+                ("🛒 تعرفه خدمات", build_callback("s", "admin_plans")),
             ],
             [
-                ("Sales Report", build_callback("s", "admin_report")),
-                ("Broadcast", build_callback("s", "admin_broadcast")),
+                ("📊 گزارش فروش", build_callback("s", "admin_report")),
+                ("📤 مدیریت پیام", build_callback("s", "admin_broadcast")),
             ],
-            [("Buyer Home", build_callback("s", "home"))],
+            [("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -447,10 +449,10 @@ def admin_customers_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Search", build_callback("s", "admin_customer_search")),
-                ("Refresh", build_callback("s", "admin_customers")),
+                ("🔎 اطلاعات کاربر", build_callback("s", "admin_customer_search")),
+                ("🔄 بروزرسانی", build_callback("s", "admin_customers")),
             ],
-            [("Admin Home", build_callback("s", "admin")), ("Buyer Home", build_callback("s", "home"))],
+            [("⬅️ بازگشت به مدیریت", build_callback("s", "admin")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -459,10 +461,10 @@ def admin_customer_card_actions(buyer_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Details", build_callback("s", "admin_customer_detail", buyer_id)),
-                ("Search", build_callback("s", "admin_customer_search")),
+                ("🔎 اطلاعات کاربر", build_callback("s", "admin_customer_detail", buyer_id)),
+                ("👁‍🗨 جستجو کاربر", build_callback("s", "admin_customer_search")),
             ],
-            [("Customers", build_callback("s", "admin_customers")), ("Admin Home", build_callback("s", "admin"))],
+            [("👤 مدیریت کاربران", build_callback("s", "admin_customers")), ("⬅️ بازگشت به مدیریت", build_callback("s", "admin"))],
         ]
     )
 
@@ -471,14 +473,14 @@ def admin_customer_detail_actions(buyer_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Message", build_callback("s", "admin_customer_message", buyer_id)),
-                ("Adjust Wallet", build_callback("s", "admin_customer_wallet", buyer_id)),
+                ("📞 ارسال پیام به کاربر", build_callback("s", "admin_customer_message", buyer_id)),
+                ("💸 تغییر موجودی", build_callback("s", "admin_customer_wallet", buyer_id)),
             ],
             [
-                ("Block", build_callback("s", "admin_customer_block", buyer_id)),
-                ("Customers", build_callback("s", "admin_customers")),
+                ("🚫 مسدود کردن", build_callback("s", "admin_customer_block", buyer_id)),
+                ("👤 مدیریت کاربران", build_callback("s", "admin_customers")),
             ],
-            [("Admin Home", build_callback("s", "admin"))],
+            [("⬅️ بازگشت به مدیریت", build_callback("s", "admin"))],
         ]
     )
 
@@ -487,12 +489,12 @@ def seller_report_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Today", build_callback("s", "admin_report", "1")),
-                ("7 Days", build_callback("s", "admin_report", "7")),
-                ("30 Days", build_callback("s", "admin_report", "30")),
+                ("📆 امروز", build_callback("s", "admin_report", "1")),
+                ("📆 7 روز", build_callback("s", "admin_report", "7")),
+                ("📆 30 روز", build_callback("s", "admin_report", "30")),
             ],
-            [("Custom Days", build_callback("s", "admin_report_custom"))],
-            [("Admin Home", build_callback("s", "admin")), ("Buyer Home", build_callback("s", "home"))],
+            [("🔎 بازه دلخواه", build_callback("s", "admin_report_custom"))],
+            [("⬅️ بازگشت به مدیریت", build_callback("s", "admin")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -509,9 +511,9 @@ def plan_buy_button(plan_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Buy", build_callback("s", "buy", plan_id)),
-                ("Back", build_callback("s", "plans")),
-                ("Home", build_callback("s", "home")),
+                ("🛒 خرید سرویس", build_callback("s", "buy", plan_id)),
+                ("🔙 بازگشت", build_callback("s", "plans")),
+                ("📱 منوی اصلی", build_callback("s", "home")),
             ]
         ]
     )
@@ -521,10 +523,10 @@ def purchase_coupon_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Enter Coupon", build_callback("s", "buy_coupon")),
-                ("Skip Coupon", build_callback("s", "buy_no_coupon")),
+                ("🎁 کد تخفیف دارم", build_callback("s", "buy_coupon")),
+                ("ادامه بدون کد", build_callback("s", "buy_no_coupon")),
             ],
-            [("Plans", build_callback("s", "plans")), ("Home", build_callback("s", "home"))],
+            [("🛒 تعرفه خدمات", build_callback("s", "plans")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -541,10 +543,10 @@ def payment_request_actions(order_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Order Status", build_callback("s", "order_status", order_id)),
-                ("Receipt", build_callback("s", "receipt_upload", order_id)),
+                ("🔎 وضعیت سفارش", build_callback("s", "order_status", order_id)),
+                ("📤 ارسال فیش", build_callback("s", "receipt_upload", order_id)),
             ],
-            [("Support", build_callback("s", "support")), ("Home", build_callback("s", "home"))],
+            [("📮 پشتیبانی آنلاین", build_callback("s", "support")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -552,17 +554,17 @@ def payment_request_actions(order_id: str) -> InlineKeyboardMarkup:
 def service_actions(service_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
-            [("Details", build_callback("s", "service_detail", service_id))],
+            [("ℹ️ اطلاعات سرویس", build_callback("s", "service_detail", service_id))],
             [
-                ("Subscription", build_callback("s", "service_sub", service_id)),
-                ("QR Code", build_callback("s", "service_qr", service_id)),
+                ("🔗 دریافت لینک اشتراک", build_callback("s", "service_sub", service_id)),
+                ("📷 QR Code", build_callback("s", "service_qr", service_id)),
             ],
             [
-                ("Renew", build_callback("s", "renew", service_id)),
-                ("Extra Volume", build_callback("s", "extra_volume", service_id)),
+                ("افزایش اعتبار زمانی", build_callback("s", "renew", service_id)),
+                ("خرید حجم اضافه", build_callback("s", "extra_volume", service_id)),
             ],
-            [("Guide", build_callback("s", "service_guide", service_id))],
-            [("Back", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
+            [("🔗 راهنمای اتصال", build_callback("s", "service_guide", service_id))],
+            [("🔙 بازگشت به لیست سرویس ها", build_callback("s", "services")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -571,9 +573,9 @@ def renewal_plan_button(plan_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Select", build_callback("s", "renew_plan", plan_id)),
-                ("Services", build_callback("s", "services")),
-                ("Home", build_callback("s", "home")),
+                ("✅ انتخاب", build_callback("s", "renew_plan", plan_id)),
+                ("🛍 سرویس های من", build_callback("s", "services")),
+                ("📱 منوی اصلی", build_callback("s", "home")),
             ]
         ]
     )
@@ -583,9 +585,9 @@ def extra_volume_plan_button(plan_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Select", build_callback("s", "extra_plan", plan_id)),
-                ("Services", build_callback("s", "services")),
-                ("Home", build_callback("s", "home")),
+                ("✅ انتخاب", build_callback("s", "extra_plan", plan_id)),
+                ("🛍 سرویس های من", build_callback("s", "services")),
+                ("📱 منوی اصلی", build_callback("s", "home")),
             ]
         ]
     )
@@ -595,10 +597,10 @@ def renewal_coupon_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Enter Coupon", build_callback("s", "renew_coupon")),
-                ("Skip Coupon", build_callback("s", "renew_no_coupon")),
+                ("🎁 کد تخفیف دارم", build_callback("s", "renew_coupon")),
+                ("ادامه بدون کد", build_callback("s", "renew_no_coupon")),
             ],
-            [("Services", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
+            [("🛍 سرویس های من", build_callback("s", "services")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -615,10 +617,10 @@ def extra_volume_coupon_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Enter Coupon", build_callback("s", "extra_coupon")),
-                ("Skip Coupon", build_callback("s", "extra_no_coupon")),
+                ("🎁 کد تخفیف دارم", build_callback("s", "extra_coupon")),
+                ("ادامه بدون کد", build_callback("s", "extra_no_coupon")),
             ],
-            [("Services", build_callback("s", "services")), ("Home", build_callback("s", "home"))],
+            [("🛍 سرویس های من", build_callback("s", "services")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -640,9 +642,9 @@ def wallet_charge_menu() -> InlineKeyboardMarkup:
             ],
             [
                 ("500,000", build_callback("s", "wallet_add", "500000")),
-                ("Custom", build_callback("s", "wallet_custom")),
+                ("💰 مبلغ دلخواه", build_callback("s", "wallet_custom")),
             ],
-            [("Cancel", build_callback("s", "wallet")), ("Home", build_callback("s", "home"))],
+            [("❌ انصراف", build_callback("s", "wallet")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -651,10 +653,10 @@ def wallet_transaction_actions(transaction_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("Details", build_callback("s", "wallet_tx", transaction_id)),
-                ("Wallet", build_callback("s", "wallet")),
+                ("🔎 جزئیات", build_callback("s", "wallet_tx", transaction_id)),
+                ("💸 شارژ حساب", build_callback("s", "wallet")),
             ],
-            [("Home", build_callback("s", "home"))],
+            [("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )
 
@@ -663,13 +665,13 @@ def support_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("My Tickets", build_callback("s", "tickets")),
-                ("Open Ticket", build_callback("s", "ticket_open")),
+                ("📮 تیکت های من", build_callback("s", "tickets")),
+                ("🎟 ارسال پیام به پشتیبانی", build_callback("s", "ticket_open")),
             ],
             [
-                ("Guides", build_callback("s", "guides")),
-                ("Cancel", build_callback("s", "ticket_cancel")),
-                ("Home", build_callback("s", "home")),
+                ("🔗 راهنمای اتصال", build_callback("s", "guides")),
+                ("❌ انصراف", build_callback("s", "ticket_cancel")),
+                ("📱 منوی اصلی", build_callback("s", "home")),
             ],
         ]
     )

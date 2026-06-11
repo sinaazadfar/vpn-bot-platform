@@ -498,6 +498,9 @@ Goal: turn the approved combined flow into complete production behavior, using t
 ### UX Polish
 
 - [ ] Use a single Persian-first text style for buyer and reseller screens.
+  - [x] Switch buyer reply/inline menus to Persian labels similar to ZanborPanel, BotMirzaPanel, and Marzbot-free.
+  - [x] Persian-first buyer storefront, service, wallet, invoice, renewal, and extra-volume texts.
+  - [ ] Persian-first seller admin operation texts.
 - [ ] Add compact receipt messages for every successful purchase, renewal, wallet charge, and extra-volume action.
 - [ ] Add clearer empty states for no plans, no services, no tickets, and no payments.
 - [ ] Add safer retry screens for failed Marzban provisioning.
