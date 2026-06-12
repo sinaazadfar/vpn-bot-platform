@@ -118,29 +118,6 @@ def master_reply_menu() -> ReplyKeyboardMarkup:
     )
 
 
-def seller_buyer_reply_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard(
-        [
-            ["🛒 خرید سرویس", "🛍 سرویس های من"],
-            ["💸 شارژ حساب", "👤 پروفایل"],
-            ["🎁 سرویس تستی (رایگان)"],
-            ["🔗 راهنمای اتصال", "📮 پشتیبانی آنلاین"],
-        ]
-    )
-
-
-def seller_admin_reply_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard(
-        [
-            ["💳 پرداخت ها", "🧾 سفارش ها"],
-            ["💸 شارژ کیف پول", "👤 مدیریت کاربران"],
-            ["📮 تیکت ها", "🛒 تعرفه خدمات"],
-            ["📊 گزارش فروش", "🪙 روش پرداخت"],
-            ["📱 منوی اصلی"],
-        ]
-    )
-
-
 def master_main_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

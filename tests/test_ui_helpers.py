@@ -50,9 +50,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     reseller_list_menu,
     seller_section_menu,
     service_actions,
-    seller_admin_reply_menu,
     seller_admin_menu,
-    seller_buyer_reply_menu,
     seller_buyer_menu,
     seller_bot_config_menu,
     seller_bot_list_menu,
@@ -124,8 +122,6 @@ def test_main_menus_have_buttons() -> None:
     assert forced_join_menu().inline_keyboard
     assert forced_join_blocked_menu().inline_keyboard
     assert master_reply_menu().keyboard
-    assert seller_buyer_reply_menu().keyboard
-    assert seller_admin_reply_menu().keyboard
 
 
 def test_inline_keyboards_fit_callback_limit() -> None:

@@ -7,7 +7,7 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message, ReplyKeyboardRemove
 import httpx
 
 from vpn_bot_platform.common.qr import make_qr_png_bytes
@@ -42,7 +42,6 @@ from vpn_bot_platform.common.ui.keyboards import (
     renewal_plan_button,
     seller_admin_menu,
     seller_buyer_menu,
-    seller_buyer_reply_menu,
     seller_report_menu,
     seller_section_menu,
     service_actions,
@@ -155,7 +154,7 @@ async def start(
         _buyer_dashboard_text(seller_name=profile.seller_bot.name, reseller_name=profile.reseller.display_name),
         reply_markup=seller_buyer_menu(),
     )
-    await message.answer("🚀 یکی از دکمه های زیر را انتخاب کنید.", reply_markup=seller_buyer_reply_menu())
+    await message.answer("کیبورد پایین حذف شد؛ از دکمه‌های داخل پیام استفاده کنید.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command("cancel"))
@@ -179,7 +178,7 @@ async def cancel_flow(
         "\n".join([title("❌ عملیات لغو شد"), "به صفحه اصلی ربات بازگشتید.", "", f"فروشنده: {profile.reseller.display_name}"]),
         reply_markup=seller_buyer_menu(),
     )
-    await message.answer("🚀 یکی از دکمه های زیر را انتخاب کنید.", reply_markup=seller_buyer_reply_menu())
+    await message.answer("کیبورد پایین حذف شد؛ از دکمه‌های داخل پیام استفاده کنید.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(
