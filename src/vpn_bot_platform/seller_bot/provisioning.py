@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -294,10 +295,7 @@ class ProvisioningService:
             assignment, panel = routed_panel.assignment, routed_panel.panel
             expire = seconds_from_now(self.settings.trial_duration_days)
             trial_user = MarzbanUserCreate(
-                username=(
-                    f"trial_r{seller_bot.reseller_id[:8]}_b{buyer_telegram_id}_"
-                    f"{dt.datetime.now(dt.UTC):%Y%m%d%H%M%S}"
-                ),
+                username=_marzban_username("t", seller_bot.reseller_id, buyer_telegram_id),
                 proxies=json.loads(self.settings.marzban_default_proxies_json),
                 expire=expire,
                 data_limit=gb_to_bytes(self.settings.trial_data_limit_gb),
@@ -353,11 +351,7 @@ class ProvisioningService:
         buyer_telegram_id: int,
         owner_username: str | None,
     ) -> MarzbanUserCreate:
-        unique_suffix = uuid.uuid4().hex[:8]
-        username = (
-            f"r{seller_bot.reseller_id[:8]}_b{buyer_telegram_id}_"
-            f"{dt.datetime.now(dt.UTC):%Y%m%d%H%M%S}_{unique_suffix}"
-        )
+        username = _marzban_username("u", seller_bot.reseller_id, buyer_telegram_id)
         note_parts = [f"seller_bot={seller_bot.id}", f"buyer_tg={buyer_telegram_id}"]
         if owner_username:
             note_parts.append(f"owner={owner_username}")
@@ -380,6 +374,14 @@ def _extract_subscription_url(response: dict) -> str | None:
         first = links[0]
         return first if isinstance(first, str) else None
     return None
+
+
+def _marzban_username(prefix: str, reseller_id: str, buyer_telegram_id: int) -> str:
+    reseller_part = re.sub(r"[^a-z0-9_]", "", reseller_id.lower())[:6] or "seller"
+    buyer_part = str(buyer_telegram_id)[-8:]
+    unique_part = uuid.uuid4().hex[:10]
+    username = f"{prefix}_{reseller_part}_{buyer_part}_{unique_part}"
+    return username[:32]
 
 
 def _renewed_expire_timestamp(current_expire: dt.datetime | None, duration_days: int) -> int:

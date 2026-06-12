@@ -13,7 +13,7 @@ from vpn_bot_platform.integrations.marzban import (
     MarzbanUserUpdate,
 )
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
-from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
+from vpn_bot_platform.seller_bot.provisioning import ProvisioningService, _marzban_username
 from vpn_bot_platform.seller_bot.services import SellerContextService
 
 
@@ -29,6 +29,18 @@ class FakeMarzbanClient:
 
     async def update_user(self, username: str, update: MarzbanUserUpdate) -> dict:
         return {"username": username, **update.to_payload()}
+
+
+def test_marzban_username_matches_panel_validation() -> None:
+    username = _marzban_username(
+        "u",
+        "23db27e6-2967-4a10-af2e-abc5030cd3c6",
+        252486544,
+    )
+
+    assert 3 <= len(username) <= 32
+    assert username == username.lower()
+    assert username.replace("_", "").isalnum()
 
 
 @pytest.mark.asyncio
