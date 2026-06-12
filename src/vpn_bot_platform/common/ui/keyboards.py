@@ -287,13 +287,24 @@ def external_template_actions(template_id: str) -> InlineKeyboardMarkup:
     )
 
 
-def seller_bot_list_menu(*, page: int, total_pages: int) -> InlineKeyboardMarkup:
+def seller_bot_list_menu(
+    *,
+    page: int,
+    total_pages: int,
+    seller_bots: list[object] | None = None,
+) -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = [
         [
             ("➕ Add Seller Bot", build_callback("m", "add_seller_bot")),
             ("🔎 Search", build_callback("m", "seller_search")),
         ]
     ]
+    for seller_bot in seller_bots or []:
+        bot_id = str(getattr(seller_bot, "id"))
+        name = str(getattr(seller_bot, "name", "Seller Bot")).strip() or "Seller Bot"
+        status = str(getattr(seller_bot, "status", "")).strip()
+        label = f"{name[:24]} | {status[:12]}" if status else name[:32]
+        rows.append([(label, build_callback("m", "seller_select", bot_id))])
     page_row = pagination_row(scope="m", action="seller_bots", page=page, total_pages=total_pages)
     if page_row:
         rows.append(page_row)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from vpn_bot_platform.common.ui.callbacks import build_callback, parse_callback
@@ -79,11 +81,12 @@ def test_callback_rejects_too_long_data() -> None:
 
 
 def test_main_menus_have_buttons() -> None:
+    seller_bot = SimpleNamespace(id="12345678-1234-1234-1234-123456789abc", name="Test Bot", status="running")
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert external_template_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert seller_bot_config_menu("12345678-1234-1234-1234-123456789abc").inline_keyboard
-    assert seller_bot_list_menu(page=1, total_pages=3).inline_keyboard
+    assert seller_bot_list_menu(page=1, total_pages=3, seller_bots=[seller_bot]).inline_keyboard
     assert seller_bot_type_menu(has_external_templates=True).inline_keyboard
     assert reseller_list_menu(page=1, total_pages=3).inline_keyboard
     assert panel_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
@@ -103,6 +106,7 @@ def test_main_menus_have_buttons() -> None:
 
 def test_inline_keyboards_fit_callback_limit() -> None:
     uuid = "12345678-1234-1234-1234-123456789abc"
+    seller_bot = SimpleNamespace(id=uuid, name="Test Bot With A Long Name", status="running")
 
     for keyboard in (
         master_main_menu(),
@@ -132,7 +136,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_seller_bot_actions(uuid),
         external_template_actions(uuid),
         seller_bot_config_menu(uuid),
-        seller_bot_list_menu(page=1, total_pages=3),
+        seller_bot_list_menu(page=1, total_pages=3, seller_bots=[seller_bot]),
         seller_bot_type_menu(has_external_templates=True),
         seller_bot_type_menu(has_external_templates=False),
         seller_buyer_menu(),

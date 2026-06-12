@@ -254,7 +254,20 @@ async def master_reply_menu_alias(
 ) -> None:
     await state.clear()
     if message.text == "Seller Bots":
-        await message.answer(await _seller_bots_text(reseller_service), reply_markup=seller_bot_list_menu(page=1, total_pages=1))
+        seller_bots = [
+            seller_bot
+            for seller_bot in await reseller_service.list_seller_bots()
+            if seller_bot.status != "disabled"
+        ]
+        page = paginate(seller_bots, page=1, per_page=5)
+        await message.answer(
+            _seller_bots_page_text(page),
+            reply_markup=seller_bot_list_menu(
+                page=page.page,
+                total_pages=page.total_pages,
+                seller_bots=list(page.items),
+            ),
+        )
     elif message.text == "Add Seller Bot":
         await _show_add_seller_bot_start(message, state, reseller_service)
     elif message.text == "Resellers":
@@ -457,13 +470,21 @@ async def master_menu_callback(
         page = paginate(seller_bots, page=page_number, per_page=5)
         await callback.message.edit_text(
             _seller_bots_page_text(page),
-            reply_markup=seller_bot_list_menu(page=page.page, total_pages=page.total_pages),
+            reply_markup=seller_bot_list_menu(
+                page=page.page,
+                total_pages=page.total_pages,
+                seller_bots=list(page.items),
+            ),
         )
-        for seller_bot in page.items:
-            await callback.message.answer(
-                _seller_bot_card_text(seller_bot),
-                reply_markup=master_seller_bot_actions(seller_bot.id),
-            )
+    elif action.action == "seller_select":
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
+        if seller_bot is None:
+            await callback.answer("Seller bot not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _seller_bot_card_text(seller_bot),
+            reply_markup=master_seller_bot_actions(seller_bot.id),
+        )
     elif action.action == "add_seller_bot":
         await _edit_add_seller_bot_start(callback, state, reseller_service)
     elif action.action == "seller_search":
@@ -1934,12 +1955,15 @@ async def sellerbot_search_query(
             reply_markup=seller_bot_list_menu(page=1, total_pages=1),
         )
         return
+    page = paginate(seller_bots, page=1, per_page=10)
     await message.answer(
         _seller_bots_search_text(query, seller_bots),
-        reply_markup=seller_bot_list_menu(page=1, total_pages=1),
+        reply_markup=seller_bot_list_menu(
+            page=page.page,
+            total_pages=page.total_pages,
+            seller_bots=list(page.items),
+        ),
     )
-    for seller_bot in seller_bots[:10]:
-        await message.answer(_seller_bot_card_text(seller_bot), reply_markup=master_seller_bot_actions(seller_bot.id))
 
 
 @router.message(GlobalBroadcastCreateStates.title)
