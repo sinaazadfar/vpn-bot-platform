@@ -1413,7 +1413,8 @@ async def seller_menu_callback(
         except ValueError:
             await callback.answer("Pending payment not found.", show_alert=True)
             return
-        await callback.message.edit_text(
+        await _edit_or_answer_callback(
+            callback,
             _pending_payment_detail_text(pending),
             reply_markup=admin_payment_actions(pending.payment.id),
         )
@@ -1434,7 +1435,8 @@ async def seller_menu_callback(
             return
         is_renewal = approved.order.order_type == OrderType.RENEWAL.value
         is_extra_volume = approved.order.order_type == OrderType.EXTRA_VOLUME.value
-        await callback.message.edit_text(
+        await _edit_or_answer_callback(
+            callback,
             "\n".join(
                 [
                     title("Payment Approved"),
@@ -1453,7 +1455,8 @@ async def seller_menu_callback(
         if not action.value:
             await callback.answer("Payment is missing.", show_alert=True)
             return
-        await callback.message.edit_text(
+        await _edit_or_answer_callback(
+            callback,
             "\n".join(
                 [
                     title("Confirm Payment Rejection"),
@@ -1484,7 +1487,8 @@ async def seller_menu_callback(
         except ValueError:
             await callback.answer("Pending payment not found.", show_alert=True)
             return
-        await callback.message.edit_text(
+        await _edit_or_answer_callback(
+            callback,
             "\n".join(
                 [
                     title("Payment Rejected"),
@@ -3855,6 +3859,20 @@ async def _support_contact_line(
     if support_contact is None:
         return "پشتیبان هنوز توسط ادمین تنظیم نشده است."
     return f"پشتیبان: {support_contact}"
+
+
+async def _edit_or_answer_callback(
+    callback: CallbackQuery,
+    text: str,
+    *,
+    reply_markup=None,
+) -> None:
+    if callback.message is None:
+        return
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except TelegramAPIError:
+        await callback.message.answer(text, reply_markup=reply_markup)
 
 
 def _extract_support_contact_from_message(message: Message) -> str | None:
