@@ -1546,6 +1546,12 @@ async def seller_menu_callback(
             await callback.answer("You do not have reseller admin access.", show_alert=True)
             return
         except ValueError as exc:
+            if str(exc) == "order_already_completed_without_service_link":
+                await callback.answer(
+                    "Order is already completed, but its service link is missing. Ask super admin to repair it.",
+                    show_alert=True,
+                )
+                return
             await callback.answer(f"Could not provision: {exc}", show_alert=True)
             return
         except httpx.HTTPStatusError as exc:
@@ -4514,6 +4520,9 @@ async def provision_order(
     except ValueError as exc:
         if str(exc) == "order_not_ready":
             await message.answer("Order is not ready for provisioning.")
+            return
+        if str(exc) == "order_already_completed_without_service_link":
+            await message.answer("Order is already completed, but its service link is missing. Ask super admin to repair it.")
             return
         if str(exc) == "panel_assignment_not_found":
             await message.answer("No active Marzban panel is assigned to this reseller.")

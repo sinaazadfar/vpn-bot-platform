@@ -98,6 +98,8 @@ class ProvisioningService:
                 await mark_order_completed(session, order=order)
                 await session.flush()
                 return ProvisionedService(order=order, vpn_service=existing_service)
+            if order.status == "completed":
+                raise ValueError("order_already_completed_without_service_link")
 
             routed_panel = await self.panel_router.choose_panel(
                 session,

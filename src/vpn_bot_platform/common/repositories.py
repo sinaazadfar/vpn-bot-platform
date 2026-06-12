@@ -827,7 +827,12 @@ async def get_provisioning_order_context(
         .where(
             Order.id == order_id,
             Order.reseller_id == reseller_id,
-            Order.status == OrderStatus.PROVISIONING.value,
+            Order.status.in_(
+                [
+                    OrderStatus.PROVISIONING.value,
+                    OrderStatus.COMPLETED.value,
+                ]
+            ),
         )
     )
     return result.one_or_none()

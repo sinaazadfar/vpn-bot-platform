@@ -247,6 +247,10 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             admin_telegram_id=111,
             order_id=approved.order.id,
         )
+        reprovisioned = await provisioning.provision_order(
+            admin_telegram_id=111,
+            order_id=approved.order.id,
+        )
         buyer_services = await seller_context.list_buyer_services(buyer_telegram_id=222)
         customer_search_by_id = await seller_context.search_customers(admin_telegram_id=111, query="222")
         customer_search_by_username = await seller_context.search_customers(admin_telegram_id=111, query="@buyer")
@@ -351,6 +355,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert approved.order.status == "provisioning"
     assert provisioned.order.status == "completed"
     assert provisioned.order.target_service_id == provisioned.vpn_service.id
+    assert reprovisioned.vpn_service.id == provisioned.vpn_service.id
     assert provisioned.vpn_service.buyer_id == profile.buyer.id
     assert provisioned.vpn_service.panel_id == panel.id
     assert provisioned.vpn_service.subscription_url is not None
