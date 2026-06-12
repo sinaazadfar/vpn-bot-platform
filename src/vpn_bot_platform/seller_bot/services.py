@@ -113,6 +113,12 @@ class BuyerOrderStatus:
 
 
 @dataclass(frozen=True)
+class PaymentNotificationContacts:
+    admin_telegram_id: int
+    support_contact: int | str | None = None
+
+
+@dataclass(frozen=True)
 class PendingPayment:
     payment: Payment
     order: Order
@@ -387,6 +393,28 @@ class SellerContextService:
                 raise ValueError("order_not_found")
             order, payment, plan = row
             return BuyerOrderStatus(order=order, payment=payment, plan=plan)
+
+    async def get_payment_notification_contacts(
+        self,
+        *,
+        buyer_telegram_id: int,
+    ) -> PaymentNotificationContacts:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            setting = await get_reseller_setting(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                key=SUPPORT_TELEGRAM_ID_SETTING,
+            )
+            return PaymentNotificationContacts(
+                admin_telegram_id=seller_bot.reseller.telegram_user_id,
+                support_contact=self._parse_support_contact(setting.value if setting else None),
+            )
 
     async def request_renewal_payment(
         self,

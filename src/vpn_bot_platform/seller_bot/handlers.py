@@ -72,6 +72,10 @@ class WalletChargeStates(StatesGroup):
     confirm = State()
 
 
+class ReceiptUploadStates(StatesGroup):
+    photo = State()
+
+
 class PurchaseCreateStates(StatesGroup):
     coupon = State()
     confirm = State()
@@ -743,9 +747,12 @@ async def seller_menu_callback(
         if not action.value:
             await callback.answer("Order is missing.", show_alert=True)
             return
+        await state.clear()
+        await state.update_data(receipt_order_id=action.value)
+        await state.set_state(ReceiptUploadStates.photo)
         await callback.message.edit_text(
-            _receipt_upload_placeholder_text(action.value),
-            reply_markup=payment_request_actions(action.value),
+            _receipt_upload_request_text(action.value),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="home"),
         )
     elif action.action == "wallet_add":
         if not action.value:
@@ -1788,6 +1795,84 @@ async def support_settings_telegram_id(
     await message.answer(
         _support_settings_text(settings),
         reply_markup=admin_support_settings_menu(has_support=True),
+    )
+
+
+@router.message(ReceiptUploadStates.photo)
+async def receipt_upload_photo(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    order_id = str(data.get("receipt_order_id") or "").strip()
+    if not order_id:
+        await state.clear()
+        await message.answer("درخواست ارسال فیش منقضی شد.", reply_markup=seller_buyer_menu())
+        return
+    if not message.photo:
+        await message.answer(
+            "\n".join(
+                [
+                    title("ارسال فیش"),
+                    "لطفاً عکس فیش پرداخت را همینجا ارسال کنید.",
+                    "",
+                    "اگر منصرف شدید از دکمه لغو استفاده کنید.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="home"),
+        )
+        return
+    try:
+        order_status = await seller_context.get_buyer_order_status(
+            buyer_telegram_id=message.from_user.id,
+            order_id=order_id,
+        )
+    except ValueError:
+        await state.clear()
+        await message.answer("سفارش پیدا نشد.", reply_markup=seller_buyer_menu())
+        return
+    if order_status.payment is None:
+        await state.clear()
+        await message.answer("برای این سفارش پرداختی ثبت نشده است.", reply_markup=seller_buyer_menu())
+        return
+    contacts = await seller_context.get_payment_notification_contacts(
+        buyer_telegram_id=message.from_user.id,
+    )
+    caption = _receipt_notification_caption(
+        buyer_telegram_id=message.from_user.id,
+        order_status=order_status,
+    )
+    photo_file_id = message.photo[-1].file_id
+    await _send_receipt_to_contact(
+        message,
+        chat_id=contacts.admin_telegram_id,
+        photo_file_id=photo_file_id,
+        caption=caption,
+        payment_id=order_status.payment.id,
+        include_actions=True,
+    )
+    if contacts.support_contact is not None and contacts.support_contact != contacts.admin_telegram_id:
+        await _send_receipt_to_contact(
+            message,
+            chat_id=contacts.support_contact,
+            photo_file_id=photo_file_id,
+            caption=caption,
+            payment_id=order_status.payment.id,
+            include_actions=True,
+        )
+    await state.clear()
+    await message.answer(
+        "\n".join(
+            [
+                title("فیش ارسال شد"),
+                "عکس فیش برای ادمین و پشتیبان ارسال شد.",
+                "بعد از تایید پرداخت، سرویس شما ساخته یا بروزرسانی می‌شود.",
+            ]
+        ),
+        reply_markup=payment_request_actions(order_id),
     )
 
 
@@ -3544,15 +3629,56 @@ def _buyer_order_status_text(order_status) -> str:
     return "\n".join(rows)
 
 
-def _receipt_upload_placeholder_text(order_id: str) -> str:
+def _receipt_upload_request_text(order_id: str) -> str:
     return "\n".join(
         [
             title("📤 ارسال فیش"),
             f"شماره سفارش: {order_id}",
             "",
-            "فیش پرداخت را در بخش پشتیبانی ارسال کنید و شماره سفارش را داخل پیام بنویسید.",
+            "عکس فیش پرداخت را همینجا داخل ربات ارسال کنید.",
+            "ربات عکس را برای ادمین و پشتیبان می‌فرستد تا پرداخت approve شود.",
         ]
     )
+
+
+def _receipt_notification_caption(*, buyer_telegram_id: int, order_status) -> str:
+    order = order_status.order
+    payment = order_status.payment
+    plan = order_status.plan
+    amount = payment.amount if payment is not None else order.total_amount
+    return "\n".join(
+        [
+            title("فیش پرداخت جدید"),
+            f"Buyer Telegram ID: {buyer_telegram_id}",
+            f"Order ID: {order.id}",
+            f"Payment ID: {payment.id if payment else '-'}",
+            f"Plan: {plan.name if plan else '-'}",
+            f"Amount: {amount:,.0f} تومان",
+            f"Payment status: {status_label(payment.status) if payment else '-'}",
+            "",
+            "بعد از بررسی عکس، پرداخت را approve یا reject کنید.",
+        ]
+    )
+
+
+async def _send_receipt_to_contact(
+    message: Message,
+    *,
+    chat_id: int | str,
+    photo_file_id: str,
+    caption: str,
+    payment_id: str,
+    include_actions: bool,
+) -> None:
+    try:
+        await message.bot.send_photo(
+            chat_id,
+            photo_file_id,
+            caption=caption,
+            reply_markup=admin_payment_actions(payment_id) if include_actions else None,
+        )
+    except TelegramAPIError:
+        return
 
 
 def _pending_payment_detail_text(pending) -> str:
