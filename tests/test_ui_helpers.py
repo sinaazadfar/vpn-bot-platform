@@ -14,6 +14,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_ticket_actions,
     admin_wallet_charge_actions,
     broadcast_actions,
+    cancel_only_keyboard,
     confirm_keyboard,
     discount_actions,
     external_template_actions,
@@ -88,6 +89,7 @@ def test_main_menus_have_buttons() -> None:
     assert seller_bot_config_menu("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert seller_bot_list_menu(page=1, total_pages=3, seller_bots=[seller_bot]).inline_keyboard
     assert seller_bot_type_menu(has_external_templates=True).inline_keyboard
+    assert cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel").inline_keyboard
     assert reseller_list_menu(page=1, total_pages=3).inline_keyboard
     assert panel_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert reseller_card_actions(12345).inline_keyboard
@@ -139,6 +141,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         seller_bot_list_menu(page=1, total_pages=3, seller_bots=[seller_bot]),
         seller_bot_type_menu(has_external_templates=True),
         seller_bot_type_menu(has_external_templates=False),
+        cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         seller_buyer_menu(),
         seller_admin_menu(),
         seller_report_menu(),

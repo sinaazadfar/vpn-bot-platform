@@ -15,6 +15,7 @@ from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     broadcast_actions,
+    cancel_only_keyboard,
     confirm_keyboard,
     discount_actions,
     external_template_actions,
@@ -1656,12 +1657,15 @@ async def master_menu_callback(
             "\n".join(
                 [
                     title("Add Seller Bot"),
-                    "Send the seller bot display name.",
+                    "Type the display name for this seller bot.",
                     "",
-                    "Example: Sina Azad",
+                    "Example:",
+                    "Sina Azad VPN",
+                    "",
+                    "This name is only for your management panel.",
                 ]
             ),
-            reply_markup=master_section_menu("seller_bots"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
     elif action.action == "sellerbot_panel":
         if not action.value:
@@ -1673,12 +1677,15 @@ async def master_menu_callback(
             "\n".join(
                 [
                     title("Add Seller Bot"),
-                    "Send the Marzban admin username for this seller.",
+                    "Type the Marzban admin username for this seller bot.",
                     "",
-                    "Send - if this bot should use the panel default admin.",
+                    "Example:",
+                    "sina_reseller",
+                    "",
+                    "Send - to use the default panel admin.",
                 ]
             ),
-            reply_markup=master_section_menu("seller_bots"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
     elif action.action == "sellerbot_create":
         data = await state.get_data()
@@ -1898,8 +1905,16 @@ async def sellerbot_create_name(message: Message, state: FSMContext) -> None:
     bot_name = (message.text or "").strip()
     if not bot_name or bot_name.startswith("/"):
         await message.answer(
-            "\n".join([title("Add Seller Bot"), "Send a display name, not a command."]),
-            reply_markup=master_section_menu("seller_bots"),
+            "\n".join(
+                [
+                    title("Add Seller Bot"),
+                    "That was not a valid name.",
+                    "",
+                    "Type a plain display name, for example:",
+                    "Sina Azad VPN",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
         return
     await state.update_data(sellerbot_name=bot_name[:128])
@@ -1908,12 +1923,15 @@ async def sellerbot_create_name(message: Message, state: FSMContext) -> None:
         "\n".join(
             [
                 title("Add Seller Bot"),
-                "Send the Telegram bot token from BotFather.",
+                "Paste the Telegram bot token from BotFather.",
                 "",
-                "The token will be encrypted and will not be shown back.",
+                "Format example:",
+                "123456789:ABCdef...",
+                "",
+                "The token will be encrypted and will not be shown again.",
             ]
         ),
-        reply_markup=master_section_menu("seller_bots"),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
     )
 
 
@@ -1928,8 +1946,16 @@ async def sellerbot_create_token(
         validate_token(bot_token)
     except TokenValidationError as exc:
         await message.answer(
-            "\n".join([title("Add Seller Bot"), f"Invalid token: {exc}", "Send a valid BotFather token."]),
-            reply_markup=master_section_menu("seller_bots"),
+            "\n".join(
+                [
+                    title("Add Seller Bot"),
+                    f"Invalid token: {exc}",
+                    "",
+                    "Paste the exact token from BotFather.",
+                    "Example format: 123456789:ABCdef...",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
         return
     await state.update_data(sellerbot_token=bot_token)
@@ -1975,8 +2001,15 @@ async def sellerbot_create_panel_admin(message: Message, state: FSMContext) -> N
     raw_value = (message.text or "").strip()
     if not raw_value or raw_value.startswith("/"):
         await message.answer(
-            "\n".join([title("Add Seller Bot"), "Send a Marzban admin username, or - for default."]),
-            reply_markup=master_section_menu("seller_bots"),
+            "\n".join(
+                [
+                    title("Add Seller Bot"),
+                    "Type a Marzban admin username, or send - for default.",
+                    "",
+                    "Example: sina_reseller",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
         return
     panel_admin = None if raw_value == "-" else raw_value[:128]

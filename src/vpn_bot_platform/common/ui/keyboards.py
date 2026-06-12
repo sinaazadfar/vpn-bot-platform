@@ -98,6 +98,10 @@ def confirm_keyboard(
     )
 
 
+def cancel_only_keyboard(*, scope: str, cancel_action: str) -> InlineKeyboardMarkup:
+    return inline_keyboard([[("❌ Cancel", build_callback(scope, cancel_action))]])
+
+
 def reply_keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=text) for text in row] for row in rows],
