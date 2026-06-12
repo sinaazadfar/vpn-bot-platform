@@ -8,10 +8,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from sqlalchemy import select
+
 from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import session_scope
-from vpn_bot_platform.common.models import Order, Plan, SellerBot, VpnService
+from vpn_bot_platform.common.models import Buyer, Order, Plan, SellerBot, VpnService
 from vpn_bot_platform.common.repositories import (
     create_trial_grant,
     create_vpn_service,
@@ -144,6 +146,89 @@ class ProvisioningService:
                 action="vpn_service.provision",
                 actor_type=AuditActorType.RESELLER_ADMIN,
                 actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="vpn_service",
+                target_id=vpn_service.id,
+                metadata={"order_id": order.id, "panel_id": panel.id},
+            )
+            await session.flush()
+            return ProvisionedService(order=order, vpn_service=vpn_service)
+
+    async def provision_buyer_order(self, *, buyer_telegram_id: int, order_id: str) -> ProvisionedService:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            result = await session.execute(
+                select(Order, Buyer, Plan)
+                .join(Buyer, Order.buyer_id == Buyer.id)
+                .join(Plan, Order.plan_id == Plan.id)
+                .where(
+                    Order.id == order_id,
+                    Order.reseller_id == seller_bot.reseller_id,
+                    Buyer.telegram_user_id == buyer_telegram_id,
+                    Order.status.in_(["provisioning", "completed"]),
+                )
+            )
+            context = result.one_or_none()
+            if context is None:
+                raise ValueError("order_not_ready")
+            order, buyer, plan = context
+            if order.target_service_id:
+                existing_service = await session.get(VpnService, order.target_service_id)
+                if existing_service is None:
+                    await mark_order_failed(session, order=order)
+                    raise ValueError("provisioned_service_not_found")
+                await mark_order_completed(session, order=order)
+                await session.flush()
+                return ProvisionedService(order=order, vpn_service=existing_service)
+            if order.status == "completed":
+                raise ValueError("order_already_completed_without_service_link")
+
+            routed_panel = await self.panel_router.choose_panel(
+                session,
+                reseller_id=seller_bot.reseller_id,
+            )
+            if routed_panel is None:
+                await mark_order_failed(session, order=order)
+                raise ValueError("panel_assignment_not_found")
+            assignment, panel = routed_panel.assignment, routed_panel.panel
+            credentials = self._panel_credentials(panel)
+            marzban_user = self._build_marzban_user(
+                seller_bot=seller_bot,
+                plan=plan,
+                buyer_telegram_id=buyer.telegram_user_id,
+                requested_username=order.requested_username,
+                owner_username=assignment.marzban_admin_username,
+            )
+            try:
+                response = await self.marzban_client_factory(credentials).create_user(marzban_user)
+            except Exception:
+                await mark_order_failed(session, order=order)
+                raise
+            vpn_service = await create_vpn_service(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer.id,
+                panel_id=panel.id,
+                marzban_username=marzban_user.username,
+                subscription_url=_extract_subscription_url(response),
+                data_limit_gb=plan.data_limit_gb,
+                expire_at=dt.datetime.fromtimestamp(marzban_user.expire or 0, dt.UTC)
+                if marzban_user.expire
+                else None,
+            )
+            await session.flush()
+            order.target_service_id = vpn_service.id
+            await mark_order_completed(session, order=order)
+            await record_audit_log(
+                session,
+                action="vpn_service.wallet_provision",
+                actor_type=AuditActorType.BUYER,
+                actor_telegram_id=buyer_telegram_id,
                 reseller_id=seller_bot.reseller_id,
                 target_type="vpn_service",
                 target_id=vpn_service.id,

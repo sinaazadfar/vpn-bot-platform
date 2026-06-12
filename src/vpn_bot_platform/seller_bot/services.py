@@ -36,6 +36,7 @@ from vpn_bot_platform.common.repositories import (
     apply_discount_amount,
     create_order_with_pending_payment,
     create_buyer_wallet_charge_request,
+    create_wallet_purchase_order,
     create_plan,
     create_ticket,
     delete_reseller_setting,
@@ -103,6 +104,14 @@ class PaymentQuote:
     plan: Plan
     amount: float
     coupon_code: str | None = None
+
+
+@dataclass(frozen=True)
+class WalletPurchase:
+    order: Order
+    transaction: WalletTransaction
+    plan: Plan
+    buyer: Buyer
 
 
 @dataclass(frozen=True)
@@ -337,6 +346,59 @@ class SellerContextService:
                 plan=plan,
                 instructions=instructions,
             )
+
+    async def purchase_with_wallet(
+        self,
+        *,
+        buyer_telegram_id: int,
+        plan_id: str,
+        coupon_code: str | None = None,
+        requested_username: str | None = None,
+    ) -> WalletPurchase:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            buyer = await upsert_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+            )
+            plan = await get_active_plan_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                plan_id=plan_id,
+                purpose=PlanPurpose.PURCHASE,
+            )
+            if plan is None:
+                raise ValueError("plan_not_found")
+            discount = None
+            if coupon_code:
+                discount = await get_active_discount_code(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    code=coupon_code,
+                )
+                if discount is None:
+                    raise ValueError("discount_not_found")
+            amount = apply_discount_amount(price=float(plan.price), discount=discount)
+            result = await create_wallet_purchase_order(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer.id,
+                plan_id=plan.id,
+                amount=amount,
+                requested_username=requested_username,
+            )
+            if result is None:
+                raise ValueError("insufficient_wallet_balance")
+            order, transaction, buyer = result
+            increment_discount_usage(discount)
+            await session.flush()
+            return WalletPurchase(order=order, transaction=transaction, plan=plan, buyer=buyer)
 
     async def quote_card_to_card_payment(
         self,

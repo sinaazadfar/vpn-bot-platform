@@ -517,6 +517,45 @@ async def create_order_with_pending_payment(
     return order, payment
 
 
+async def create_wallet_purchase_order(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    buyer_id: str,
+    plan_id: str,
+    amount: float,
+    requested_username: str | None = None,
+) -> tuple[Order, WalletTransaction, Buyer] | None:
+    buyer = await session.get(Buyer, buyer_id)
+    if buyer is None or buyer.reseller_id != reseller_id:
+        return None
+    if float(buyer.wallet_balance) < float(amount):
+        return None
+    order = Order(
+        reseller_id=reseller_id,
+        buyer_id=buyer.id,
+        plan_id=plan_id,
+        requested_username=requested_username,
+        order_type=OrderType.NEW_SERVICE.value,
+        status=OrderStatus.PROVISIONING.value,
+        total_amount=amount,
+    )
+    session.add(order)
+    await session.flush()
+    buyer.wallet_balance = float(buyer.wallet_balance) - float(amount)
+    transaction = WalletTransaction(
+        reseller_id=reseller_id,
+        owner_type=WalletOwnerType.BUYER.value,
+        owner_id=buyer.id,
+        transaction_type=WalletTransactionType.PURCHASE_DEBIT.value,
+        status=WalletTransactionStatus.COMPLETED.value,
+        amount=-float(amount),
+        note=f"wallet purchase order:{order.id}",
+    )
+    session.add(transaction)
+    return order, transaction, buyer
+
+
 async def create_discount_code(
     session: AsyncSession,
     *,

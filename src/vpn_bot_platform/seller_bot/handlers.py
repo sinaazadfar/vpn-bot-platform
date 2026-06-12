@@ -389,11 +389,15 @@ async def seller_menu_callback(
             await state.clear()
             return
         try:
-            payment_request = await seller_context.request_card_to_card_payment(
+            wallet_purchase = await seller_context.purchase_with_wallet(
                 buyer_telegram_id=callback.from_user.id,
                 plan_id=str(plan_id),
                 coupon_code=data.get("buy_coupon"),
                 requested_username=data.get("buy_requested_username"),
+            )
+            provisioned = await provisioning_service.provision_buyer_order(
+                buyer_telegram_id=callback.from_user.id,
+                order_id=wallet_purchase.order.id,
             )
         except ValueError as exc:
             if str(exc) == "plan_not_found":
@@ -403,11 +407,38 @@ async def seller_menu_callback(
             if str(exc) == "discount_not_found":
                 await callback.answer("Coupon not found.", show_alert=True)
                 return
+            if str(exc) == "insufficient_wallet_balance":
+                await state.clear()
+                await callback.message.edit_text(
+                    "\n".join(
+                        [
+                            title("💸 موجودی کافی نیست"),
+                            "برای خرید این پلن ابتدا کیف پول خود را شارژ کنید.",
+                            "",
+                            "بعد از تایید شارژ، دوباره پلن را انتخاب کنید.",
+                        ]
+                    ),
+                    reply_markup=wallet_charge_menu(),
+                )
+                return
+            if str(exc) == "panel_assignment_not_found":
+                await callback.answer("No active Marzban panel is assigned.", show_alert=True)
+                return
             raise
+        except httpx.HTTPStatusError as exc:
+            await callback.answer(_marzban_http_error_text(exc), show_alert=True)
+            return
         await state.clear()
         await callback.message.edit_text(
-            _payment_request_text(payment_request),
-            reply_markup=payment_request_actions(payment_request.order.id),
+            "\n".join(
+                [
+                    title("✅ خرید با موفقیت انجام شد"),
+                    f"مبلغ کسر شده از کیف پول: {abs(float(wallet_purchase.transaction.amount)):,.0f} تومان",
+                    "",
+                    _service_created_text("سرویس شما ساخته شد.", provisioned.vpn_service),
+                ]
+            ),
+            reply_markup=service_actions(provisioned.vpn_service.id),
         )
     elif action.action == "buy_cancel":
         await state.clear()
@@ -2798,48 +2829,15 @@ async def buy(
         return
     if await _blocked_by_forced_join(message):
         return
-    args = (command.args or "").strip().split(maxsplit=1)
-    if not args:
-        await message.answer("Usage: /buy <plan_id> [coupon]")
-        return
-
-    try:
-        payment_request = await seller_context.request_card_to_card_payment(
-            buyer_telegram_id=message.from_user.id,
-            plan_id=args[0],
-            coupon_code=args[1] if len(args) == 2 else None,
-        )
-    except ValueError as exc:
-        if str(exc) == "plan_not_found":
-            await message.answer("Plan not found or inactive. Use /plans to see available plans.")
-            return
-        if str(exc) == "seller_bot_not_found":
-            await message.answer("Seller bot is not registered correctly.")
-            return
-        if str(exc) == "discount_not_found":
-            await message.answer("Coupon not found, inactive, or already used up.")
-            return
-        raise
-
-    plan = payment_request.plan
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
     await message.answer(
         "\n".join(
             [
-                "Payment request created.",
-                f"Order ID: {payment_request.order.id}",
-                f"Payment ID: {payment_request.payment.id}",
-                f"Plan: {plan.name}",
-                f"Amount: {payment_request.payment.amount:,.0f}",
-                f"Duration: {plan.duration_days} days",
-                f"Traffic: {traffic}",
-                "",
-                payment_request.instructions,
-                "",
-                "After payment approval, your VPN service will be provisioned.",
+                title("🛒 خرید سرویس"),
+                "خرید فقط از طریق کیف پول انجام می‌شود.",
+                "از دکمه‌های پلن‌ها استفاده کنید تا نام سرویس را وارد کنید و پرداخت از کیف پول انجام شود.",
             ]
         ),
-        reply_markup=payment_request_actions(payment_request.order.id),
+        reply_markup=seller_section_menu("plans"),
     )
 
 
@@ -3399,11 +3397,11 @@ def _purchase_confirm_text(quote, *, requested_username: str | None = None) -> s
         f"مدت زمان: {plan.duration_days} روز",
         f"مبلغ سرویس: {original_amount:,.0f} تومان",
         f"کد تخفیف: {quote.coupon_code or '-'}",
-        f"مبلغ قابل پرداخت: {quote.amount:,.0f} تومان",
+        f"مبلغ کسر از کیف پول: {quote.amount:,.0f} تومان",
     ]
     if quote.amount < original_amount:
         rows.append(f"مبلغ تخفیف: {original_amount - quote.amount:,.0f} تومان")
-    rows.extend(["", "👇🏻 در صورت تایید اطلاعات بالا، روی دکمه تایید کلیک کنید."])
+    rows.extend(["", "👇🏻 با تایید، مبلغ از کیف پول کم می‌شود و سرویس خودکار ساخته می‌شود."])
     return "\n".join(rows)
 
 
