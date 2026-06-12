@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
+import httpx
 
 from vpn_bot_platform.common.qr import make_qr_png_bytes
 from vpn_bot_platform.common.ui.callbacks import parse_callback
@@ -1547,6 +1548,9 @@ async def seller_menu_callback(
         except ValueError as exc:
             await callback.answer(f"Could not provision: {exc}", show_alert=True)
             return
+        except httpx.HTTPStatusError as exc:
+            await callback.answer(_marzban_http_error_text(exc), show_alert=True)
+            return
         await callback.message.edit_text(
             _service_created_text("VPN service provisioned.", service),
             reply_markup=seller_admin_menu(),
@@ -1566,6 +1570,9 @@ async def seller_menu_callback(
         except ValueError as exc:
             await callback.answer(f"Could not renew: {exc}", show_alert=True)
             return
+        except httpx.HTTPStatusError as exc:
+            await callback.answer(_marzban_http_error_text(exc), show_alert=True)
+            return
         await callback.message.edit_text(
             _service_created_text("VPN service renewed.", service),
             reply_markup=seller_admin_menu(),
@@ -1584,6 +1591,9 @@ async def seller_menu_callback(
             return
         except ValueError as exc:
             await callback.answer(f"Could not add volume: {exc}", show_alert=True)
+            return
+        except httpx.HTTPStatusError as exc:
+            await callback.answer(_marzban_http_error_text(exc), show_alert=True)
             return
         await callback.message.edit_text(
             _service_created_text("Extra volume applied.", service),
@@ -3873,6 +3883,13 @@ async def _edit_or_answer_callback(
         await callback.message.edit_text(text, reply_markup=reply_markup)
     except TelegramAPIError:
         await callback.message.answer(text, reply_markup=reply_markup)
+
+
+def _marzban_http_error_text(exc: httpx.HTTPStatusError) -> str:
+    body = exc.response.text.strip()
+    if len(body) > 160:
+        body = f"{body[:157]}..."
+    return f"Marzban error {exc.response.status_code}: {body or exc.response.reason_phrase}"
 
 
 def _extract_support_contact_from_message(message: Message) -> str | None:

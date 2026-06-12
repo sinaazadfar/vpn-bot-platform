@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -352,7 +353,11 @@ class ProvisioningService:
         buyer_telegram_id: int,
         owner_username: str | None,
     ) -> MarzbanUserCreate:
-        username = f"r{seller_bot.reseller_id[:8]}_b{buyer_telegram_id}_{dt.datetime.now(dt.UTC):%Y%m%d%H%M%S}"
+        unique_suffix = uuid.uuid4().hex[:8]
+        username = (
+            f"r{seller_bot.reseller_id[:8]}_b{buyer_telegram_id}_"
+            f"{dt.datetime.now(dt.UTC):%Y%m%d%H%M%S}_{unique_suffix}"
+        )
         note_parts = [f"seller_bot={seller_bot.id}", f"buyer_tg={buyer_telegram_id}"]
         if owner_username:
             note_parts.append(f"owner={owner_username}")
