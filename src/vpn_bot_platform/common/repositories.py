@@ -492,12 +492,14 @@ async def create_order_with_pending_payment(
     payment_method: str = "card_to_card",
     order_type: OrderType = OrderType.NEW_SERVICE,
     target_service_id: str | None = None,
+    requested_username: str | None = None,
 ) -> tuple[Order, Payment]:
     order = Order(
         reseller_id=reseller_id,
         buyer_id=buyer_id,
         plan_id=plan_id,
         target_service_id=target_service_id,
+        requested_username=requested_username,
         order_type=order_type.value,
         status=OrderStatus.WAITING_PAYMENT.value,
         total_amount=amount,

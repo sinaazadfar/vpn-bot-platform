@@ -15,6 +15,7 @@ from vpn_bot_platform.integrations.marzban import (
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService, _marzban_username
 from vpn_bot_platform.seller_bot.services import SellerContextService
+from vpn_bot_platform.seller_bot.handlers import _normalize_service_username
 
 
 class FakeMarzbanClient:
@@ -41,6 +42,29 @@ def test_marzban_username_matches_panel_validation() -> None:
     assert 3 <= len(username) <= 32
     assert username == username.lower()
     assert username.replace("_", "").isalnum()
+
+
+def test_requested_service_username_gets_safe_random_suffix() -> None:
+    username = _marzban_username(
+        "u",
+        "23db27e6-2967-4a10-af2e-abc5030cd3c6",
+        252486544,
+        requested_username="sina_home",
+    )
+
+    assert username.startswith("sina_home_")
+    assert len(username) <= 32
+    assert username == username.lower()
+    assert username.replace("_", "").isascii()
+    assert username.replace("_", "").isalnum()
+
+
+def test_service_username_input_validation() -> None:
+    assert _normalize_service_username("@Sina_Home") == "sina_home"
+    assert _normalize_service_username("ab") is None
+    assert _normalize_service_username("نام") is None
+    assert _normalize_service_username("bad-name") is None
+    assert _normalize_service_username("_bad") is None
 
 
 @pytest.mark.asyncio
@@ -225,6 +249,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             buyer_telegram_id=222,
             plan_id=reseller_plan.id,
             coupon_code="save10",
+            requested_username="sina_home",
         )
         discounts_after_purchase = await master_service.list_discounts()
         pending = await seller_context.list_pending_payments(admin_telegram_id=111)
@@ -345,6 +370,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert payment_request.plan.id == reseller_plan.id
     assert payment_request.order.buyer_id == profile.buyer.id
     assert payment_request.order.status == "waiting_payment"
+    assert payment_request.order.requested_username == "sina_home"
     assert payment_request.payment.order_id == payment_request.order.id
     assert payment_request.payment.status == "pending"
     assert payment_request.payment.method == "card_to_card"

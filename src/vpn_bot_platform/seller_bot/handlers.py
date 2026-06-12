@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.exceptions import TelegramAPIError
@@ -78,6 +80,7 @@ class ReceiptUploadStates(StatesGroup):
 
 
 class PurchaseCreateStates(StatesGroup):
+    username = State()
     coupon = State()
     confirm = State()
 
@@ -355,11 +358,16 @@ async def seller_menu_callback(
             await callback.answer("Plan not found.", show_alert=True)
             return
         await state.clear()
-        await state.update_data(buy_plan_id=plan.id, buy_coupon=None, buy_amount=float(plan.price))
-        await state.set_state(PurchaseCreateStates.coupon)
+        await state.update_data(
+            buy_plan_id=plan.id,
+            buy_coupon=None,
+            buy_amount=float(plan.price),
+            buy_requested_username=None,
+        )
+        await state.set_state(PurchaseCreateStates.username)
         await callback.message.edit_text(
-            _purchase_coupon_text(plan),
-            reply_markup=purchase_coupon_menu(),
+            _purchase_username_text(plan),
+            reply_markup=cancel_only_keyboard("لغو خرید", "s:buy_cancel"),
         )
     elif action.action == "buy_coupon":
         data = await state.get_data()
@@ -385,6 +393,7 @@ async def seller_menu_callback(
                 buyer_telegram_id=callback.from_user.id,
                 plan_id=str(plan_id),
                 coupon_code=data.get("buy_coupon"),
+                requested_username=data.get("buy_requested_username"),
             )
         except ValueError as exc:
             if str(exc) == "plan_not_found":
@@ -2087,6 +2096,49 @@ async def admin_plan_create_waiting_for_confirm(message: Message) -> None:
     await message.answer("برای ذخیره پلن از دکمه تایید استفاده کنید.")
 
 
+@router.message(PurchaseCreateStates.username)
+async def purchase_username_input(
+    message: Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+) -> None:
+    if message.from_user is None:
+        return
+    raw_username = (message.text or "").strip()
+    normalized_username = _normalize_service_username(raw_username)
+    if normalized_username is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("👤 نام سرویس"),
+                    "یک نام انگلیسی برای سرویس بفرستید.",
+                    "فقط حروف انگلیسی کوچک، عدد و _ مجاز است.",
+                    "طول مجاز: 3 تا 25 کاراکتر.",
+                    "",
+                    "مثال: sina_home",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard("لغو خرید", "s:buy_cancel"),
+        )
+        return
+    await state.update_data(buy_requested_username=normalized_username)
+    data = await state.get_data()
+    plan = await _find_plan(
+        seller_context,
+        plan_id=str(data.get("buy_plan_id")),
+        purpose=PlanPurpose.PURCHASE,
+    )
+    if plan is None:
+        await state.clear()
+        await message.answer("Plan not found. Start again from Buy VPN.")
+        return
+    await state.set_state(PurchaseCreateStates.coupon)
+    await message.answer(
+        _purchase_coupon_text(plan, requested_username=normalized_username),
+        reply_markup=purchase_coupon_menu(),
+    )
+
+
 @router.message(PurchaseCreateStates.coupon)
 async def purchase_coupon_input(
     message: Message,
@@ -3303,12 +3355,31 @@ def _extra_volume_plan_card_text(plan) -> str:
     )
 
 
-def _purchase_coupon_text(plan) -> str:
+def _purchase_username_text(plan) -> str:
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
+    return "\n".join(
+        [
+            title("👤 نام سرویس"),
+            f"پلن انتخابی: {plan.name}",
+            f"مدت زمان: {plan.duration_days} روز",
+            f"حجم: {traffic}",
+            f"قیمت: {plan.price:,.0f} تومان",
+            "",
+            "یک نام انگلیسی برای اکانت VPN بفرستید.",
+            "بعد از ساخت، چند کاراکتر رندوم به انتهای آن اضافه می‌شود تا تکراری نشود.",
+            "",
+            "مثال: sina_home",
+        ]
+    )
+
+
+def _purchase_coupon_text(plan, *, requested_username: str | None = None) -> str:
     traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
             title("🎁 کد تخفیف"),
             f"پلن انتخابی: {plan.name}",
+            f"نام سرویس: {requested_username or '-'}",
             f"قیمت: {plan.price:,.0f} تومان",
             f"مدت زمان: {plan.duration_days} روز",
             f"حجم: {traffic}",
@@ -3318,12 +3389,13 @@ def _purchase_coupon_text(plan) -> str:
     )
 
 
-def _purchase_confirm_text(quote) -> str:
+def _purchase_confirm_text(quote, *, requested_username: str | None = None) -> str:
     plan = quote.plan
     original_amount = float(plan.price)
     rows = [
         title("ℹ️ فاکتور سرویس"),
         f"پلن انتخابی: {plan.name}",
+        f"نام سرویس: {requested_username or '-'}",
         f"مدت زمان: {plan.duration_days} روز",
         f"مبلغ سرویس: {original_amount:,.0f} تومان",
         f"کد تخفیف: {quote.coupon_code or '-'}",
@@ -3371,9 +3443,10 @@ async def _show_purchase_confirm(
             await state.clear()
             return
         raise
+    requested_username = data.get("buy_requested_username")
     await state.update_data(buy_coupon=quote.coupon_code, buy_amount=quote.amount)
     await state.set_state(PurchaseCreateStates.confirm)
-    text = _purchase_confirm_text(quote)
+    text = _purchase_confirm_text(quote, requested_username=str(requested_username or ""))
     if isinstance(target, CallbackQuery):
         if target.message is not None:
             await target.message.edit_text(text, reply_markup=purchase_confirm_menu())
@@ -3613,6 +3686,7 @@ def _payment_request_text(payment_request) -> str:
             f"🔖 شماره سفارش: {payment_request.order.id}",
             f"💳 شماره پرداخت: {payment_request.payment.id}",
             f"پلن انتخابی: {plan.name}",
+            f"نام سرویس: {payment_request.order.requested_username or '-'}",
             f"💳 مبلغ قابل پرداخت: {payment_request.payment.amount:,.0f} تومان",
             f"مدت زمان: {plan.duration_days} روز",
             f"حجم: {traffic}",
@@ -3635,6 +3709,7 @@ def _buyer_order_status_text(order_status) -> str:
         f"وضعیت سفارش: {status_label(order.status)}",
         f"مبلغ: {order.total_amount:,.0f} تومان",
         f"پلن: {plan.name if plan else '-'}",
+        f"نام سرویس: {order.requested_username or '-'}",
     ]
     if payment is not None:
         rows.extend(
@@ -3896,6 +3971,19 @@ def _marzban_http_error_text(exc: httpx.HTTPStatusError) -> str:
     if len(body) > 160:
         body = f"{body[:157]}..."
     return f"Marzban error {exc.response.status_code}: {body or exc.response.reason_phrase}"
+
+
+def _normalize_service_username(value: str) -> str | None:
+    username = value.strip().lower()
+    if username.startswith("@"):
+        username = username[1:]
+    if not 3 <= len(username) <= 25:
+        return None
+    if re.fullmatch(r"[a-z0-9_]+", username) is None:
+        return None
+    if username.startswith("_") or username.endswith("_") or "__" in username:
+        return None
+    return username
 
 
 def _extract_support_contact_from_message(message: Message) -> str | None:

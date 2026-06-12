@@ -278,6 +278,7 @@ class Order(Base):
     buyer_id: Mapped[str] = mapped_column(ForeignKey("buyers.id"), index=True)
     plan_id: Mapped[str | None] = mapped_column(ForeignKey("plans.id"))
     target_service_id: Mapped[str | None] = mapped_column(ForeignKey("vpn_services.id"))
+    requested_username: Mapped[str | None] = mapped_column(String(32))
     order_type: Mapped[str] = mapped_column(String(32), default=OrderType.NEW_SERVICE.value)
     status: Mapped[str] = mapped_column(String(32), default=OrderStatus.DRAFT.value)
     total_amount: Mapped[float] = mapped_column(Numeric(18, 2), default=0)

@@ -115,6 +115,7 @@ class ProvisioningService:
                 seller_bot=seller_bot,
                 plan=plan,
                 buyer_telegram_id=buyer.telegram_user_id,
+                requested_username=order.requested_username,
                 owner_username=assignment.marzban_admin_username,
             )
             try:
@@ -361,9 +362,15 @@ class ProvisioningService:
         seller_bot: SellerBot,
         plan: Plan,
         buyer_telegram_id: int,
+        requested_username: str | None,
         owner_username: str | None,
     ) -> MarzbanUserCreate:
-        username = _marzban_username("u", seller_bot.reseller_id, buyer_telegram_id)
+        username = _marzban_username(
+            "u",
+            seller_bot.reseller_id,
+            buyer_telegram_id,
+            requested_username=requested_username,
+        )
         note_parts = [f"seller_bot={seller_bot.id}", f"buyer_tg={buyer_telegram_id}"]
         if owner_username:
             note_parts.append(f"owner={owner_username}")
@@ -388,10 +395,20 @@ def _extract_subscription_url(response: dict) -> str | None:
     return None
 
 
-def _marzban_username(prefix: str, reseller_id: str, buyer_telegram_id: int) -> str:
+def _marzban_username(
+    prefix: str,
+    reseller_id: str,
+    buyer_telegram_id: int,
+    *,
+    requested_username: str | None = None,
+) -> str:
+    unique_part = uuid.uuid4().hex[:6]
+    if requested_username:
+        base = re.sub(r"[^a-z0-9_]", "", requested_username.lower()).strip("_")
+        if base:
+            return f"{base[:25]}_{unique_part}"[:32]
     reseller_part = re.sub(r"[^a-z0-9_]", "", reseller_id.lower())[:6] or "seller"
     buyer_part = str(buyer_telegram_id)[-8:]
-    unique_part = uuid.uuid4().hex[:10]
     username = f"{prefix}_{reseller_part}_{buyer_part}_{unique_part}"
     return username[:32]
 

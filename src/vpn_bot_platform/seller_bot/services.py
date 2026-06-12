@@ -268,6 +268,7 @@ class SellerContextService:
         buyer_telegram_id: int,
         plan_id: str,
         coupon_code: str | None = None,
+        requested_username: str | None = None,
     ) -> PaymentRequest:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
@@ -305,6 +306,7 @@ class SellerContextService:
                 buyer_id=buyer.id,
                 plan_id=plan.id,
                 amount=amount,
+                requested_username=requested_username,
             )
             increment_discount_usage(discount)
             await session.flush()
