@@ -541,6 +541,9 @@ Goal: turn the approved combined flow into complete production behavior, using t
   - [x] Choose reseller/admin owner by button.
   - [x] Ask bot name.
   - [x] Ask token and hide it after validation.
+  - [x] Require Marzban panel selection.
+  - [x] Ask optional Marzban admin username.
+  - [x] Create seller bot and panel assignment transactionally.
   - [x] Confirm before creating.
 - [ ] Add dedicated bot-admin table:
   - [ ] Add/remove extra Telegram admins per seller bot.

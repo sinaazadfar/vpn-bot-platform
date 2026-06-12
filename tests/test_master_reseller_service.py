@@ -35,6 +35,14 @@ async def test_register_reseller_and_seller_bot() -> None:
             panel_id=panel.id,
             marzban_admin_username="reseller_admin",
         )
+        seller_bot_with_panel, seller_bot_assignment = await service.register_seller_bot_with_panel(
+            reseller_telegram_id=12345,
+            bot_name="test-bot-with-panel",
+            bot_token="789:secret",
+            panel_id=panel.id,
+            marzban_admin_username="seller_admin",
+            actor_telegram_id=999,
+        )
         renamed = await service.rename_reseller(
             reseller_telegram_id=12345,
             display_name="Renamed Reseller",
@@ -55,11 +63,13 @@ async def test_register_reseller_and_seller_bot() -> None:
             runtime_adapter="manual",
             actor_telegram_id=999,
         )
-        external_seller_bot = await service.register_external_seller_bot(
+        external_seller_bot, external_assignment = await service.register_external_seller_bot_with_panel(
             reseller_telegram_id=12345,
             bot_name="external-test",
             bot_token="456:secret",
             template_id_or_key="marzbot-free",
+            panel_id=panel.id,
+            marzban_admin_username="external_admin",
             actor_telegram_id=999,
         )
         templates = await service.list_external_bot_templates()
@@ -74,9 +84,14 @@ async def test_register_reseller_and_seller_bot() -> None:
     assert panel.token_encrypted != "panel-token"
     assert assignment.reseller_id == registered.reseller.id
     assert assignment.panel_id == panel.id
+    assert seller_bot_with_panel.reseller_id == registered.reseller.id
+    assert seller_bot_assignment.panel_id == panel.id
+    assert seller_bot_assignment.marzban_admin_username == "seller_admin"
     assert renamed.display_name == "Renamed Reseller"
     assert disabled.status == "disabled"
     assert template.key == "marzbot-free"
     assert templates[0].id == template.id
     assert external_seller_bot.external_template_id == template.id
     assert external_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
+    assert external_assignment.panel_id == panel.id
+    assert external_assignment.marzban_admin_username == "external_admin"

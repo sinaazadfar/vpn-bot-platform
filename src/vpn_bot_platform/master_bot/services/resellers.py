@@ -211,6 +211,57 @@ class ResellerService:
             await session.flush()
             return seller_bot
 
+    async def register_seller_bot_with_panel(
+        self,
+        *,
+        reseller_telegram_id: int,
+        bot_name: str,
+        bot_token: str,
+        panel_id: str,
+        marzban_admin_username: str | None = None,
+        actor_telegram_id: int | None = None,
+    ) -> tuple[SellerBot, ResellerPanelAssignment]:
+        async with session_scope() as session:
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            seller_bot = await create_seller_bot(
+                session,
+                reseller_id=reseller.id,
+                name=bot_name,
+                token=bot_token,
+                secret_box=self.secret_box,
+            )
+            assignment = await assign_panel_to_reseller(
+                session,
+                reseller_id=reseller.id,
+                panel_id=panel.id,
+                marzban_admin_username=marzban_admin_username,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.register_with_panel",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "bot_name": bot_name,
+                    "panel_id": panel.id,
+                    "marzban_admin_username": marzban_admin_username,
+                },
+            )
+            await session.flush()
+            return seller_bot, assignment
+
     async def register_external_bot_template(
         self,
         *,
@@ -368,6 +419,66 @@ class ResellerService:
             )
             await session.flush()
             return seller_bot
+
+    async def register_external_seller_bot_with_panel(
+        self,
+        *,
+        reseller_telegram_id: int,
+        bot_name: str,
+        bot_token: str,
+        template_id_or_key: str,
+        panel_id: str,
+        marzban_admin_username: str | None = None,
+        actor_telegram_id: int | None = None,
+    ) -> tuple[SellerBot, ResellerPanelAssignment]:
+        async with session_scope() as session:
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            template = await get_external_bot_template(session, template_id=template_id_or_key)
+            if template is None:
+                template = await get_external_bot_template_by_key(session, key=template_id_or_key)
+            if template is None or not template.is_active:
+                raise ValueError("external_template_not_found")
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            seller_bot = await create_seller_bot(
+                session,
+                reseller_id=reseller.id,
+                name=bot_name,
+                token=bot_token,
+                secret_box=self.secret_box,
+                runtime_type=SellerBotRuntimeType.EXTERNAL_TEMPLATE,
+                external_template_id=template.id,
+            )
+            assignment = await assign_panel_to_reseller(
+                session,
+                reseller_id=reseller.id,
+                panel_id=panel.id,
+                marzban_admin_username=marzban_admin_username,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.register_external_with_panel",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "bot_name": bot_name,
+                    "external_template_key": template.key,
+                    "panel_id": panel.id,
+                    "marzban_admin_username": marzban_admin_username,
+                },
+            )
+            await session.flush()
+            return seller_bot, assignment
 
     async def list_resellers(self) -> list[Reseller]:
         async with session_scope() as session:
