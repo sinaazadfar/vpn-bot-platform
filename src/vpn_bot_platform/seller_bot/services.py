@@ -40,6 +40,7 @@ from vpn_bot_platform.common.repositories import (
     get_buyer_order_status,
     get_customer_counts,
     get_customer_for_reseller,
+    get_plan,
     get_seller_bot_with_reseller,
     get_ticket_for_buyer,
     get_ticket_for_reseller,
@@ -56,6 +57,7 @@ from vpn_bot_platform.common.repositories import (
     mark_broadcast_sent,
     reseller_sales_report,
     record_audit_log,
+    set_plan_active,
     list_wallet_transactions_for_buyer,
     increment_discount_usage,
     reject_payment,
@@ -628,6 +630,37 @@ class SellerContextService:
                     "data_limit_gb": data_limit_gb,
                     "purpose": purpose.value,
                 },
+            )
+            await session.flush()
+            return plan
+
+    async def deactivate_admin_plan(
+        self,
+        *,
+        admin_telegram_id: int,
+        plan_id: str,
+    ) -> Plan:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            plan = await get_plan(session, plan_id=plan_id)
+            if plan is None or plan.reseller_id != seller_bot.reseller_id:
+                raise ValueError("plan_not_found")
+            await set_plan_active(session, plan=plan, is_active=False)
+            await record_audit_log(
+                session,
+                action="seller_plan.delete",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="plan",
+                target_id=plan.id,
+                metadata={"name": plan.name},
             )
             await session.flush()
             return plan

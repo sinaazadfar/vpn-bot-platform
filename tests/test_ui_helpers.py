@@ -11,6 +11,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customer_detail_actions,
     admin_customers_menu,
     admin_payment_actions,
+    admin_plan_actions,
     admin_plans_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -104,6 +105,7 @@ def test_main_menus_have_buttons() -> None:
     assert reseller_detail_actions(12345).inline_keyboard
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
+    assert admin_plan_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert admin_plans_menu().inline_keyboard
     assert plan_list_menu([plan]).inline_keyboard
     assert seller_report_menu().inline_keyboard
@@ -155,6 +157,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         seller_buyer_menu(),
         seller_admin_menu(),
+        admin_plan_actions(uuid),
         admin_plans_menu(),
         plan_list_menu([plan]),
         seller_report_menu(),

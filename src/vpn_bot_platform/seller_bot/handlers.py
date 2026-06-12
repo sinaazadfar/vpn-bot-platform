@@ -15,6 +15,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customer_card_actions,
     admin_customer_detail_actions,
     admin_customers_menu,
+    admin_plan_actions,
     admin_plans_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -1004,6 +1005,45 @@ async def seller_menu_callback(
         await state.clear()
         await callback.message.edit_text(
             _admin_plan_created_text(plan),
+            reply_markup=admin_plans_menu(),
+        )
+    elif action.action == "admin_plan_delete_confirm":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("حذف پلن"),
+                    "این پلن از لیست خرید کاربران حذف می‌شود.",
+                    "",
+                    "سفارش‌ها و گزارش‌های قبلی حفظ می‌شوند.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="s",
+                confirm_action="admin_plan_delete",
+                cancel_action="admin_plans",
+                value=action.value,
+            ),
+        )
+    elif action.action == "admin_plan_delete":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        try:
+            plan = await seller_context.deactivate_admin_plan(
+                admin_telegram_id=callback.from_user.id,
+                plan_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join([title("پلن حذف شد"), f"نام: {plan.name}", "", "این پلن دیگر برای کاربران نمایش داده نمی‌شود."]),
             reply_markup=admin_plans_menu(),
         )
     elif action.action == "admin_ticket_detail":
@@ -3396,6 +3436,11 @@ async def _show_admin_plans(callback: CallbackQuery, seller_context: SellerConte
         await callback.answer("You do not have reseller admin access.", show_alert=True)
         return
     await callback.message.edit_text(_admin_plans_text(plans), reply_markup=admin_plans_menu())
+    for plan in _admin_deletable_plans(plans)[:10]:
+        await callback.message.answer(
+            _admin_plan_card_text(plan),
+            reply_markup=admin_plan_actions(plan.id),
+        )
 
 
 async def _send_admin_plans(message: Message, seller_context: SellerContextService) -> None:
@@ -3405,6 +3450,11 @@ async def _send_admin_plans(message: Message, seller_context: SellerContextServi
         await message.answer("You do not have reseller admin access.")
         return
     await message.answer(_admin_plans_text(plans), reply_markup=admin_plans_menu())
+    for plan in _admin_deletable_plans(plans)[:10]:
+        await message.answer(
+            _admin_plan_card_text(plan),
+            reply_markup=admin_plan_actions(plan.id),
+        )
 
 
 def _admin_order_row(item) -> str:
@@ -3486,13 +3536,32 @@ def _admin_plans_text(plans) -> str:
     rows = []
     for plan in plans[:20]:
         traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
+        owner = "اختصاصی" if plan.reseller_id else "عمومی"
         rows.append(
-            f"▫️ {plan.name} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic} | کد: {short_id(plan.id)}"
+            f"▫️ {plan.name} | {owner} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic} | کد: {short_id(plan.id)}"
         )
     if not rows:
         rows.append("هنوز پلن اختصاصی برای این فروشنده ساخته نشده است.")
-    rows.extend(["", "برای ساخت تعرفه جدید دکمه «افزودن پلن» را بزنید."])
+    rows.extend(["", "برای ساخت تعرفه جدید دکمه «افزودن پلن» را بزنید.", "برای حذف، از کارت پلن‌های اختصاصی پایین استفاده کنید."])
     return "\n".join([title("🛒 تعرفه خدمات"), section("پلن های فعال", rows)])
+
+
+def _admin_deletable_plans(plans) -> list:
+    return [plan for plan in plans if plan.reseller_id]
+
+
+def _admin_plan_card_text(plan) -> str:
+    traffic = f"{plan.data_limit_gb} گیگ" if plan.data_limit_gb is not None else "-"
+    return "\n".join(
+        [
+            title("مدیریت پلن"),
+            f"نام: {plan.name}",
+            f"قیمت: {plan.price:,.0f} تومان",
+            f"مدت: {plan.duration_days} روز",
+            f"حجم: {traffic}",
+            f"کد: {short_id(plan.id)}",
+        ]
+    )
 
 
 def _parse_positive_int(raw: str | None) -> int | None:

@@ -147,6 +147,17 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             duration_days=45,
             data_limit_gb=70,
         )
+        removable_admin_plan = await seller_context.create_admin_plan(
+            admin_telegram_id=111,
+            name="removable-plan",
+            price=59000,
+            duration_days=15,
+            data_limit_gb=20,
+        )
+        deleted_admin_plan = await seller_context.deactivate_admin_plan(
+            admin_telegram_id=111,
+            plan_id=removable_admin_plan.id,
+        )
         admin_plans = await seller_context.list_admin_plans(admin_telegram_id=111)
         discount = await master_service.create_global_discount(
             code="SAVE10",
@@ -264,6 +275,9 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert seller_admin_plan.price == 99000
     assert seller_admin_plan.duration_days == 45
     assert seller_admin_plan.data_limit_gb == 70
+    assert deleted_admin_plan.id == removable_admin_plan.id
+    assert deleted_admin_plan.is_active is False
+    assert removable_admin_plan.id not in {plan.id for plan in plans}
     assert seller_admin_plan.id in {plan.id for plan in admin_plans}
     assert payment_request.payment.amount == 162000
     assert discount.id in {item.id for item in discounts_after_purchase}
