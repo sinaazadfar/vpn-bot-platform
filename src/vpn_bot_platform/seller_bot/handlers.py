@@ -1059,10 +1059,11 @@ async def seller_menu_callback(
             "\n".join(
                 [
                     title("تنظیم پشتیبان"),
-                    "Telegram ID پشتیبان را بفرستید.",
+                    "یکی از این موارد را بفرستید:",
                     "",
-                    "مثال: 252486544",
-                    "کاربر وقتی تیکت بفرستد، پیام برای این آیدی هم ارسال می‌شود.",
+                    "Telegram ID عددی مثل 252486544",
+                    "یوزرنیم مثل @support_user",
+                    "یا یک پیام فوروارد شده از پشتیبان",
                 ]
             ),
             reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_support_settings"),
@@ -1742,24 +1743,28 @@ async def support_settings_telegram_id(
 ) -> None:
     if message.from_user is None:
         return
-    raw_telegram_id = (message.text or "").strip()
-    if not raw_telegram_id.isdigit() or int(raw_telegram_id) <= 0:
+    support_contact = _extract_support_contact_from_message(message)
+    if support_contact is None:
         await message.answer(
             "\n".join(
                 [
-                    title("آیدی پشتیبان نامعتبر است"),
-                    "فقط عدد Telegram ID را بفرستید.",
+                    title("پشتیبان نامعتبر است"),
+                    "یکی از این موارد را بفرستید:",
                     "",
-                    "مثال: 252486544",
+                    "Telegram ID عددی مثل 252486544",
+                    "یوزرنیم مثل @support_user",
+                    "یا پیام فوروارد شده از پشتیبان",
+                    "",
+                    "اگر فوروارد جواب نداد، یعنی حساب کاربر فوروارد را مخفی کرده است.",
                 ]
             ),
             reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_support_settings"),
         )
         return
     try:
-        settings = await seller_context.set_support_telegram_id(
+        settings = await seller_context.set_support_contact(
             admin_telegram_id=message.from_user.id,
-            support_telegram_id=int(raw_telegram_id),
+            support_contact=support_contact,
         )
     except PermissionError:
         await state.clear()
@@ -3674,29 +3679,59 @@ async def _show_admin_support_settings(callback: CallbackQuery, seller_context: 
         return
     await callback.message.edit_text(
         _support_settings_text(settings),
-        reply_markup=admin_support_settings_menu(has_support=settings.telegram_id is not None),
+        reply_markup=admin_support_settings_menu(has_support=settings.contact is not None),
     )
 
 
 def _support_settings_text(settings: object) -> str:
-    telegram_id = getattr(settings, "telegram_id", None)
-    if telegram_id is None:
+    contact = getattr(settings, "contact", None)
+    if contact is None:
         return "\n".join(
             [
                 title("پشتیبان"),
-                "هنوز Telegram ID پشتیبان تنظیم نشده است.",
+                "هنوز پشتیبان تنظیم نشده است.",
                 "",
-                "بعد از تنظیم، تیکت‌ها و پاسخ‌های کاربر برای پشتیبان ارسال می‌شود.",
+                "می‌توانید Telegram ID، یوزرنیم، یا پیام فوروارد شده از پشتیبان را ثبت کنید.",
             ]
         )
     return "\n".join(
         [
             title("پشتیبان"),
-            f"Telegram ID: {telegram_id}",
+            f"Contact: {contact}",
             "",
-            "تیکت‌های جدید و پاسخ‌های کاربر برای این آیدی ارسال می‌شود.",
+            "تیکت‌های جدید و پاسخ‌های کاربر برای این contact ارسال می‌شود.",
         ]
     )
+
+
+def _extract_support_contact_from_message(message: Message) -> str | None:
+    text = (message.text or "").strip()
+    if text:
+        return text
+    forward_from = getattr(message, "forward_from", None)
+    if forward_from is not None and getattr(forward_from, "id", None):
+        return str(forward_from.id)
+    forward_from_chat = getattr(message, "forward_from_chat", None)
+    if forward_from_chat is not None:
+        chat_id = getattr(forward_from_chat, "id", None)
+        username = getattr(forward_from_chat, "username", None)
+        if username:
+            return f"@{username}"
+        if chat_id:
+            return str(chat_id)
+    forward_origin = getattr(message, "forward_origin", None)
+    sender_user = getattr(forward_origin, "sender_user", None)
+    if sender_user is not None and getattr(sender_user, "id", None):
+        return str(sender_user.id)
+    chat = getattr(forward_origin, "chat", None)
+    if chat is not None:
+        username = getattr(chat, "username", None)
+        chat_id = getattr(chat, "id", None)
+        if username:
+            return f"@{username}"
+        if chat_id:
+            return str(chat_id)
+    return None
 
 
 async def _notify_support_about_ticket(
@@ -3709,10 +3744,10 @@ async def _notify_support_about_ticket(
     subject: str,
     body: str,
 ) -> None:
-    support_telegram_id = await seller_context.get_support_telegram_id_for_buyer(
+    support_contact = await seller_context.get_support_contact_for_buyer(
         buyer_telegram_id=buyer_telegram_id,
     )
-    if support_telegram_id is None or support_telegram_id == buyer_telegram_id:
+    if support_contact is None or support_contact == buyer_telegram_id:
         return
     preview = " ".join(body.split())
     if len(preview) > 900:
@@ -3730,7 +3765,7 @@ async def _notify_support_about_ticket(
         ]
     )
     try:
-        await message.bot.send_message(support_telegram_id, text)
+        await message.bot.send_message(support_contact, text)
     except TelegramAPIError:
         return
 

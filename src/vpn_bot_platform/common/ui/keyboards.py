@@ -896,7 +896,7 @@ def admin_ticket_actions(ticket_id: str) -> InlineKeyboardMarkup:
 
 def admin_support_settings_menu(*, has_support: bool) -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = [
-        [("✏️ تنظیم آیدی پشتیبان", build_callback("s", "admin_support_set"))],
+        [("✏️ تنظیم پشتیبان", build_callback("s", "admin_support_set"))],
     ]
     if has_support:
         rows.append([("🗑 حذف پشتیبان", build_callback("s", "admin_support_delete_confirm"))])

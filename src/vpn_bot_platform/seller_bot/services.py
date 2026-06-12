@@ -187,7 +187,11 @@ class BroadcastDraft:
 
 @dataclass(frozen=True)
 class SupportSettings:
-    telegram_id: int | None
+    contact: int | str | None
+
+    @property
+    def telegram_id(self) -> int | None:
+        return self.contact if isinstance(self.contact, int) else None
 
 
 class SellerContextService:
@@ -675,9 +679,12 @@ class SellerContextService:
                 reseller_id=seller_bot.reseller_id,
                 key=SUPPORT_TELEGRAM_ID_SETTING,
             )
-            return SupportSettings(telegram_id=self._parse_support_telegram_id(setting.value if setting else None))
+            return SupportSettings(contact=self._parse_support_contact(setting.value if setting else None))
 
-    async def get_support_telegram_id_for_buyer(self, *, buyer_telegram_id: int) -> int | None:
+    async def get_support_telegram_id_for_buyer(self, *, buyer_telegram_id: int) -> int | str | None:
+        return await self.get_support_contact_for_buyer(buyer_telegram_id=buyer_telegram_id)
+
+    async def get_support_contact_for_buyer(self, *, buyer_telegram_id: int) -> int | str | None:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
                 session,
@@ -690,11 +697,18 @@ class SellerContextService:
                 reseller_id=seller_bot.reseller_id,
                 key=SUPPORT_TELEGRAM_ID_SETTING,
             )
-            return self._parse_support_telegram_id(setting.value if setting else None)
+            return self._parse_support_contact(setting.value if setting else None)
 
     async def set_support_telegram_id(self, *, admin_telegram_id: int, support_telegram_id: int) -> SupportSettings:
-        if support_telegram_id <= 0:
-            raise ValueError("invalid_support_telegram_id")
+        return await self.set_support_contact(
+            admin_telegram_id=admin_telegram_id,
+            support_contact=str(support_telegram_id),
+        )
+
+    async def set_support_contact(self, *, admin_telegram_id: int, support_contact: str) -> SupportSettings:
+        normalized_contact = self._normalize_support_contact(support_contact)
+        if normalized_contact is None:
+            raise ValueError("invalid_support_contact")
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
                 session,
@@ -707,20 +721,20 @@ class SellerContextService:
                 session,
                 reseller_id=seller_bot.reseller_id,
                 key=SUPPORT_TELEGRAM_ID_SETTING,
-                value=str(support_telegram_id),
+                value=str(normalized_contact),
             )
             await record_audit_log(
                 session,
-                action="support.telegram_id.set",
+                action="support.contact.set",
                 actor_type=AuditActorType.RESELLER_ADMIN,
                 actor_telegram_id=admin_telegram_id,
                 reseller_id=seller_bot.reseller_id,
                 target_type="platform_setting",
                 target_id=setting.id,
-                metadata={"support_telegram_id": support_telegram_id},
+                metadata={"support_contact": str(normalized_contact)},
             )
             await session.flush()
-            return SupportSettings(telegram_id=support_telegram_id)
+            return SupportSettings(contact=normalized_contact)
 
     async def delete_support_telegram_id(self, *, admin_telegram_id: int) -> SupportSettings:
         async with session_scope() as session:
@@ -738,7 +752,7 @@ class SellerContextService:
             )
             await record_audit_log(
                 session,
-                action="support.telegram_id.delete",
+                action="support.contact.delete",
                 actor_type=AuditActorType.RESELLER_ADMIN,
                 actor_telegram_id=admin_telegram_id,
                 reseller_id=seller_bot.reseller_id,
@@ -746,7 +760,7 @@ class SellerContextService:
                 target_id=SUPPORT_TELEGRAM_ID_SETTING,
             )
             await session.flush()
-            return SupportSettings(telegram_id=None)
+            return SupportSettings(contact=None)
 
     async def get_crypto_payment_config(self, *, admin_telegram_id: int) -> CryptoPaymentConfig | None:
         async with session_scope() as session:
@@ -1201,14 +1215,23 @@ class SellerContextService:
             raise PermissionError("not_reseller_admin")
 
     @staticmethod
-    def _parse_support_telegram_id(value: str | None) -> int | None:
+    def _parse_support_contact(value: str | None) -> int | str | None:
+        return SellerContextService._normalize_support_contact(value)
+
+    @staticmethod
+    def _normalize_support_contact(value: str | None) -> int | str | None:
         if value is None:
             return None
         normalized = value.strip()
-        if not normalized.isdigit():
+        if normalized.isdigit():
+            support_telegram_id = int(normalized)
+            return support_telegram_id if support_telegram_id > 0 else None
+        username = normalized[1:] if normalized.startswith("@") else normalized
+        if len(username) < 5 or len(username) > 32:
             return None
-        support_telegram_id = int(normalized)
-        return support_telegram_id if support_telegram_id > 0 else None
+        if not all(char.isalnum() or char == "_" for char in username):
+            return None
+        return f"@{username}"
 
     def _decrypt_crypto_gateway(self, gateway: PaymentGateway | None) -> CryptoPaymentConfig | None:
         if gateway is None or gateway.config_encrypted is None or self.secret_box is None:

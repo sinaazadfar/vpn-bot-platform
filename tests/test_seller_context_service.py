@@ -69,6 +69,11 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         )
         loaded_support_settings = await seller_context.get_support_settings(admin_telegram_id=111)
         buyer_support_telegram_id = await seller_context.get_support_telegram_id_for_buyer(buyer_telegram_id=222)
+        username_support_settings = await seller_context.set_support_contact(
+            admin_telegram_id=111,
+            support_contact="@support_user",
+        )
+        buyer_support_username = await seller_context.get_support_contact_for_buyer(buyer_telegram_id=222)
         deleted_support_settings = await seller_context.delete_support_telegram_id(admin_telegram_id=111)
         profile = await seller_context.register_buyer(
             telegram_id=222,
@@ -283,6 +288,8 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert support_settings.telegram_id == 444
     assert loaded_support_settings.telegram_id == 444
     assert buyer_support_telegram_id == 444
+    assert username_support_settings.contact == "@support_user"
+    assert buyer_support_username == "@support_user"
     assert deleted_support_settings.telegram_id is None
     assert profile.seller_bot.id == seller_bot.id
     assert profile.buyer.reseller_id == registered.reseller.id
