@@ -1538,7 +1538,7 @@ async def seller_menu_callback(
             await callback.answer("Order is missing.", show_alert=True)
             return
         try:
-            service = await provisioning_service.provision_order(
+            provisioned = await provisioning_service.provision_order(
                 admin_telegram_id=callback.from_user.id,
                 order_id=action.value,
             )
@@ -1552,7 +1552,7 @@ async def seller_menu_callback(
             await callback.answer(_marzban_http_error_text(exc), show_alert=True)
             return
         await callback.message.edit_text(
-            _service_created_text("VPN service provisioned.", service),
+            _service_created_text("VPN service provisioned.", provisioned.vpn_service),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "apply_renewal":
@@ -1560,7 +1560,7 @@ async def seller_menu_callback(
             await callback.answer("Order is missing.", show_alert=True)
             return
         try:
-            service = await provisioning_service.apply_renewal(
+            renewed = await provisioning_service.apply_renewal(
                 admin_telegram_id=callback.from_user.id,
                 order_id=action.value,
             )
@@ -1574,7 +1574,7 @@ async def seller_menu_callback(
             await callback.answer(_marzban_http_error_text(exc), show_alert=True)
             return
         await callback.message.edit_text(
-            _service_created_text("VPN service renewed.", service),
+            _service_created_text("VPN service renewed.", renewed.vpn_service),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "apply_extra_volume":
@@ -1582,7 +1582,7 @@ async def seller_menu_callback(
             await callback.answer("Order is missing.", show_alert=True)
             return
         try:
-            service = await provisioning_service.apply_extra_volume(
+            applied = await provisioning_service.apply_extra_volume(
                 admin_telegram_id=callback.from_user.id,
                 order_id=action.value,
             )
@@ -1596,7 +1596,7 @@ async def seller_menu_callback(
             await callback.answer(_marzban_http_error_text(exc), show_alert=True)
             return
         await callback.message.edit_text(
-            _service_created_text("Extra volume applied.", service),
+            _service_created_text("Extra volume applied.", applied.vpn_service),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "wallet_ok":
