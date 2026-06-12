@@ -45,6 +45,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     seller_report_menu,
     seller_section_menu,
     service_actions,
+    service_list_menu,
     support_menu,
     wallet_charge_menu,
     wallet_charge_request_actions,
@@ -233,21 +234,9 @@ async def seller_reply_menu_alias(
         plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
         await message.answer(_plans_text_from_list(plans), reply_markup=plan_list_menu(plans))
     elif message.text in {"My Services", "🛍 سرویس های من"}:
-        await message.answer(
-            await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
-            reply_markup=seller_section_menu("services"),
-        )
+        await _send_services_list(message, seller_context, buyer_telegram_id=message.from_user.id)
     elif message.text in {"Renew", "افزایش اعتبار زمانی"}:
-        await message.answer(
-            await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
-            reply_markup=seller_section_menu("services"),
-        )
-        services = await seller_context.list_buyer_services(buyer_telegram_id=message.from_user.id)
-        for service in services[:8]:
-            await message.answer(
-                _service_card_text(service),
-                reply_markup=service_actions(service.id),
-            )
+        await _send_services_list(message, seller_context, buyer_telegram_id=message.from_user.id)
     elif message.text in {"Wallet", "💸 شارژ حساب", "👤 پروفایل"}:
         await message.answer(
             await _wallet_text(seller_context, buyer_telegram_id=message.from_user.id),
@@ -448,9 +437,10 @@ async def seller_menu_callback(
         )
     elif action.action == "services":
         await state.clear()
+        services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
         await callback.message.edit_text(
-            await _services_text(seller_context, buyer_telegram_id=callback.from_user.id),
-            reply_markup=seller_section_menu("services"),
+            _services_text_from_list(services),
+            reply_markup=service_list_menu(services),
         )
     elif action.action == "service_detail":
         if not action.value:
@@ -574,16 +564,11 @@ async def seller_menu_callback(
             )
     elif action.action == "renew_services":
         await state.clear()
-        await callback.message.edit_text(
-            await _services_text(seller_context, buyer_telegram_id=callback.from_user.id),
-            reply_markup=seller_section_menu("services"),
-        )
         services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
-        for service in services[:8]:
-            await callback.message.answer(
-                _service_card_text(service),
-                reply_markup=service_actions(service.id),
-            )
+        await callback.message.edit_text(
+            _services_text_from_list(services),
+            reply_markup=service_list_menu(services),
+        )
     elif action.action == "renew_plan":
         if not action.value:
             await callback.answer("Plan is missing.", show_alert=True)
@@ -2685,31 +2670,7 @@ async def my_services(message: Message, seller_context: SellerContextService) ->
         return
     if await _blocked_by_forced_join(message):
         return
-    services = await seller_context.list_buyer_services(
-        buyer_telegram_id=message.from_user.id,
-    )
-    if not services:
-        await message.answer("You do not have any VPN services yet.")
-        return
-
-    lines = ["Your VPN services:"]
-    for service in services:
-        traffic = "Unlimited" if service.data_limit_gb is None else f"{service.data_limit_gb} GB"
-        expire = service.expire_at.isoformat() if service.expire_at else "Unlimited"
-        lines.extend(
-            [
-                f"- Username: {service.marzban_username}",
-                f"  Traffic: {traffic}",
-                f"  Expires: {expire}",
-                f"  Status: {'active' if service.is_active else 'inactive'}",
-                f"  Subscription: {service.subscription_url or '-'}",
-            ]
-        )
-    await message.answer("\n".join(lines))
-    await message.answer(
-        "Service actions",
-        reply_markup=service_actions(services[0].id),
-    )
+    await _send_services_list(message, seller_context, buyer_telegram_id=message.from_user.id)
 
 
 @router.message(Command("wallet"))
@@ -3300,8 +3261,25 @@ def _plans_text_from_list(plans) -> str:
     return "\n".join([title("🛒 خرید سرویس"), section("📲 سرویس‌های موجود", rows)])
 
 
+async def _send_services_list(
+    message: Message,
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+) -> None:
+    services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
+    await message.answer(
+        _services_text_from_list(services),
+        reply_markup=service_list_menu(services),
+    )
+
+
 async def _services_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
     services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
+    return _services_text_from_list(services)
+
+
+def _services_text_from_list(services) -> str:
     if not services:
         return "\n".join([title("🛍 سرویس های من"), "❌ شما در ربات ما هیچ سرویس فعالی ندارید!"])
     rows = []

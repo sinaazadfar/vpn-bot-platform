@@ -698,6 +698,23 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def service_list_menu(services: list[object]) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = []
+    for service in services[:12]:
+        service_id = str(getattr(service, "id"))
+        username = str(getattr(service, "marzban_username", "Service")).strip() or "Service"
+        status = "فعال" if getattr(service, "is_active", False) else "غیرفعال"
+        rows.append([(f"{username[:32]} | {status}", build_callback("s", "service_detail", service_id))])
+    rows.append(
+        [
+            ("🛒 خرید سرویس", build_callback("s", "plans")),
+            ("💸 شارژ حساب", build_callback("s", "wallet")),
+        ]
+    )
+    rows.append([("🔄 بروزرسانی", build_callback("s", "services")), ("📱 منوی اصلی", build_callback("s", "home"))])
+    return inline_keyboard(rows)
+
+
 def renewal_plan_button(plan_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

@@ -50,6 +50,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     reseller_list_menu,
     seller_section_menu,
     service_actions,
+    service_list_menu,
     seller_admin_menu,
     seller_buyer_menu,
     seller_bot_config_menu,
@@ -95,6 +96,11 @@ def test_main_menus_have_buttons() -> None:
         duration_days=30,
         reseller_id="reseller-id",
     )
+    service = SimpleNamespace(
+        id="12345678-1234-1234-1234-123456789abc",
+        marzban_username="sina_abc123",
+        is_active=True,
+    )
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert external_template_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
@@ -116,6 +122,7 @@ def test_main_menus_have_buttons() -> None:
     assert admin_plan_list_menu([plan]).inline_keyboard
     assert admin_plans_menu().inline_keyboard
     assert plan_list_menu([plan]).inline_keyboard
+    assert service_list_menu([service]).inline_keyboard
     assert seller_report_menu().inline_keyboard
     assert wallet_charge_menu().inline_keyboard
     assert support_menu().inline_keyboard
@@ -128,6 +135,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
     uuid = "12345678-1234-1234-1234-123456789abc"
     seller_bot = SimpleNamespace(id=uuid, name="Test Bot With A Long Name", status="running")
     plan = SimpleNamespace(id=uuid, name="Plan 30", price=100000, duration_days=30, reseller_id="reseller-id")
+    service = SimpleNamespace(id=uuid, marzban_username="sina_abc123", is_active=True)
 
     for keyboard in (
         master_main_menu(),
@@ -181,6 +189,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         extra_volume_plan_button(uuid),
         extra_volume_coupon_menu(),
         extra_volume_confirm_menu(),
+        service_list_menu([service]),
         service_actions(uuid),
         wallet_charge_menu(),
         wallet_charge_request_actions(uuid),
