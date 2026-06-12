@@ -252,11 +252,15 @@ async def seller_reply_menu_alias(
                 reply_markup=wallet_transaction_actions(transaction.id),
             )
     elif message.text in {"Support", "📮 پشتیبانی آنلاین"}:
+        support_contact_line = await _support_contact_line(
+            seller_context,
+            buyer_telegram_id=message.from_user.id,
+        )
         await message.answer(
             _guided_text(
                 "📮 پشتیبانی آنلاین",
-                "پیام خود را در قالب یک پیام جهت بررسی مشکل ارسال کنید.",
-                ["برای تیکت جدید روی «🎟 ارسال پیام به پشتیبانی» بزنید."],
+                "برای بررسی مشکل، تیکت ثبت کنید.",
+                [support_contact_line, "برای تیکت جدید روی «🎟 ثبت تیکت» بزنید."],
             ),
             reply_markup=support_menu(),
         )
@@ -822,11 +826,15 @@ async def seller_menu_callback(
                 reply_markup=seller_section_menu("trial"),
             )
     elif action.action == "support":
+        support_contact_line = await _support_contact_line(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+        )
         await callback.message.edit_text(
             _guided_text(
-                "Support",
-                "Use the buttons below to see tickets or open a new one.",
-                ["For a new ticket, send: /ticket <subject> | <message>"],
+                "📮 پشتیبانی آنلاین",
+                "برای بررسی مشکل، تیکت ثبت کنید.",
+                [support_contact_line, "برای تیکت جدید روی «🎟 ثبت تیکت» بزنید."],
             ),
             reply_markup=support_menu(),
         )
@@ -886,11 +894,17 @@ async def seller_menu_callback(
     elif action.action == "ticket_open":
         await state.clear()
         await state.set_state(TicketCreateStates.subject)
+        support_contact_line = await _support_contact_line(
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+        )
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Open Ticket"),
-                    "Send the ticket subject.",
+                    title("ثبت تیکت"),
+                    support_contact_line,
+                    "",
+                    "موضوع تیکت را بفرستید.",
                     "",
                     "Example: Cannot connect on Android",
                 ]
@@ -927,7 +941,7 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Ticket Opened"),
+                    title("تیکت ثبت شد"),
                     f"Ticket ID: {thread.ticket.id}",
                     f"Subject: {thread.ticket.subject}",
                     f"Status: {status_label(thread.ticket.status)}",
@@ -2064,7 +2078,7 @@ async def ticket_create_subject(message: Message, state: FSMContext) -> None:
     subject = (message.text or "").strip()
     if not subject or subject.startswith("/"):
         await message.answer(
-            "\n".join([title("Open Ticket"), "Send a short subject, not a command."]),
+            "\n".join([title("ثبت تیکت"), "موضوع کوتاه تیکت را بفرستید؛ دستور ربات نفرستید."]),
             reply_markup=support_menu(),
         )
         return
@@ -2073,8 +2087,8 @@ async def ticket_create_subject(message: Message, state: FSMContext) -> None:
     await message.answer(
         "\n".join(
             [
-                title("Open Ticket"),
-                "Now send the message for support.",
+                title("ثبت تیکت"),
+                "حالا متن پیام را برای پشتیبان بفرستید.",
                 "",
                 "Include device, app, and error details if possible.",
             ]
@@ -2090,7 +2104,7 @@ async def ticket_create_body(message: Message, state: FSMContext) -> None:
     body = (message.text or "").strip()
     if not body or body.startswith("/"):
         await message.answer(
-            "\n".join([title("Open Ticket"), "Send the support message, not a command."]),
+            "\n".join([title("ثبت تیکت"), "متن پیام را بفرستید؛ دستور ربات نفرستید."]),
             reply_markup=support_menu(),
         )
         return
@@ -2100,7 +2114,7 @@ async def ticket_create_body(message: Message, state: FSMContext) -> None:
     await message.answer(
         "\n".join(
             [
-                title("Confirm Ticket"),
+                title("تایید ثبت تیکت"),
                 f"Subject: {data.get('ticket_subject')}",
                 "",
                 str(data.get("ticket_body")),
@@ -2117,7 +2131,7 @@ async def ticket_create_body(message: Message, state: FSMContext) -> None:
 @router.message(TicketCreateStates.confirm)
 async def ticket_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Confirm Ticket"), "Use Confirm or Cancel below the preview."])
+        "\n".join([title("تایید ثبت تیکت"), "از دکمه تایید یا لغو زیر پیش‌نمایش استفاده کنید."])
     )
 
 
@@ -2560,7 +2574,7 @@ async def ticket(
         body=body,
     )
     await message.answer(
-        f"Ticket opened.\nTicket ID: {thread.ticket.id}\nSubject: {thread.ticket.subject}"
+        f"تیکت ثبت شد.\nTicket ID: {thread.ticket.id}\nSubject: {thread.ticket.subject}"
     )
 
 
@@ -3702,6 +3716,19 @@ def _support_settings_text(settings: object) -> str:
             "تیکت‌های جدید و پاسخ‌های کاربر برای این contact ارسال می‌شود.",
         ]
     )
+
+
+async def _support_contact_line(
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+) -> str:
+    support_contact = await seller_context.get_support_contact_for_buyer(
+        buyer_telegram_id=buyer_telegram_id,
+    )
+    if support_contact is None:
+        return "پشتیبان هنوز توسط ادمین تنظیم نشده است."
+    return f"پشتیبان: {support_contact}"
 
 
 def _extract_support_contact_from_message(message: Message) -> str | None:

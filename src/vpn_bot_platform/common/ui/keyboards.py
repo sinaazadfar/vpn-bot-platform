@@ -806,7 +806,7 @@ def support_menu() -> InlineKeyboardMarkup:
         [
             [
                 ("📮 تیکت های من", build_callback("s", "tickets")),
-                ("🎟 ارسال پیام به پشتیبانی", build_callback("s", "ticket_open")),
+                ("🎟 ثبت تیکت", build_callback("s", "ticket_open")),
             ],
             [
                 ("🔗 راهنمای اتصال", build_callback("s", "guides")),
