@@ -147,6 +147,14 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             duration_days=45,
             data_limit_gb=70,
         )
+        seller_admin_plan = await seller_context.update_admin_plan(
+            admin_telegram_id=111,
+            plan_id=seller_admin_plan.id,
+            name="seller-admin90",
+            price=149000,
+            duration_days=90,
+            data_limit_gb=120,
+        )
         removable_admin_plan = await seller_context.create_admin_plan(
             admin_telegram_id=111,
             name="removable-plan",
@@ -272,9 +280,10 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert sent_global.status == "sent"
     assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id, seller_admin_plan.id}
     assert seller_admin_plan.reseller_id == registered.reseller.id
-    assert seller_admin_plan.price == 99000
-    assert seller_admin_plan.duration_days == 45
-    assert seller_admin_plan.data_limit_gb == 70
+    assert seller_admin_plan.name == "seller-admin90"
+    assert seller_admin_plan.price == 149000
+    assert seller_admin_plan.duration_days == 90
+    assert seller_admin_plan.data_limit_gb == 120
     assert deleted_admin_plan.id == removable_admin_plan.id
     assert deleted_admin_plan.is_active is False
     assert removable_admin_plan.id not in {plan.id for plan in plans}

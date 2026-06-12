@@ -969,6 +969,7 @@ async def seller_menu_callback(
             return
         await state.clear()
         await state.set_state(AdminPlanCreateStates.name)
+        await state.update_data(admin_plan_mode="create")
         await callback.message.edit_text(
             "\n".join(
                 [
@@ -977,6 +978,35 @@ async def seller_menu_callback(
                     "",
                     "این همان متنی است که کاربر روی دکمه خرید می‌بیند.",
                     "مثال: پلن اقتصادی 30 روزه",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+        )
+    elif action.action == "admin_plan_edit":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        try:
+            plan = await seller_context.get_admin_plan(
+                admin_telegram_id=callback.from_user.id,
+                plan_id=action.value,
+            )
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        await state.clear()
+        await state.set_state(AdminPlanCreateStates.name)
+        await state.update_data(admin_plan_mode="edit", admin_plan_id=plan.id)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("ویرایش پلن فروش"),
+                    "اسم جدید پلن را بفرستید.",
+                    "",
+                    f"اسم فعلی: {plan.name}",
                 ]
             ),
             reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
@@ -990,21 +1020,38 @@ async def seller_menu_callback(
             await _show_admin_plans(callback, seller_context)
             return
         try:
-            plan = await seller_context.create_admin_plan(
-                admin_telegram_id=callback.from_user.id,
-                name=str(spec["name"]),
-                price=float(spec["price"]),
-                duration_days=int(spec["duration_days"]),
-                data_limit_gb=spec["data_limit_gb"],
-                purpose=PlanPurpose.PURCHASE,
-            )
+            if data.get("admin_plan_mode") == "edit":
+                plan_id = data.get("admin_plan_id")
+                if not plan_id:
+                    raise ValueError("plan_not_found")
+                plan = await seller_context.update_admin_plan(
+                    admin_telegram_id=callback.from_user.id,
+                    plan_id=str(plan_id),
+                    name=str(spec["name"]),
+                    price=float(spec["price"]),
+                    duration_days=int(spec["duration_days"]),
+                    data_limit_gb=int(spec["data_limit_gb"]),
+                )
+            else:
+                plan = await seller_context.create_admin_plan(
+                    admin_telegram_id=callback.from_user.id,
+                    name=str(spec["name"]),
+                    price=float(spec["price"]),
+                    duration_days=int(spec["duration_days"]),
+                    data_limit_gb=spec["data_limit_gb"],
+                    purpose=PlanPurpose.PURCHASE,
+                )
         except PermissionError:
             await state.clear()
             await callback.answer("You do not have reseller admin access.", show_alert=True)
             return
+        except ValueError:
+            await state.clear()
+            await callback.answer("Plan not found.", show_alert=True)
+            return
         await state.clear()
         await callback.message.edit_text(
-            _admin_plan_created_text(plan),
+            _admin_plan_saved_text(plan, edited=data.get("admin_plan_mode") == "edit"),
             reply_markup=admin_plans_menu(),
         )
     elif action.action == "admin_plan_delete_confirm":
@@ -1486,13 +1533,15 @@ async def admin_plan_create_name(
         await state.clear()
         await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
         return
+    data = await state.get_data()
+    is_edit = data.get("admin_plan_mode") == "edit"
     await state.update_data(admin_plan={"name": name[:128]})
     await state.set_state(AdminPlanCreateStates.volume)
     await message.answer(
         "\n".join(
             [
                 title("حجم پلن"),
-                "حجم پلن را به گیگابایت بفرستید.",
+                "حجم جدید پلن را به گیگابایت بفرستید." if is_edit else "حجم پلن را به گیگابایت بفرستید.",
                 "",
                 "فقط عدد وارد کنید. نامحدود نداریم.",
                 "مثال: 50",
@@ -1520,6 +1569,7 @@ async def admin_plan_create_volume(message: Message, state: FSMContext) -> None:
         )
         return
     data = await state.get_data()
+    is_edit = data.get("admin_plan_mode") == "edit"
     spec = dict(data.get("admin_plan") or {})
     spec["data_limit_gb"] = data_limit_gb
     await state.update_data(admin_plan=spec)
@@ -1528,7 +1578,7 @@ async def admin_plan_create_volume(message: Message, state: FSMContext) -> None:
         "\n".join(
             [
                 title("مدت پلن"),
-                "مدت پلن را به روز بفرستید.",
+                "مدت جدید پلن را به روز بفرستید." if is_edit else "مدت پلن را به روز بفرستید.",
                 "",
                 "فقط عدد وارد کنید.",
                 "مثال: 30",
@@ -1554,6 +1604,7 @@ async def admin_plan_create_days(message: Message, state: FSMContext) -> None:
         )
         return
     data = await state.get_data()
+    is_edit = data.get("admin_plan_mode") == "edit"
     spec = dict(data.get("admin_plan") or {})
     spec["duration_days"] = duration_days
     await state.update_data(admin_plan=spec)
@@ -1562,7 +1613,7 @@ async def admin_plan_create_days(message: Message, state: FSMContext) -> None:
         "\n".join(
             [
                 title("قیمت پلن"),
-                "قیمت فروش پلن را به تومان بفرستید.",
+                "قیمت جدید پلن را به تومان بفرستید." if is_edit else "قیمت فروش پلن را به تومان بفرستید.",
                 "",
                 "فقط عدد وارد کنید.",
                 "مثال: 120000",
@@ -1588,12 +1639,13 @@ async def admin_plan_create_price(message: Message, state: FSMContext) -> None:
         )
         return
     data = await state.get_data()
+    is_edit = data.get("admin_plan_mode") == "edit"
     spec = dict(data.get("admin_plan") or {})
     spec["price"] = price
     await state.update_data(admin_plan=spec)
     await state.set_state(AdminPlanCreateStates.confirm)
     await message.answer(
-        _admin_plan_confirm_text(spec),
+        _admin_plan_confirm_text(spec, edited=is_edit),
         reply_markup=confirm_keyboard(
             scope="s",
             confirm_action="admin_plan_create",
@@ -1604,7 +1656,7 @@ async def admin_plan_create_price(message: Message, state: FSMContext) -> None:
 
 @router.message(AdminPlanCreateStates.confirm)
 async def admin_plan_create_waiting_for_confirm(message: Message) -> None:
-    await message.answer("برای ساخت پلن از دکمه تایید استفاده کنید.")
+    await message.answer("برای ذخیره پلن از دکمه تایید استفاده کنید.")
 
 
 @router.message(PurchaseCreateStates.coupon)
@@ -3584,11 +3636,11 @@ def _parse_positive_float(raw: str | None) -> float | None:
     return value
 
 
-def _admin_plan_confirm_text(spec: dict) -> str:
+def _admin_plan_confirm_text(spec: dict, *, edited: bool = False) -> str:
     traffic = f"{spec['data_limit_gb']} گیگ"
     return "\n".join(
         [
-            title("تایید پلن فروش"),
+            title("تایید ویرایش پلن" if edited else "تایید پلن فروش"),
             f"نام: {spec['name']}",
             f"قیمت: {spec['price']:,.0f} تومان",
             f"مدت: {spec['duration_days']} روز",
@@ -3599,17 +3651,17 @@ def _admin_plan_confirm_text(spec: dict) -> str:
     )
 
 
-def _admin_plan_created_text(plan) -> str:
+def _admin_plan_saved_text(plan, *, edited: bool = False) -> str:
     traffic = f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("پلن فروش ساخته شد"),
+            title("پلن فروش ویرایش شد" if edited else "پلن فروش ساخته شد"),
             f"نام: {plan.name}",
             f"قیمت: {plan.price:,.0f} تومان",
             f"مدت: {plan.duration_days} روز",
             f"حجم: {traffic}",
             "",
-            "این پلن از حالا برای خریداران به صورت دکمه نمایش داده می‌شود.",
+            "این پلن برای خریداران به صورت دکمه نمایش داده می‌شود.",
         ]
     )
 

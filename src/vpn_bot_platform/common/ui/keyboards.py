@@ -532,7 +532,10 @@ def admin_plans_menu() -> InlineKeyboardMarkup:
 def admin_plan_actions(plan_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
-            [("🗑 حذف پلن", build_callback("s", "admin_plan_delete_confirm", plan_id))],
+            [
+                ("✏️ ویرایش پلن", build_callback("s", "admin_plan_edit", plan_id)),
+                ("🗑 حذف پلن", build_callback("s", "admin_plan_delete_confirm", plan_id)),
+            ],
             [("⬅️ بازگشت به پلن ها", build_callback("s", "admin_plans")), ("📱 منوی اصلی", build_callback("s", "home"))],
         ]
     )

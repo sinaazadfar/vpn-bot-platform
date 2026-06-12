@@ -634,6 +634,68 @@ class SellerContextService:
             await session.flush()
             return plan
 
+    async def get_admin_plan(
+        self,
+        *,
+        admin_telegram_id: int,
+        plan_id: str,
+    ) -> Plan:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            plan = await get_plan(session, plan_id=plan_id)
+            if plan is None or plan.reseller_id != seller_bot.reseller_id or not plan.is_active:
+                raise ValueError("plan_not_found")
+            return plan
+
+    async def update_admin_plan(
+        self,
+        *,
+        admin_telegram_id: int,
+        plan_id: str,
+        name: str,
+        price: float,
+        duration_days: int,
+        data_limit_gb: int,
+    ) -> Plan:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            plan = await get_plan(session, plan_id=plan_id)
+            if plan is None or plan.reseller_id != seller_bot.reseller_id or not plan.is_active:
+                raise ValueError("plan_not_found")
+            plan.name = name
+            plan.price = price
+            plan.duration_days = duration_days
+            plan.data_limit_gb = data_limit_gb
+            await record_audit_log(
+                session,
+                action="seller_plan.update",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="plan",
+                target_id=plan.id,
+                metadata={
+                    "name": name,
+                    "price": price,
+                    "duration_days": duration_days,
+                    "data_limit_gb": data_limit_gb,
+                },
+            )
+            await session.flush()
+            return plan
+
     async def deactivate_admin_plan(
         self,
         *,
