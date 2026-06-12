@@ -47,6 +47,9 @@ class MarzbanCreateUserClient(Protocol):
     async def update_user(self, username: str, update: MarzbanUserUpdate) -> dict:
         pass
 
+    async def get_inbounds(self) -> dict:
+        pass
+
 
 MarzbanClientFactory = Callable[[MarzbanCredentials], MarzbanCreateUserClient]
 
@@ -113,15 +116,19 @@ class ProvisioningService:
             assignment, panel = routed_panel.assignment, routed_panel.panel
 
             credentials = self._panel_credentials(panel)
+            client = self.marzban_client_factory(credentials)
+            proxies, inbounds = await self._resolve_protocol_config(client)
             marzban_user = self._build_marzban_user(
                 seller_bot=seller_bot,
                 plan=plan,
                 buyer_telegram_id=buyer.telegram_user_id,
                 requested_username=order.requested_username,
                 owner_username=assignment.marzban_admin_username,
+                proxies=proxies,
+                inbounds=inbounds,
             )
             try:
-                response = await self.marzban_client_factory(credentials).create_user(marzban_user)
+                response = await client.create_user(marzban_user)
             except Exception:
                 await mark_order_failed(session, order=order)
                 raise
@@ -197,15 +204,19 @@ class ProvisioningService:
                 raise ValueError("panel_assignment_not_found")
             assignment, panel = routed_panel.assignment, routed_panel.panel
             credentials = self._panel_credentials(panel)
+            client = self.marzban_client_factory(credentials)
+            proxies, inbounds = await self._resolve_protocol_config(client)
             marzban_user = self._build_marzban_user(
                 seller_bot=seller_bot,
                 plan=plan,
                 buyer_telegram_id=buyer.telegram_user_id,
                 requested_username=order.requested_username,
                 owner_username=assignment.marzban_admin_username,
+                proxies=proxies,
+                inbounds=inbounds,
             )
             try:
-                response = await self.marzban_client_factory(credentials).create_user(marzban_user)
+                response = await client.create_user(marzban_user)
             except Exception:
                 await mark_order_failed(session, order=order)
                 raise
@@ -392,9 +403,12 @@ class ProvisioningService:
                 raise ValueError("panel_assignment_not_found")
             assignment, panel = routed_panel.assignment, routed_panel.panel
             expire = seconds_from_now(self.settings.trial_duration_days)
+            client = self.marzban_client_factory(self._panel_credentials(panel))
+            proxies, inbounds = await self._resolve_protocol_config(client)
             trial_user = MarzbanUserCreate(
                 username=_marzban_username("t", seller_bot.reseller_id, buyer_telegram_id),
-                proxies=json.loads(self.settings.marzban_default_proxies_json),
+                proxies=proxies,
+                inbounds=inbounds,
                 expire=expire,
                 data_limit=gb_to_bytes(self.settings.trial_data_limit_gb),
                 note=(
@@ -402,9 +416,7 @@ class ProvisioningService:
                     f"owner={assignment.marzban_admin_username or '-'}"
                 ),
             )
-            response = await self.marzban_client_factory(
-                self._panel_credentials(panel)
-            ).create_user(trial_user)
+            response = await client.create_user(trial_user)
             service = await create_vpn_service(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -449,6 +461,8 @@ class ProvisioningService:
         buyer_telegram_id: int,
         requested_username: str | None,
         owner_username: str | None,
+        proxies: dict,
+        inbounds: dict[str, list[str]] | None,
     ) -> MarzbanUserCreate:
         username = _marzban_username(
             "u",
@@ -461,11 +475,29 @@ class ProvisioningService:
             note_parts.append(f"owner={owner_username}")
         return MarzbanUserCreate(
             username=username,
-            proxies=json.loads(self.settings.marzban_default_proxies_json),
+            proxies=proxies,
+            inbounds=inbounds,
             expire=seconds_from_now(plan.duration_days),
             data_limit=gb_to_bytes(plan.data_limit_gb) if plan.data_limit_gb is not None else None,
             note="; ".join(note_parts),
         )
+
+    async def _resolve_protocol_config(
+        self,
+        client: MarzbanCreateUserClient,
+    ) -> tuple[dict, dict[str, list[str]] | None]:
+        default_proxies = json.loads(self.settings.marzban_default_proxies_json)
+        try:
+            inbounds_response = await client.get_inbounds()
+        except Exception:
+            return default_proxies, None
+
+        inbounds = _extract_inbounds_by_protocol(inbounds_response)
+        if not inbounds:
+            return default_proxies, None
+
+        proxies = {protocol: default_proxies.get(protocol, {}) for protocol in inbounds}
+        return proxies, inbounds
 
 
 def _extract_subscription_url(response: dict) -> str | None:
@@ -478,6 +510,38 @@ def _extract_subscription_url(response: dict) -> str | None:
         first = links[0]
         return first if isinstance(first, str) else None
     return None
+
+
+def _extract_inbounds_by_protocol(response: dict) -> dict[str, list[str]]:
+    source = response.get("inbounds") if isinstance(response.get("inbounds"), dict) else response
+    if not isinstance(source, dict):
+        return {}
+
+    parsed: dict[str, list[str]] = {}
+    for protocol, raw_inbounds in source.items():
+        if protocol in {"detail", "status", "message"}:
+            continue
+        names = _extract_inbound_names(raw_inbounds)
+        if names:
+            parsed[str(protocol)] = names
+    return parsed
+
+
+def _extract_inbound_names(raw_inbounds) -> list[str]:
+    if isinstance(raw_inbounds, dict):
+        raw_inbounds = raw_inbounds.get("inbounds") or raw_inbounds.get("items") or raw_inbounds.get("tags") or []
+    if not isinstance(raw_inbounds, list):
+        return []
+
+    names: list[str] = []
+    for item in raw_inbounds:
+        if isinstance(item, str) and item:
+            names.append(item)
+        elif isinstance(item, dict):
+            name = item.get("tag") or item.get("name") or item.get("remark")
+            if isinstance(name, str) and name:
+                names.append(name)
+    return names
 
 
 def _marzban_username(

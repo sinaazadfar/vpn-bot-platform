@@ -19,10 +19,13 @@ from vpn_bot_platform.seller_bot.handlers import _normalize_service_username
 
 
 class FakeMarzbanClient:
+    created_users: list[MarzbanUserCreate] = []
+
     def __init__(self, credentials: MarzbanCredentials) -> None:
         self.credentials = credentials
 
     async def create_user(self, user: MarzbanUserCreate) -> dict:
+        self.created_users.append(user)
         return {
             "username": user.username,
             "subscription_url": f"{self.credentials.base_url}/sub/{user.username}",
@@ -30,6 +33,13 @@ class FakeMarzbanClient:
 
     async def update_user(self, username: str, update: MarzbanUserUpdate) -> dict:
         return {"username": username, **update.to_payload()}
+
+    async def get_inbounds(self) -> dict:
+        return {
+            "vless": [{"tag": "VLESS TCP REALITY"}],
+            "vmess": [{"tag": "VMess WS TLS"}],
+            "trojan": ["Trojan TCP TLS"],
+        }
 
 
 def test_marzban_username_matches_panel_validation() -> None:
@@ -69,6 +79,7 @@ def test_service_username_input_validation() -> None:
 
 @pytest.mark.asyncio
 async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
+    FakeMarzbanClient.created_users = []
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     fernet_key = Fernet.generate_key().decode("utf-8")
@@ -375,6 +386,12 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert provisioned.vpn_service.buyer_id == profile.buyer.id
     assert provisioned.vpn_service.panel_id == panel.id
     assert provisioned.vpn_service.subscription_url is not None
+    assert FakeMarzbanClient.created_users[0].proxies == {"vless": {}, "vmess": {}, "trojan": {}}
+    assert FakeMarzbanClient.created_users[0].inbounds == {
+        "vless": ["VLESS TCP REALITY"],
+        "vmess": ["VMess WS TLS"],
+        "trojan": ["Trojan TCP TLS"],
+    }
     assert [service.id for service in buyer_services] == [provisioned.vpn_service.id]
     assert [item.buyer.id for item in customer_search_by_id] == [profile.buyer.id]
     assert [item.buyer.id for item in customer_search_by_username] == [profile.buyer.id]
