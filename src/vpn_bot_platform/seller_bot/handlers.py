@@ -13,6 +13,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_order_actions,
     admin_payment_actions,
     admin_payment_settings_menu,
+    admin_support_settings_menu,
     admin_customer_card_actions,
     admin_customer_detail_actions,
     admin_customers_menu,
@@ -116,6 +117,10 @@ class CryptoPaymentSetupStates(StatesGroup):
     wallet_address = State()
     note = State()
     confirm = State()
+
+
+class SupportSettingsStates(StatesGroup):
+    telegram_id = State()
 
 
 @router.message(CommandStart())
@@ -910,6 +915,15 @@ async def seller_menu_callback(
             await callback.answer(f"Could not open ticket: {exc}", show_alert=True)
             return
         await state.clear()
+        await _notify_support_about_ticket(
+            callback.message,
+            seller_context,
+            buyer_telegram_id=callback.from_user.id,
+            header="تیکت جدید",
+            ticket_id=thread.ticket.id,
+            subject=thread.ticket.subject,
+            body=body,
+        )
         await callback.message.edit_text(
             "\n".join(
                 [
@@ -1031,6 +1045,52 @@ async def seller_menu_callback(
         await callback.answer("This customer action is next in the roadmap.", show_alert=True)
     elif action.action == "admin_tickets":
         await _show_admin_tickets(callback, seller_context)
+    elif action.action == "admin_support_settings":
+        await _show_admin_support_settings(callback, seller_context)
+    elif action.action == "admin_support_set":
+        try:
+            await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        await state.clear()
+        await state.set_state(SupportSettingsStates.telegram_id)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("تنظیم پشتیبان"),
+                    "Telegram ID پشتیبان را بفرستید.",
+                    "",
+                    "مثال: 252486544",
+                    "کاربر وقتی تیکت بفرستد، پیام برای این آیدی هم ارسال می‌شود.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_support_settings"),
+        )
+    elif action.action == "admin_support_delete_confirm":
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("حذف پشتیبان"),
+                    "بعد از حذف، تیکت‌ها فقط داخل ربات ذخیره می‌شوند و پیام مستقیم برای پشتیبان ارسال نمی‌شود.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="s",
+                confirm_action="admin_support_delete",
+                cancel_action="admin_support_settings",
+            ),
+        )
+    elif action.action == "admin_support_delete":
+        try:
+            settings = await seller_context.delete_support_telegram_id(admin_telegram_id=callback.from_user.id)
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _support_settings_text(settings),
+            reply_markup=admin_support_settings_menu(has_support=False),
+        )
     elif action.action == "admin_plans":
         await _show_admin_plans(callback, seller_context)
     elif action.action == "admin_plan_detail":
@@ -1674,6 +1734,44 @@ async def crypto_payment_confirm_text_input(message: Message) -> None:
     )
 
 
+@router.message(SupportSettingsStates.telegram_id)
+async def support_settings_telegram_id(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    raw_telegram_id = (message.text or "").strip()
+    if not raw_telegram_id.isdigit() or int(raw_telegram_id) <= 0:
+        await message.answer(
+            "\n".join(
+                [
+                    title("آیدی پشتیبان نامعتبر است"),
+                    "فقط عدد Telegram ID را بفرستید.",
+                    "",
+                    "مثال: 252486544",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_support_settings"),
+        )
+        return
+    try:
+        settings = await seller_context.set_support_telegram_id(
+            admin_telegram_id=message.from_user.id,
+            support_telegram_id=int(raw_telegram_id),
+        )
+    except PermissionError:
+        await state.clear()
+        await message.answer("You do not have reseller admin access.")
+        return
+    await state.clear()
+    await message.answer(
+        _support_settings_text(settings),
+        reply_markup=admin_support_settings_menu(has_support=True),
+    )
+
+
 @router.message(WalletChargeStates.amount)
 async def wallet_charge_amount(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -2047,6 +2145,15 @@ async def buyer_ticket_reply_body(
         await message.answer("Ticket not found.", reply_markup=support_menu())
         return
     await state.clear()
+    await _notify_support_about_ticket(
+        message,
+        seller_context,
+        buyer_telegram_id=message.from_user.id,
+        header="پاسخ جدید کاربر",
+        ticket_id=thread.ticket.id,
+        subject=thread.ticket.subject,
+        body=body,
+    )
     await message.answer(
         _ticket_thread_text(thread),
         reply_markup=buyer_ticket_actions(thread.ticket.id),
@@ -2438,6 +2545,15 @@ async def ticket(
         subject=subject,
         body=body,
     )
+    await _notify_support_about_ticket(
+        message,
+        seller_context,
+        buyer_telegram_id=message.from_user.id,
+        header="تیکت جدید",
+        ticket_id=thread.ticket.id,
+        subject=thread.ticket.subject,
+        body=body,
+    )
     await message.answer(
         f"Ticket opened.\nTicket ID: {thread.ticket.id}\nSubject: {thread.ticket.subject}"
     )
@@ -2484,6 +2600,15 @@ async def reply_ticket(
             await message.answer("Ticket not found.")
             return
         raise
+    await _notify_support_about_ticket(
+        message,
+        seller_context,
+        buyer_telegram_id=message.from_user.id,
+        header="پاسخ جدید کاربر",
+        ticket_id=thread.ticket.id,
+        subject=thread.ticket.subject,
+        body=args[1],
+    )
     await message.answer(f"Reply added to ticket {thread.ticket.id}.")
 
 
@@ -3539,6 +3664,75 @@ async def _show_admin_payment_settings(callback: CallbackQuery, seller_context: 
         _crypto_payment_settings_text(config),
         reply_markup=admin_payment_settings_menu(has_crypto=config is not None),
     )
+
+
+async def _show_admin_support_settings(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        settings = await seller_context.get_support_settings(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        _support_settings_text(settings),
+        reply_markup=admin_support_settings_menu(has_support=settings.telegram_id is not None),
+    )
+
+
+def _support_settings_text(settings: object) -> str:
+    telegram_id = getattr(settings, "telegram_id", None)
+    if telegram_id is None:
+        return "\n".join(
+            [
+                title("پشتیبان"),
+                "هنوز Telegram ID پشتیبان تنظیم نشده است.",
+                "",
+                "بعد از تنظیم، تیکت‌ها و پاسخ‌های کاربر برای پشتیبان ارسال می‌شود.",
+            ]
+        )
+    return "\n".join(
+        [
+            title("پشتیبان"),
+            f"Telegram ID: {telegram_id}",
+            "",
+            "تیکت‌های جدید و پاسخ‌های کاربر برای این آیدی ارسال می‌شود.",
+        ]
+    )
+
+
+async def _notify_support_about_ticket(
+    message: Message,
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+    header: str,
+    ticket_id: str,
+    subject: str,
+    body: str,
+) -> None:
+    support_telegram_id = await seller_context.get_support_telegram_id_for_buyer(
+        buyer_telegram_id=buyer_telegram_id,
+    )
+    if support_telegram_id is None or support_telegram_id == buyer_telegram_id:
+        return
+    preview = " ".join(body.split())
+    if len(preview) > 900:
+        preview = f"{preview[:897]}..."
+    text = "\n".join(
+        [
+            title(header),
+            f"Ticket ID: {ticket_id}",
+            f"Buyer Telegram ID: {buyer_telegram_id}",
+            f"Subject: {subject}",
+            "",
+            preview,
+            "",
+            "برای پاسخ، وارد پنل مدیریت همین ربات شوید و تیکت را باز کنید.",
+        ]
+    )
+    try:
+        await message.bot.send_message(support_telegram_id, text)
+    except TelegramAPIError:
+        return
 
 
 def _crypto_payment_settings_text(config: object | None) -> str:

@@ -1476,6 +1476,61 @@ async def get_global_setting(
     return result.scalar_one_or_none()
 
 
+async def set_reseller_setting(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    key: str,
+    value: str,
+) -> PlatformSetting:
+    result = await session.execute(
+        select(PlatformSetting).where(
+            PlatformSetting.scope == SettingScope.RESELLER.value,
+            PlatformSetting.scope_id == reseller_id,
+            PlatformSetting.key == key,
+        )
+    )
+    setting = result.scalar_one_or_none()
+    if setting is None:
+        setting = PlatformSetting(
+            scope=SettingScope.RESELLER.value,
+            scope_id=reseller_id,
+            key=key,
+            value=value,
+        )
+        session.add(setting)
+    else:
+        setting.value = value
+    return setting
+
+
+async def get_reseller_setting(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    key: str,
+) -> PlatformSetting | None:
+    result = await session.execute(
+        select(PlatformSetting).where(
+            PlatformSetting.scope == SettingScope.RESELLER.value,
+            PlatformSetting.scope_id == reseller_id,
+            PlatformSetting.key == key,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_reseller_setting(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    key: str,
+) -> None:
+    setting = await get_reseller_setting(session, reseller_id=reseller_id, key=key)
+    if setting is not None:
+        await session.delete(setting)
+
+
 async def record_audit_log(
     session: AsyncSession,
     *,

@@ -63,6 +63,13 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             note="Send tx hash after payment.",
         )
         loaded_crypto_config = await crypto_context.get_crypto_payment_config(admin_telegram_id=111)
+        support_settings = await seller_context.set_support_telegram_id(
+            admin_telegram_id=111,
+            support_telegram_id=444,
+        )
+        loaded_support_settings = await seller_context.get_support_settings(admin_telegram_id=111)
+        buyer_support_telegram_id = await seller_context.get_support_telegram_id_for_buyer(buyer_telegram_id=222)
+        deleted_support_settings = await seller_context.delete_support_telegram_id(admin_telegram_id=111)
         profile = await seller_context.register_buyer(
             telegram_id=222,
             username="buyer",
@@ -273,6 +280,10 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert loaded_crypto_config is not None
     assert loaded_crypto_config.network == "TRC20"
     assert loaded_crypto_config.wallet_address == "TExampleWalletAddress123"
+    assert support_settings.telegram_id == 444
+    assert loaded_support_settings.telegram_id == 444
+    assert buyer_support_telegram_id == 444
+    assert deleted_support_settings.telegram_id is None
     assert profile.seller_bot.id == seller_bot.id
     assert profile.buyer.reseller_id == registered.reseller.id
     assert profile.buyer.telegram_user_id == 222

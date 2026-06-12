@@ -507,8 +507,9 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
             ],
             [
                 ("📮 تیکت ها", build_callback("s", "admin_tickets")),
-                ("🛒 تعرفه خدمات", build_callback("s", "admin_plans")),
+                ("🧑‍💻 پشتیبان", build_callback("s", "admin_support_settings")),
             ],
+            [("🛒 تعرفه خدمات", build_callback("s", "admin_plans"))],
             [
                 ("📊 گزارش فروش", build_callback("s", "admin_report")),
                 ("📤 مدیریت پیام", build_callback("s", "admin_broadcast")),
@@ -891,3 +892,13 @@ def admin_ticket_actions(ticket_id: str) -> InlineKeyboardMarkup:
             [("Back", build_callback("s", "admin_tickets")), ("Admin Home", build_callback("s", "admin"))],
         ]
     )
+
+
+def admin_support_settings_menu(*, has_support: bool) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [
+        [("✏️ تنظیم آیدی پشتیبان", build_callback("s", "admin_support_set"))],
+    ]
+    if has_support:
+        rows.append([("🗑 حذف پشتیبان", build_callback("s", "admin_support_delete_confirm"))])
+    rows.append([("📮 تیکت ها", build_callback("s", "admin_tickets")), ("⬅️ بازگشت به مدیریت", build_callback("s", "admin"))])
+    return inline_keyboard(rows)

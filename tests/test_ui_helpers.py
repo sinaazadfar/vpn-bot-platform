@@ -12,6 +12,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customers_menu,
     admin_payment_actions,
     admin_payment_settings_menu,
+    admin_support_settings_menu,
     admin_plan_actions,
     admin_plan_list_menu,
     admin_plans_menu,
@@ -110,6 +111,8 @@ def test_main_menus_have_buttons() -> None:
     assert seller_admin_menu().inline_keyboard
     assert admin_payment_settings_menu(has_crypto=False).inline_keyboard
     assert admin_payment_settings_menu(has_crypto=True).inline_keyboard
+    assert admin_support_settings_menu(has_support=False).inline_keyboard
+    assert admin_support_settings_menu(has_support=True).inline_keyboard
     assert admin_plan_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert admin_plan_list_menu([plan]).inline_keyboard
     assert admin_plans_menu().inline_keyboard
@@ -164,6 +167,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         seller_buyer_menu(),
         seller_admin_menu(),
         admin_payment_settings_menu(has_crypto=True),
+        admin_support_settings_menu(has_support=True),
         admin_plan_actions(uuid),
         admin_plan_list_menu([plan]),
         admin_plans_menu(),

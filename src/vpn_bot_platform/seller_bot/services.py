@@ -38,6 +38,7 @@ from vpn_bot_platform.common.repositories import (
     create_buyer_wallet_charge_request,
     create_plan,
     create_ticket,
+    delete_reseller_setting,
     create_reseller_broadcast,
     get_active_plan_for_reseller,
     get_active_discount_code,
@@ -46,6 +47,7 @@ from vpn_bot_platform.common.repositories import (
     get_customer_for_reseller,
     get_active_payment_gateway,
     get_plan,
+    get_reseller_setting,
     get_seller_bot_with_reseller,
     get_ticket_for_buyer,
     get_ticket_for_reseller,
@@ -69,6 +71,7 @@ from vpn_bot_platform.common.repositories import (
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     search_customers_for_reseller,
+    set_reseller_setting,
     upsert_payment_gateway,
     upsert_buyer,
 )
@@ -76,6 +79,8 @@ from vpn_bot_platform.integrations.payments import (
     PaymentGatewayRegistry,
     default_payment_registry,
 )
+
+SUPPORT_TELEGRAM_ID_SETTING = "support_telegram_id"
 
 
 @dataclass(frozen=True)
@@ -178,6 +183,11 @@ class TicketThread:
 class BroadcastDraft:
     broadcast: Broadcast
     recipients: list[BroadcastRecipient]
+
+
+@dataclass(frozen=True)
+class SupportSettings:
+    telegram_id: int | None
 
 
 class SellerContextService:
@@ -651,6 +661,93 @@ class SellerContextService:
                 raise ValueError("seller_bot_not_found")
             self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
 
+    async def get_support_settings(self, *, admin_telegram_id: int) -> SupportSettings:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            setting = await get_reseller_setting(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                key=SUPPORT_TELEGRAM_ID_SETTING,
+            )
+            return SupportSettings(telegram_id=self._parse_support_telegram_id(setting.value if setting else None))
+
+    async def get_support_telegram_id_for_buyer(self, *, buyer_telegram_id: int) -> int | None:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            setting = await get_reseller_setting(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                key=SUPPORT_TELEGRAM_ID_SETTING,
+            )
+            return self._parse_support_telegram_id(setting.value if setting else None)
+
+    async def set_support_telegram_id(self, *, admin_telegram_id: int, support_telegram_id: int) -> SupportSettings:
+        if support_telegram_id <= 0:
+            raise ValueError("invalid_support_telegram_id")
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            setting = await set_reseller_setting(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                key=SUPPORT_TELEGRAM_ID_SETTING,
+                value=str(support_telegram_id),
+            )
+            await record_audit_log(
+                session,
+                action="support.telegram_id.set",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="platform_setting",
+                target_id=setting.id,
+                metadata={"support_telegram_id": support_telegram_id},
+            )
+            await session.flush()
+            return SupportSettings(telegram_id=support_telegram_id)
+
+    async def delete_support_telegram_id(self, *, admin_telegram_id: int) -> SupportSettings:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await delete_reseller_setting(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                key=SUPPORT_TELEGRAM_ID_SETTING,
+            )
+            await record_audit_log(
+                session,
+                action="support.telegram_id.delete",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="platform_setting",
+                target_id=SUPPORT_TELEGRAM_ID_SETTING,
+            )
+            await session.flush()
+            return SupportSettings(telegram_id=None)
+
     async def get_crypto_payment_config(self, *, admin_telegram_id: int) -> CryptoPaymentConfig | None:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
@@ -1102,6 +1199,16 @@ class SellerContextService:
     def _ensure_reseller_admin(*, seller_bot: SellerBot, telegram_id: int) -> None:
         if seller_bot.reseller.telegram_user_id != telegram_id:
             raise PermissionError("not_reseller_admin")
+
+    @staticmethod
+    def _parse_support_telegram_id(value: str | None) -> int | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized.isdigit():
+            return None
+        support_telegram_id = int(normalized)
+        return support_telegram_id if support_telegram_id > 0 else None
 
     def _decrypt_crypto_gateway(self, gateway: PaymentGateway | None) -> CryptoPaymentConfig | None:
         if gateway is None or gateway.config_encrypted is None or self.secret_box is None:
