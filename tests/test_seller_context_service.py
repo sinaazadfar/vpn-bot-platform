@@ -350,6 +350,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert approved.payment.approved_by_telegram_id == 111
     assert approved.order.status == "provisioning"
     assert provisioned.order.status == "completed"
+    assert provisioned.order.target_service_id == provisioned.vpn_service.id
     assert provisioned.vpn_service.buyer_id == profile.buyer.id
     assert provisioned.vpn_service.panel_id == panel.id
     assert provisioned.vpn_service.subscription_url is not None

@@ -90,6 +90,14 @@ class ProvisioningService:
             if context is None:
                 raise ValueError("order_not_ready")
             order, buyer, plan = context
+            if order.target_service_id:
+                existing_service = await session.get(VpnService, order.target_service_id)
+                if existing_service is None:
+                    await mark_order_failed(session, order=order)
+                    raise ValueError("provisioned_service_not_found")
+                await mark_order_completed(session, order=order)
+                await session.flush()
+                return ProvisionedService(order=order, vpn_service=existing_service)
 
             routed_panel = await self.panel_router.choose_panel(
                 session,
@@ -125,6 +133,8 @@ class ProvisioningService:
                 if marzban_user.expire
                 else None,
             )
+            await session.flush()
+            order.target_service_id = vpn_service.id
             await mark_order_completed(session, order=order)
             await record_audit_log(
                 session,
