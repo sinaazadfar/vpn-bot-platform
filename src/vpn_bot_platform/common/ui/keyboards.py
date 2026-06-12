@@ -529,6 +529,23 @@ def admin_plans_menu() -> InlineKeyboardMarkup:
     )
 
 
+def admin_plan_list_menu(plans: list[object]) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = []
+    for plan in plans[:30]:
+        plan_id = str(getattr(plan, "id"))
+        name = str(getattr(plan, "name", "Plan")).strip() or "Plan"
+        owner = "اختصاصی" if getattr(plan, "reseller_id", None) else "عمومی"
+        rows.append([(f"{name[:38]} | {owner}", build_callback("s", "admin_plan_detail", plan_id))])
+    rows.append(
+        [
+            ("➕ افزودن پلن", build_callback("s", "admin_plan_add")),
+            ("🔄 بروزرسانی", build_callback("s", "admin_plans")),
+        ]
+    )
+    rows.append([("⬅️ بازگشت به مدیریت", build_callback("s", "admin")), ("📱 منوی اصلی", build_callback("s", "home"))])
+    return inline_keyboard(rows)
+
+
 def admin_plan_actions(plan_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

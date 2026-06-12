@@ -16,6 +16,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customer_detail_actions,
     admin_customers_menu,
     admin_plan_actions,
+    admin_plan_list_menu,
     admin_plans_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -961,6 +962,23 @@ async def seller_menu_callback(
         await _show_admin_tickets(callback, seller_context)
     elif action.action == "admin_plans":
         await _show_admin_plans(callback, seller_context)
+    elif action.action == "admin_plan_detail":
+        if not action.value:
+            await callback.answer("Plan is missing.", show_alert=True)
+            return
+        try:
+            plans = await seller_context.list_admin_plans(admin_telegram_id=callback.from_user.id)
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        plan = _find_admin_plan(plans, plan_id=action.value)
+        if plan is None:
+            await callback.answer("Plan not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            _admin_plan_card_text(plan),
+            reply_markup=admin_plan_actions(plan.id) if plan.reseller_id else admin_plans_menu(),
+        )
     elif action.action == "admin_plan_add":
         try:
             await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
@@ -3487,12 +3505,7 @@ async def _show_admin_plans(callback: CallbackQuery, seller_context: SellerConte
     except PermissionError:
         await callback.answer("You do not have reseller admin access.", show_alert=True)
         return
-    await callback.message.edit_text(_admin_plans_text(plans), reply_markup=admin_plans_menu())
-    for plan in _admin_deletable_plans(plans)[:10]:
-        await callback.message.answer(
-            _admin_plan_card_text(plan),
-            reply_markup=admin_plan_actions(plan.id),
-        )
+    await callback.message.edit_text(_admin_plans_text(plans), reply_markup=admin_plan_list_menu(plans))
 
 
 async def _send_admin_plans(message: Message, seller_context: SellerContextService) -> None:
@@ -3501,12 +3514,7 @@ async def _send_admin_plans(message: Message, seller_context: SellerContextServi
     except PermissionError:
         await message.answer("You do not have reseller admin access.")
         return
-    await message.answer(_admin_plans_text(plans), reply_markup=admin_plans_menu())
-    for plan in _admin_deletable_plans(plans)[:10]:
-        await message.answer(
-            _admin_plan_card_text(plan),
-            reply_markup=admin_plan_actions(plan.id),
-        )
+    await message.answer(_admin_plans_text(plans), reply_markup=admin_plan_list_menu(plans))
 
 
 def _admin_order_row(item) -> str:
@@ -3594,24 +3602,29 @@ def _admin_plans_text(plans) -> str:
         )
     if not rows:
         rows.append("هنوز پلن اختصاصی برای این فروشنده ساخته نشده است.")
-    rows.extend(["", "برای ساخت تعرفه جدید دکمه «افزودن پلن» را بزنید.", "برای حذف، از کارت پلن‌های اختصاصی پایین استفاده کنید."])
+    rows.extend(["", "یکی از دکمه‌های پلن را انتخاب کنید تا مدیریت همان پلن باز شود."])
     return "\n".join([title("🛒 تعرفه خدمات"), section("پلن های فعال", rows)])
 
 
-def _admin_deletable_plans(plans) -> list:
-    return [plan for plan in plans if plan.reseller_id]
+def _find_admin_plan(plans, *, plan_id: str):
+    return next((plan for plan in plans if plan.id == plan_id), None)
 
 
 def _admin_plan_card_text(plan) -> str:
     traffic = f"{plan.data_limit_gb} گیگ" if plan.data_limit_gb is not None else "-"
+    owner = "اختصاصی" if plan.reseller_id else "عمومی"
+    note = "برای تغییر این پلن از دکمه‌های زیر استفاده کنید." if plan.reseller_id else "این پلن عمومی است و از ربات سلر قابل ویرایش نیست."
     return "\n".join(
         [
             title("مدیریت پلن"),
             f"نام: {plan.name}",
+            f"نوع: {owner}",
             f"قیمت: {plan.price:,.0f} تومان",
             f"مدت: {plan.duration_days} روز",
             f"حجم: {traffic}",
             f"کد: {short_id(plan.id)}",
+            "",
+            note,
         ]
     )
 

@@ -12,6 +12,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customers_menu,
     admin_payment_actions,
     admin_plan_actions,
+    admin_plan_list_menu,
     admin_plans_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
@@ -91,6 +92,7 @@ def test_main_menus_have_buttons() -> None:
         name="Plan 30",
         price=100000,
         duration_days=30,
+        reseller_id="reseller-id",
     )
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
@@ -106,6 +108,7 @@ def test_main_menus_have_buttons() -> None:
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
     assert admin_plan_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
+    assert admin_plan_list_menu([plan]).inline_keyboard
     assert admin_plans_menu().inline_keyboard
     assert plan_list_menu([plan]).inline_keyboard
     assert seller_report_menu().inline_keyboard
@@ -121,7 +124,7 @@ def test_main_menus_have_buttons() -> None:
 def test_inline_keyboards_fit_callback_limit() -> None:
     uuid = "12345678-1234-1234-1234-123456789abc"
     seller_bot = SimpleNamespace(id=uuid, name="Test Bot With A Long Name", status="running")
-    plan = SimpleNamespace(id=uuid, name="Plan 30", price=100000, duration_days=30)
+    plan = SimpleNamespace(id=uuid, name="Plan 30", price=100000, duration_days=30, reseller_id="reseller-id")
 
     for keyboard in (
         master_main_menu(),
@@ -158,6 +161,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         seller_buyer_menu(),
         seller_admin_menu(),
         admin_plan_actions(uuid),
+        admin_plan_list_menu([plan]),
         admin_plans_menu(),
         plan_list_menu([plan]),
         seller_report_menu(),
