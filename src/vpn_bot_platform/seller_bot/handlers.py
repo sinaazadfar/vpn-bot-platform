@@ -368,7 +368,7 @@ async def seller_menu_callback(
         await state.set_state(PurchaseCreateStates.username)
         await callback.message.edit_text(
             _purchase_username_text(plan),
-            reply_markup=cancel_only_keyboard("لغو خرید", "s:buy_cancel"),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="buy_cancel"),
         )
     elif action.action == "buy_coupon":
         data = await state.get_data()
@@ -1670,9 +1670,10 @@ async def seller_menu_callback(
             await callback.answer("You do not have reseller admin access.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Pending wallet charge not found.", show_alert=True)
+            await callback.answer("این شارژ قبلاً تایید شده یا دیگر pending نیست.", show_alert=True)
             return
-        await callback.message.edit_text(
+        await _edit_or_answer_callback(
+            callback,
             "\n".join(
                 [
                     title("Wallet Charge Approved"),
@@ -2240,7 +2241,7 @@ async def purchase_username_input(
                     "مثال: sina_home",
                 ]
             ),
-            reply_markup=cancel_only_keyboard("لغو خرید", "s:buy_cancel"),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="buy_cancel"),
         )
         return
     await state.update_data(buy_requested_username=normalized_username)
