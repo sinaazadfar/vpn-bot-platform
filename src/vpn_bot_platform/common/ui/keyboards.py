@@ -135,7 +135,8 @@ def seller_admin_reply_menu() -> ReplyKeyboardMarkup:
             ["💳 پرداخت ها", "🧾 سفارش ها"],
             ["💸 شارژ کیف پول", "👤 مدیریت کاربران"],
             ["📮 تیکت ها", "🛒 تعرفه خدمات"],
-            ["📊 گزارش فروش", "📱 منوی اصلی"],
+            ["📊 گزارش فروش", "🪙 روش پرداخت"],
+            ["📱 منوی اصلی"],
         ]
     )
 
@@ -511,6 +512,21 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
             [
                 ("📊 گزارش فروش", build_callback("s", "admin_report")),
                 ("📤 مدیریت پیام", build_callback("s", "admin_broadcast")),
+            ],
+            [("🪙 روش پرداخت", build_callback("s", "admin_payment_settings"))],
+            [("📱 منوی اصلی", build_callback("s", "home"))],
+        ]
+    )
+
+
+def admin_payment_settings_menu(*, has_crypto: bool) -> InlineKeyboardMarkup:
+    label = "✏️ ویرایش پرداخت ارز دیجیتال" if has_crypto else "➕ ساخت پرداخت ارز دیجیتال"
+    return inline_keyboard(
+        [
+            [(label, build_callback("s", "admin_crypto_payment_setup"))],
+            [
+                ("💳 پرداخت های در انتظار", build_callback("s", "admin_payments")),
+                ("⬅️ بازگشت به مدیریت", build_callback("s", "admin")),
             ],
             [("📱 منوی اصلی", build_callback("s", "home"))],
         ]

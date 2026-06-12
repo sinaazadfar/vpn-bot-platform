@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime as dt
+import json
 
 from vpn_bot_platform.common.config import Settings
+from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import session_scope
 from vpn_bot_platform.common.models import (
     AuditActorType,
@@ -13,6 +15,8 @@ from vpn_bot_platform.common.models import (
     Order,
     OrderType,
     Payment,
+    PaymentGateway,
+    PaymentGatewayStatus,
     Plan,
     PlanPurpose,
     Reseller,
@@ -40,6 +44,7 @@ from vpn_bot_platform.common.repositories import (
     get_buyer_order_status,
     get_customer_counts,
     get_customer_for_reseller,
+    get_active_payment_gateway,
     get_plan,
     get_seller_bot_with_reseller,
     get_ticket_for_buyer,
@@ -64,6 +69,7 @@ from vpn_bot_platform.common.repositories import (
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     search_customers_for_reseller,
+    upsert_payment_gateway,
     upsert_buyer,
 )
 from vpn_bot_platform.integrations.payments import (
@@ -149,6 +155,14 @@ class WalletChargeRequest:
 
 
 @dataclass(frozen=True)
+class CryptoPaymentConfig:
+    currency: str
+    network: str
+    wallet_address: str
+    note: str | None = None
+
+
+@dataclass(frozen=True)
 class BuyerWallet:
     buyer: Buyer | None
     transactions: list[WalletTransaction]
@@ -175,6 +189,7 @@ class SellerContextService:
     ) -> None:
         self.seller_bot_id = seller_bot_id
         self.settings = settings
+        self.secret_box = SecretBox(settings.fernet_key) if settings is not None else None
         instructions = (
             settings.card_to_card_instructions
             if settings is not None
@@ -273,16 +288,32 @@ class SellerContextService:
             )
             increment_discount_usage(discount)
             await session.flush()
-            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
-                amount=amount,
-                description=f"order:{order.id}",
-                buyer_telegram_id=buyer_telegram_id,
+            crypto_config = self._decrypt_crypto_gateway(
+                await get_active_payment_gateway(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    provider="crypto",
+                )
             )
+            if crypto_config is None:
+                intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                    amount=amount,
+                    description=f"order:{order.id}",
+                    buyer_telegram_id=buyer_telegram_id,
+                )
+                instructions = intent.instructions
+            else:
+                payment.method = "crypto"
+                instructions = self._crypto_payment_instructions(
+                    config=crypto_config,
+                    amount=amount,
+                    reference=f"order:{order.id}",
+                )
             return PaymentRequest(
                 order=order,
                 payment=payment,
                 plan=plan,
-                instructions=intent.instructions,
+                instructions=instructions,
             )
 
     async def quote_card_to_card_payment(
@@ -395,12 +426,28 @@ class SellerContextService:
             )
             increment_discount_usage(discount)
             await session.flush()
-            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
-                amount=amount,
-                description=f"renewal:{order.id}",
-                buyer_telegram_id=buyer_telegram_id,
+            crypto_config = self._decrypt_crypto_gateway(
+                await get_active_payment_gateway(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    provider="crypto",
+                )
             )
-            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=intent.instructions)
+            if crypto_config is None:
+                intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                    amount=amount,
+                    description=f"renewal:{order.id}",
+                    buyer_telegram_id=buyer_telegram_id,
+                )
+                instructions = intent.instructions
+            else:
+                payment.method = "crypto"
+                instructions = self._crypto_payment_instructions(
+                    config=crypto_config,
+                    amount=amount,
+                    reference=f"renewal:{order.id}",
+                )
+            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=instructions)
 
     async def request_extra_volume_payment(
         self,
@@ -454,12 +501,28 @@ class SellerContextService:
             )
             increment_discount_usage(discount)
             await session.flush()
-            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
-                amount=amount,
-                description=f"extra_volume:{order.id}",
-                buyer_telegram_id=buyer_telegram_id,
+            crypto_config = self._decrypt_crypto_gateway(
+                await get_active_payment_gateway(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    provider="crypto",
+                )
             )
-            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=intent.instructions)
+            if crypto_config is None:
+                intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                    amount=amount,
+                    description=f"extra_volume:{order.id}",
+                    buyer_telegram_id=buyer_telegram_id,
+                )
+                instructions = intent.instructions
+            else:
+                payment.method = "crypto"
+                instructions = self._crypto_payment_instructions(
+                    config=crypto_config,
+                    amount=amount,
+                    reference=f"extra_volume:{order.id}",
+                )
+            return PaymentRequest(order=order, payment=payment, plan=plan, instructions=instructions)
 
     async def list_pending_payments(self, *, admin_telegram_id: int) -> list[PendingPayment]:
         async with session_scope() as session:
@@ -587,6 +650,85 @@ class SellerContextService:
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
             self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+
+    async def get_crypto_payment_config(self, *, admin_telegram_id: int) -> CryptoPaymentConfig | None:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            gateway = await get_active_payment_gateway(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                provider="crypto",
+            )
+            return self._decrypt_crypto_gateway(gateway)
+
+    async def set_crypto_payment_config(
+        self,
+        *,
+        admin_telegram_id: int,
+        currency: str,
+        network: str,
+        wallet_address: str,
+        note: str | None = None,
+    ) -> CryptoPaymentConfig:
+        if self.secret_box is None:
+            raise ValueError("encryption_not_configured")
+        config = CryptoPaymentConfig(
+            currency=currency.strip(),
+            network=network.strip(),
+            wallet_address=wallet_address.strip(),
+            note=(note or "").strip() or None,
+        )
+        if not config.currency or not config.network or not config.wallet_address:
+            raise ValueError("invalid_crypto_payment_config")
+        payload = json.dumps(
+            {
+                "currency": config.currency,
+                "network": config.network,
+                "wallet_address": config.wallet_address,
+                "note": config.note,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        encrypted_payload = self.secret_box.encrypt(payload)
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            gateway = await upsert_payment_gateway(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                provider="crypto",
+                config_encrypted=encrypted_payload,
+                priority=10,
+                status=PaymentGatewayStatus.ACTIVE,
+            )
+            await record_audit_log(
+                session,
+                action="payment_gateway.crypto.upsert",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="payment_gateway",
+                target_id=gateway.id,
+                metadata={
+                    "currency": config.currency,
+                    "network": config.network,
+                    "has_note": config.note is not None,
+                },
+            )
+            await session.flush()
+            return config
 
     async def create_admin_plan(
         self,
@@ -850,15 +992,30 @@ class SellerContextService:
                 reseller_id=seller_bot.reseller_id,
                 buyer_id=buyer.id,
                 amount=amount,
-                note="card_to_card wallet charge",
+                note="wallet charge payment request",
             )
             await session.flush()
-            intent = self.payment_gateways.get("card_to_card").create_payment_intent(
-                amount=amount,
-                description=f"wallet_charge:{transaction.id}",
-                buyer_telegram_id=buyer_telegram_id,
+            crypto_config = self._decrypt_crypto_gateway(
+                await get_active_payment_gateway(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    provider="crypto",
+                )
             )
-            return WalletChargeRequest(transaction=transaction, instructions=intent.instructions)
+            if crypto_config is None:
+                intent = self.payment_gateways.get("card_to_card").create_payment_intent(
+                    amount=amount,
+                    description=f"wallet_charge:{transaction.id}",
+                    buyer_telegram_id=buyer_telegram_id,
+                )
+                instructions = intent.instructions
+            else:
+                instructions = self._crypto_payment_instructions(
+                    config=crypto_config,
+                    amount=amount,
+                    reference=f"wallet_charge:{transaction.id}",
+                )
+            return WalletChargeRequest(transaction=transaction, instructions=instructions)
 
     async def list_buyer_wallet(self, *, buyer_telegram_id: int) -> BuyerWallet:
         async with session_scope() as session:
@@ -945,6 +1102,54 @@ class SellerContextService:
     def _ensure_reseller_admin(*, seller_bot: SellerBot, telegram_id: int) -> None:
         if seller_bot.reseller.telegram_user_id != telegram_id:
             raise PermissionError("not_reseller_admin")
+
+    def _decrypt_crypto_gateway(self, gateway: PaymentGateway | None) -> CryptoPaymentConfig | None:
+        if gateway is None or gateway.config_encrypted is None or self.secret_box is None:
+            return None
+        raw_config = self.secret_box.decrypt(gateway.config_encrypted)
+        if not raw_config:
+            return None
+        try:
+            payload = json.loads(raw_config)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        currency = str(payload.get("currency") or "").strip()
+        network = str(payload.get("network") or "").strip()
+        wallet_address = str(payload.get("wallet_address") or "").strip()
+        note = str(payload.get("note") or "").strip() or None
+        if not currency or not network or not wallet_address:
+            return None
+        return CryptoPaymentConfig(
+            currency=currency,
+            network=network,
+            wallet_address=wallet_address,
+            note=note,
+        )
+
+    @staticmethod
+    def _crypto_payment_instructions(
+        *,
+        config: CryptoPaymentConfig,
+        amount: float,
+        reference: str,
+    ) -> str:
+        lines = [
+            "روش پرداخت: ارز دیجیتال",
+            f"مبلغ سفارش: {amount:,.0f} تومان",
+            f"ارز: {config.currency}",
+            f"شبکه: {config.network}",
+            "",
+            "آدرس ولت:",
+            config.wallet_address,
+            "",
+            f"شناسه پرداخت: {reference}",
+            "بعد از پرداخت، هش تراکنش یا تصویر رسید را برای پشتیبانی ارسال کنید.",
+        ]
+        if config.note:
+            lines.extend(["", f"توضیحات فروشنده: {config.note}"])
+        return "\n".join(lines)
 
     async def open_ticket(
         self,

@@ -12,6 +12,7 @@ from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     admin_order_actions,
     admin_payment_actions,
+    admin_payment_settings_menu,
     admin_customer_card_actions,
     admin_customer_detail_actions,
     admin_customers_menu,
@@ -109,6 +110,14 @@ class AdminPlanCreateStates(StatesGroup):
     confirm = State()
 
 
+class CryptoPaymentSetupStates(StatesGroup):
+    currency = State()
+    network = State()
+    wallet_address = State()
+    note = State()
+    confirm = State()
+
+
 @router.message(CommandStart())
 async def start(
     message: Message,
@@ -189,6 +198,8 @@ async def cancel_flow(
             "📮 تیکت ها",
             "Plans",
             "🛒 تعرفه خدمات",
+            "Payment Method",
+            "🪙 روش پرداخت",
             "Sales Report",
             "📊 گزارش فروش",
             "Buyer Home",
@@ -267,6 +278,16 @@ async def seller_reply_menu_alias(
         await _send_admin_tickets(message, seller_context)
     elif message.text in {"Plans", "🛒 تعرفه خدمات"}:
         await _send_admin_plans(message, seller_context)
+    elif message.text in {"Payment Method", "🪙 روش پرداخت"}:
+        try:
+            config = await seller_context.get_crypto_payment_config(admin_telegram_id=message.from_user.id)
+        except PermissionError:
+            await message.answer("You do not have reseller admin access.")
+            return
+        await message.answer(
+            _crypto_payment_settings_text(config),
+            reply_markup=admin_payment_settings_menu(has_crypto=config is not None),
+        )
     elif message.text in {"Sales Report", "📊 گزارش فروش"}:
         try:
             report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=1)
@@ -919,6 +940,56 @@ async def seller_menu_callback(
         await _show_admin_dashboard(callback, seller_context)
     elif action.action == "admin_payments":
         await _show_admin_payments(callback, seller_context)
+    elif action.action == "admin_payment_settings":
+        await _show_admin_payment_settings(callback, seller_context)
+    elif action.action == "admin_crypto_payment_setup":
+        try:
+            await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        await state.clear()
+        await state.set_state(CryptoPaymentSetupStates.currency)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("ساخت روش پرداخت ارز دیجیتال"),
+                    "نام ارز را بفرستید.",
+                    "",
+                    "مثال: USDT",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+        )
+    elif action.action == "admin_crypto_payment_save":
+        data = await state.get_data()
+        spec = data.get("crypto_payment")
+        if not isinstance(spec, dict):
+            await state.clear()
+            await callback.answer("Payment draft expired. Start again.", show_alert=True)
+            await _show_admin_payment_settings(callback, seller_context)
+            return
+        try:
+            config = await seller_context.set_crypto_payment_config(
+                admin_telegram_id=callback.from_user.id,
+                currency=str(spec["currency"]),
+                network=str(spec["network"]),
+                wallet_address=str(spec["wallet_address"]),
+                note=str(spec.get("note") or "").strip() or None,
+            )
+        except PermissionError:
+            await state.clear()
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        except ValueError:
+            await state.clear()
+            await callback.answer("Could not save crypto payment settings.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _crypto_payment_settings_text(config),
+            reply_markup=admin_payment_settings_menu(has_crypto=True),
+        )
     elif action.action == "admin_orders":
         await _show_admin_orders(callback, seller_context)
     elif action.action == "admin_wallet":
@@ -1484,6 +1555,123 @@ async def seller_menu_callback(
             reply_markup=seller_admin_menu(),
         )
     await callback.answer()
+
+
+@router.message(CryptoPaymentSetupStates.currency)
+async def crypto_payment_currency(message: Message, state: FSMContext) -> None:
+    if message.text is None:
+        return
+    currency = message.text.strip()
+    if not currency or currency.startswith("/"):
+        await message.answer(
+            "\n".join([title("نام ارز نامعتبر است"), "فقط نام ارز را بفرستید.", "", "مثال: USDT"]),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+        )
+        return
+    await state.update_data(crypto_payment={"currency": currency[:32]})
+    await state.set_state(CryptoPaymentSetupStates.network)
+    await message.answer(
+        "\n".join(
+            [
+                title("شبکه پرداخت"),
+                "نام شبکه را بفرستید.",
+                "",
+                "مثال: TRC20 یا BEP20",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+    )
+
+
+@router.message(CryptoPaymentSetupStates.network)
+async def crypto_payment_network(message: Message, state: FSMContext) -> None:
+    if message.text is None:
+        return
+    network = message.text.strip()
+    if not network or network.startswith("/"):
+        await message.answer(
+            "\n".join([title("شبکه نامعتبر است"), "فقط نام شبکه را بفرستید.", "", "مثال: TRC20"]),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+        )
+        return
+    data = await state.get_data()
+    spec = dict(data.get("crypto_payment") or {})
+    spec["network"] = network[:32]
+    await state.update_data(crypto_payment=spec)
+    await state.set_state(CryptoPaymentSetupStates.wallet_address)
+    await message.answer(
+        "\n".join(
+            [
+                title("آدرس ولت"),
+                "آدرس کامل ولت را بفرستید.",
+                "",
+                "این متن دقیقاً برای خریدار نمایش داده می‌شود.",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+    )
+
+
+@router.message(CryptoPaymentSetupStates.wallet_address)
+async def crypto_payment_wallet_address(message: Message, state: FSMContext) -> None:
+    if message.text is None:
+        return
+    wallet_address = message.text.strip()
+    if len(wallet_address) < 8 or wallet_address.startswith("/"):
+        await message.answer(
+            "\n".join([title("آدرس ولت نامعتبر است"), "آدرس کامل ولت را دوباره بفرستید."]),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+        )
+        return
+    data = await state.get_data()
+    spec = dict(data.get("crypto_payment") or {})
+    spec["wallet_address"] = wallet_address[:256]
+    await state.update_data(crypto_payment=spec)
+    await state.set_state(CryptoPaymentSetupStates.note)
+    await message.answer(
+        "\n".join(
+            [
+                title("توضیح پرداخت"),
+                "اگر نکته‌ای لازم است بفرستید.",
+                "",
+                "مثال: فقط روی شبکه TRC20 پرداخت شود.",
+                "اگر توضیح لازم نیست، فقط - بفرستید.",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_payment_settings"),
+    )
+
+
+@router.message(CryptoPaymentSetupStates.note)
+async def crypto_payment_note(message: Message, state: FSMContext) -> None:
+    if message.text is None:
+        return
+    note = message.text.strip()
+    data = await state.get_data()
+    spec = dict(data.get("crypto_payment") or {})
+    spec["note"] = None if note in {"", "-"} else note[:512]
+    await state.update_data(crypto_payment=spec)
+    await state.set_state(CryptoPaymentSetupStates.confirm)
+    await message.answer(
+        _crypto_payment_confirm_text(spec),
+        reply_markup=confirm_keyboard(
+            scope="s",
+            confirm_action="admin_crypto_payment_save",
+            cancel_action="admin_payment_settings",
+        ),
+    )
+
+
+@router.message(CryptoPaymentSetupStates.confirm)
+async def crypto_payment_confirm_text_input(message: Message) -> None:
+    await message.answer(
+        "برای ذخیره روش پرداخت از دکمه تایید استفاده کنید.",
+        reply_markup=confirm_keyboard(
+            scope="s",
+            confirm_action="admin_crypto_payment_save",
+            cancel_action="admin_payment_settings",
+        ),
+    )
 
 
 @router.message(WalletChargeStates.amount)
@@ -3339,6 +3527,61 @@ async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerCo
             ),
             reply_markup=admin_payment_actions(item.payment.id),
         )
+
+
+async def _show_admin_payment_settings(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    try:
+        config = await seller_context.get_crypto_payment_config(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        _crypto_payment_settings_text(config),
+        reply_markup=admin_payment_settings_menu(has_crypto=config is not None),
+    )
+
+
+def _crypto_payment_settings_text(config: object | None) -> str:
+    if config is None:
+        return "\n".join(
+            [
+                title("روش پرداخت"),
+                "هنوز روش پرداخت ارز دیجیتال برای این ربات تنظیم نشده است.",
+                "",
+                "بعد از ساخت، کاربران هنگام خرید اطلاعات ولت را می‌بینند.",
+            ]
+        )
+    currency = str(getattr(config, "currency"))
+    network = str(getattr(config, "network"))
+    wallet_address = str(getattr(config, "wallet_address"))
+    note = getattr(config, "note", None)
+    lines = [
+        title("روش پرداخت ارز دیجیتال"),
+        f"ارز: {currency}",
+        f"شبکه: {network}",
+        "",
+        "آدرس ولت:",
+        wallet_address,
+    ]
+    if note:
+        lines.extend(["", f"توضیح: {note}"])
+    return "\n".join(lines)
+
+
+def _crypto_payment_confirm_text(spec: dict[str, object]) -> str:
+    lines = [
+        title("تایید روش پرداخت"),
+        f"ارز: {spec.get('currency')}",
+        f"شبکه: {spec.get('network')}",
+        "",
+        "آدرس ولت:",
+        str(spec.get("wallet_address") or ""),
+    ]
+    note = str(spec.get("note") or "").strip()
+    if note:
+        lines.extend(["", f"توضیح: {note}"])
+    lines.extend(["", "این اطلاعات برای پرداخت‌های جدید کاربران نمایش داده می‌شود."])
+    return "\n".join(lines)
 
 
 async def _send_admin_payments(message: Message, seller_context: SellerContextService) -> None:

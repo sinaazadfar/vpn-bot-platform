@@ -50,6 +50,19 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             bot_token="123:secret",
         )
         seller_context = SellerContextService(seller_bot.id)
+        crypto_settings = Settings(
+            DATABASE_URL="sqlite+aiosqlite:///:memory:",
+            FERNET_KEY=fernet_key,
+        )
+        crypto_context = SellerContextService(seller_bot.id, crypto_settings)
+        crypto_config = await crypto_context.set_crypto_payment_config(
+            admin_telegram_id=111,
+            currency="USDT",
+            network="TRC20",
+            wallet_address="TExampleWalletAddress123",
+            note="Send tx hash after payment.",
+        )
+        loaded_crypto_config = await crypto_context.get_crypto_payment_config(admin_telegram_id=111)
         profile = await seller_context.register_buyer(
             telegram_id=222,
             username="buyer",
@@ -256,6 +269,10 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         await dispose_engine()
 
     assert profile.reseller.id == registered.reseller.id
+    assert crypto_config.currency == "USDT"
+    assert loaded_crypto_config is not None
+    assert loaded_crypto_config.network == "TRC20"
+    assert loaded_crypto_config.wallet_address == "TExampleWalletAddress123"
     assert profile.seller_bot.id == seller_bot.id
     assert profile.buyer.reseller_id == registered.reseller.id
     assert profile.buyer.telegram_user_id == 222
