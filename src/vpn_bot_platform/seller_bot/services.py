@@ -32,6 +32,7 @@ from vpn_bot_platform.common.repositories import (
     apply_discount_amount,
     create_order_with_pending_payment,
     create_buyer_wallet_charge_request,
+    create_plan,
     create_ticket,
     create_reseller_broadcast,
     get_active_plan_for_reseller,
@@ -574,6 +575,62 @@ class SellerContextService:
                 session,
                 reseller_id=seller_bot.reseller_id,
             )
+
+    async def ensure_reseller_admin(self, *, admin_telegram_id: int) -> None:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+
+    async def create_admin_plan(
+        self,
+        *,
+        admin_telegram_id: int,
+        name: str,
+        price: float,
+        duration_days: int,
+        data_limit_gb: int | None,
+        purpose: PlanPurpose = PlanPurpose.PURCHASE,
+    ) -> Plan:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            plan = await create_plan(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                name=name,
+                price=price,
+                duration_days=duration_days,
+                data_limit_gb=data_limit_gb,
+                purpose=purpose,
+            )
+            await record_audit_log(
+                session,
+                action="seller_plan.create",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="plan",
+                target_id=plan.id,
+                metadata={
+                    "name": name,
+                    "price": price,
+                    "duration_days": duration_days,
+                    "data_limit_gb": data_limit_gb,
+                    "purpose": purpose.value,
+                },
+            )
+            await session.flush()
+            return plan
 
     async def get_pending_payment(
         self,

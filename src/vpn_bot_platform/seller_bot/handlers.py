@@ -15,8 +15,10 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customer_card_actions,
     admin_customer_detail_actions,
     admin_customers_menu,
+    admin_plans_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
+    cancel_only_keyboard,
     buyer_ticket_actions,
     confirm_keyboard,
     extra_volume_confirm_menu,
@@ -24,6 +26,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     extra_volume_plan_button,
     forced_join_blocked_menu,
     payment_request_actions,
+    plan_list_menu,
     plan_buy_button,
     purchase_confirm_menu,
     purchase_coupon_menu,
@@ -94,6 +97,11 @@ class SellerReportCustomStates(StatesGroup):
 
 class AdminCustomerSearchStates(StatesGroup):
     query = State()
+
+
+class AdminPlanCreateStates(StatesGroup):
+    spec = State()
+    confirm = State()
 
 
 @router.message(CommandStart())
@@ -193,7 +201,8 @@ async def seller_reply_menu_alias(
         return
     await state.clear()
     if message.text in {"Buy VPN", "🛒 خرید سرویس"}:
-        await message.answer(await _plans_text(seller_context), reply_markup=seller_section_menu("plans"))
+        plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
+        await message.answer(_plans_text_from_list(plans), reply_markup=plan_list_menu(plans))
     elif message.text in {"My Services", "🛍 سرویس های من"}:
         await message.answer(
             await _services_text(seller_context, buyer_telegram_id=message.from_user.id),
@@ -292,15 +301,16 @@ async def seller_menu_callback(
             reply_markup=seller_buyer_menu(),
         )
     elif action.action == "plans":
+        plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
         await callback.message.edit_text(
-            await _plans_text(seller_context),
-            reply_markup=seller_section_menu("plans"),
+            _plans_text_from_list(plans),
+            reply_markup=plan_list_menu(plans),
         )
     elif action.action == "buy":
         if not action.value:
             await callback.answer("Plan is missing.", show_alert=True)
             return
-        plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.RENEWAL)
+        plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.PURCHASE)
         if plan is None:
             await callback.answer("Plan not found.", show_alert=True)
             return
@@ -947,6 +957,56 @@ async def seller_menu_callback(
         await _show_admin_tickets(callback, seller_context)
     elif action.action == "admin_plans":
         await _show_admin_plans(callback, seller_context)
+    elif action.action == "admin_plan_add":
+        try:
+            await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
+        except PermissionError:
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        await state.clear()
+        await state.set_state(AdminPlanCreateStates.spec)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("افزودن پلن فروش"),
+                    "مشخصات پلن را در یک پیام بفرستید:",
+                    "",
+                    "نام | قیمت | روز | حجم",
+                    "",
+                    "مثال:",
+                    "پلن 30 روزه 50 گیگ | 120000 | 30 | 50",
+                    "",
+                    "برای حجم نامحدود بنویسید: unlimited",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+        )
+    elif action.action == "admin_plan_create":
+        data = await state.get_data()
+        spec = data.get("admin_plan")
+        if not isinstance(spec, dict):
+            await state.clear()
+            await callback.answer("Plan draft expired. Start again.", show_alert=True)
+            await _show_admin_plans(callback, seller_context)
+            return
+        try:
+            plan = await seller_context.create_admin_plan(
+                admin_telegram_id=callback.from_user.id,
+                name=str(spec["name"]),
+                price=float(spec["price"]),
+                duration_days=int(spec["duration_days"]),
+                data_limit_gb=spec["data_limit_gb"],
+                purpose=PlanPurpose.PURCHASE,
+            )
+        except PermissionError:
+            await state.clear()
+            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            _admin_plan_created_text(plan),
+            reply_markup=admin_plans_menu(),
+        )
     elif action.action == "admin_ticket_detail":
         if not action.value:
             await callback.answer("Ticket is missing.", show_alert=True)
@@ -1358,6 +1418,55 @@ async def wallet_charge_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Wallet Charge"), "Use Confirm or Cancel below the preview."])
     )
+
+
+@router.message(AdminPlanCreateStates.spec)
+async def admin_plan_create_spec(
+    message: Message,
+    state: FSMContext,
+    seller_context: SellerContextService,
+) -> None:
+    if message.from_user is None:
+        return
+    try:
+        spec = _parse_admin_plan_spec(message.text or "")
+    except ValueError as exc:
+        await message.answer(
+            "\n".join(
+                [
+                    title("افزودن پلن فروش"),
+                    str(exc),
+                    "",
+                    "فرمت درست:",
+                    "نام | قیمت | روز | حجم",
+                    "مثال: پلن 30 روزه 50 گیگ | 120000 | 30 | 50",
+                    "برای حجم نامحدود بنویسید: unlimited",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+        )
+        return
+    try:
+        await seller_context.ensure_reseller_admin(admin_telegram_id=message.from_user.id)
+    except PermissionError:
+        await state.clear()
+        await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
+        return
+    await state.update_data(admin_plan=spec)
+    await state.set_state(AdminPlanCreateStates.confirm)
+    await message.answer(
+        _admin_plan_confirm_text(spec),
+        reply_markup=confirm_keyboard(
+            scope="s",
+            confirm_action="admin_plan_create",
+            cancel_action="admin_plans",
+        ),
+    )
+
+
+@router.message(AdminPlanCreateStates.confirm)
+async def admin_plan_create_waiting_for_confirm(message: Message) -> None:
+    await message.answer("برای ساخت پلن از دکمه تایید استفاده کنید.")
 
 
 @router.message(PurchaseCreateStates.coupon)
@@ -2396,6 +2505,10 @@ def _buyer_dashboard_text(*, seller_name: str, reseller_name: str) -> str:
 
 async def _plans_text(seller_context: SellerContextService) -> str:
     plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
+    return _plans_text_from_list(plans)
+
+
+def _plans_text_from_list(plans) -> str:
     if not plans:
         return "\n".join([title("🛒 خرید سرویس"), "😢 در حال حاضر سرویسی برای خرید موجود نمی‌باشد!"])
     rows = []
@@ -2404,7 +2517,7 @@ async def _plans_text(seller_context: SellerContextService) -> str:
         rows.append(
             f"▫️ {plan.name} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic} | کد: {short_id(plan.id)}"
         )
-    rows.extend(["", "👇🏻 برای خرید و فعالسازی سرویس، دکمه خرید را روی کارت پلن بزنید."])
+    rows.extend(["", "👇🏻 برای خرید و فعالسازی سرویس، یکی از دکمه های پلن را انتخاب کنید."])
     return "\n".join([title("🛒 خرید سرویس"), section("📲 سرویس‌های موجود", rows)])
 
 
@@ -3184,7 +3297,7 @@ async def _show_admin_plans(callback: CallbackQuery, seller_context: SellerConte
     except PermissionError:
         await callback.answer("You do not have reseller admin access.", show_alert=True)
         return
-    await callback.message.edit_text(_admin_plans_text(plans), reply_markup=seller_admin_menu())
+    await callback.message.edit_text(_admin_plans_text(plans), reply_markup=admin_plans_menu())
 
 
 async def _send_admin_plans(message: Message, seller_context: SellerContextService) -> None:
@@ -3193,7 +3306,7 @@ async def _send_admin_plans(message: Message, seller_context: SellerContextServi
     except PermissionError:
         await message.answer("You do not have reseller admin access.")
         return
-    await message.answer(_admin_plans_text(plans), reply_markup=seller_admin_menu())
+    await message.answer(_admin_plans_text(plans), reply_markup=admin_plans_menu())
 
 
 def _admin_order_row(item) -> str:
@@ -3274,12 +3387,81 @@ def _admin_customer_detail_text(detail) -> str:
 def _admin_plans_text(plans) -> str:
     rows = []
     for plan in plans[:20]:
-        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
         rows.append(
-            f"- {plan.name} | {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={short_id(plan.id)}"
+            f"▫️ {plan.name} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic} | کد: {short_id(plan.id)}"
         )
-    rows.extend(["", "Plan creation and pricing are managed from the master bot for now."])
-    return "\n".join([title("Seller Plans"), section("Active plans", rows)])
+    if not rows:
+        rows.append("هنوز پلن اختصاصی برای این فروشنده ساخته نشده است.")
+    rows.extend(["", "برای ساخت تعرفه جدید دکمه «افزودن پلن» را بزنید."])
+    return "\n".join([title("🛒 تعرفه خدمات"), section("پلن های فعال", rows)])
+
+
+def _parse_admin_plan_spec(raw: str) -> dict:
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) != 4:
+        raise ValueError("اطلاعات کامل نیست.")
+    name, raw_price, raw_days, raw_gb = parts
+    if not name:
+        raise ValueError("نام پلن خالی است.")
+    try:
+        price = float(raw_price.replace(",", ""))
+    except ValueError:
+        raise ValueError("قیمت باید عدد باشد.") from None
+    try:
+        duration_days = int(raw_days)
+    except ValueError:
+        raise ValueError("روز باید عدد صحیح باشد.") from None
+    if price <= 0:
+        raise ValueError("قیمت باید بیشتر از صفر باشد.")
+    if duration_days <= 0:
+        raise ValueError("تعداد روز باید بیشتر از صفر باشد.")
+    normalized_gb = raw_gb.strip().lower()
+    if normalized_gb in {"unlimited", "نامحدود", "-", "none"}:
+        data_limit_gb = None
+    else:
+        try:
+            data_limit_gb = int(raw_gb)
+        except ValueError:
+            raise ValueError("حجم باید عدد گیگابایت یا unlimited باشد.") from None
+        if data_limit_gb <= 0:
+            raise ValueError("حجم باید بیشتر از صفر باشد.")
+    return {
+        "name": name[:128],
+        "price": price,
+        "duration_days": duration_days,
+        "data_limit_gb": data_limit_gb,
+    }
+
+
+def _admin_plan_confirm_text(spec: dict) -> str:
+    traffic = "نامحدود" if spec["data_limit_gb"] is None else f"{spec['data_limit_gb']} گیگ"
+    return "\n".join(
+        [
+            title("تایید پلن فروش"),
+            f"نام: {spec['name']}",
+            f"قیمت: {spec['price']:,.0f} تومان",
+            f"مدت: {spec['duration_days']} روز",
+            f"حجم: {traffic}",
+            "",
+            "اگر اطلاعات درست است تایید را بزنید.",
+        ]
+    )
+
+
+def _admin_plan_created_text(plan) -> str:
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
+    return "\n".join(
+        [
+            title("پلن فروش ساخته شد"),
+            f"نام: {plan.name}",
+            f"قیمت: {plan.price:,.0f} تومان",
+            f"مدت: {plan.duration_days} روز",
+            f"حجم: {traffic}",
+            "",
+            "این پلن از حالا برای خریداران به صورت دکمه نمایش داده می‌شود.",
+        ]
+    )
 
 
 async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerContextService) -> None:

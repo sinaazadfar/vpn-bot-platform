@@ -517,6 +517,18 @@ def seller_admin_menu() -> InlineKeyboardMarkup:
     )
 
 
+def admin_plans_menu() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("➕ افزودن پلن", build_callback("s", "admin_plan_add")),
+                ("🔄 بروزرسانی", build_callback("s", "admin_plans")),
+            ],
+            [("⬅️ بازگشت به مدیریت", build_callback("s", "admin")), ("📱 منوی اصلی", build_callback("s", "home"))],
+        ]
+    )
+
+
 def admin_customers_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
@@ -589,6 +601,19 @@ def plan_buy_button(plan_id: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def plan_list_menu(plans: list[object]) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = []
+    for plan in plans:
+        plan_id = str(getattr(plan, "id"))
+        name = str(getattr(plan, "name", "Plan")).strip() or "Plan"
+        price = float(getattr(plan, "price", 0))
+        duration_days = int(getattr(plan, "duration_days", 0))
+        label = f"{name[:18]} | {price:,.0f} | {duration_days} روز"
+        rows.append([(label, build_callback("s", "buy", plan_id))])
+    rows.append(nav_row(scope="s", refresh_action="plans", home_action="home"))
+    return inline_keyboard(rows)
 
 
 def purchase_coupon_menu() -> InlineKeyboardMarkup:

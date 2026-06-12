@@ -140,6 +140,14 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             duration_days=60,
             data_limit_gb=None,
         )
+        seller_admin_plan = await seller_context.create_admin_plan(
+            admin_telegram_id=111,
+            name="seller-admin45",
+            price=99000,
+            duration_days=45,
+            data_limit_gb=70,
+        )
+        admin_plans = await seller_context.list_admin_plans(admin_telegram_id=111)
         discount = await master_service.create_global_discount(
             code="SAVE10",
             discount_type=DiscountType.PERCENT,
@@ -251,7 +259,12 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert len(global_recipients.recipients) == 2
     assert sent_global.sent_count == 2
     assert sent_global.status == "sent"
-    assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id}
+    assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id, seller_admin_plan.id}
+    assert seller_admin_plan.reseller_id == registered.reseller.id
+    assert seller_admin_plan.price == 99000
+    assert seller_admin_plan.duration_days == 45
+    assert seller_admin_plan.data_limit_gb == 70
+    assert seller_admin_plan.id in {plan.id for plan in admin_plans}
     assert payment_request.payment.amount == 162000
     assert discount.id in {item.id for item in discounts_after_purchase}
     assert [item.used_count for item in discounts_after_purchase if item.id == discount.id] == [1]

@@ -11,6 +11,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     admin_customer_detail_actions,
     admin_customers_menu,
     admin_payment_actions,
+    admin_plans_menu,
     admin_ticket_actions,
     admin_wallet_charge_actions,
     broadcast_actions,
@@ -32,6 +33,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     payment_request_actions,
     panel_actions,
     plan_actions,
+    plan_list_menu,
     plan_buy_button,
     purchase_confirm_menu,
     purchase_coupon_menu,
@@ -83,6 +85,12 @@ def test_callback_rejects_too_long_data() -> None:
 
 def test_main_menus_have_buttons() -> None:
     seller_bot = SimpleNamespace(id="12345678-1234-1234-1234-123456789abc", name="Test Bot", status="running")
+    plan = SimpleNamespace(
+        id="12345678-1234-1234-1234-123456789abc",
+        name="Plan 30",
+        price=100000,
+        duration_days=30,
+    )
     assert master_main_menu().inline_keyboard
     assert master_seller_bot_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
     assert external_template_actions("12345678-1234-1234-1234-123456789abc").inline_keyboard
@@ -96,6 +104,8 @@ def test_main_menus_have_buttons() -> None:
     assert reseller_detail_actions(12345).inline_keyboard
     assert seller_buyer_menu().inline_keyboard
     assert seller_admin_menu().inline_keyboard
+    assert admin_plans_menu().inline_keyboard
+    assert plan_list_menu([plan]).inline_keyboard
     assert seller_report_menu().inline_keyboard
     assert wallet_charge_menu().inline_keyboard
     assert support_menu().inline_keyboard
@@ -109,6 +119,7 @@ def test_main_menus_have_buttons() -> None:
 def test_inline_keyboards_fit_callback_limit() -> None:
     uuid = "12345678-1234-1234-1234-123456789abc"
     seller_bot = SimpleNamespace(id=uuid, name="Test Bot With A Long Name", status="running")
+    plan = SimpleNamespace(id=uuid, name="Plan 30", price=100000, duration_days=30)
 
     for keyboard in (
         master_main_menu(),
@@ -144,6 +155,8 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         seller_buyer_menu(),
         seller_admin_menu(),
+        admin_plans_menu(),
+        plan_list_menu([plan]),
         seller_report_menu(),
         seller_section_menu("wallet"),
         payment_request_actions(uuid),
