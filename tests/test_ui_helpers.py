@@ -60,6 +60,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     seller_report_menu,
     support_menu,
     wallet_charge_menu,
+    wallet_charge_request_actions,
     wallet_transaction_actions,
 )
 from vpn_bot_platform.common.ui.messages import status_label
@@ -186,6 +187,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         extra_volume_confirm_menu(),
         service_actions(uuid),
         wallet_charge_menu(),
+        wallet_charge_request_actions(uuid),
         wallet_transaction_actions(uuid),
         support_menu(),
         admin_customers_menu(),

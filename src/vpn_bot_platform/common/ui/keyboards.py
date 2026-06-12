@@ -691,6 +691,18 @@ def payment_request_actions(order_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def wallet_charge_request_actions(transaction_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("📤 ارسال فیش", build_callback("s", "wallet_receipt_upload", transaction_id)),
+                ("💸 شارژ حساب", build_callback("s", "wallet")),
+            ],
+            [("📮 پشتیبانی آنلاین", build_callback("s", "support")), ("📱 منوی اصلی", build_callback("s", "home"))],
+        ]
+    )
+
+
 def service_actions(service_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

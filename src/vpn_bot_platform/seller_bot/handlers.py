@@ -48,6 +48,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     service_actions,
     support_menu,
     wallet_charge_menu,
+    wallet_charge_request_actions,
     wallet_transaction_actions,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
@@ -795,6 +796,17 @@ async def seller_menu_callback(
             _receipt_upload_request_text(action.value),
             reply_markup=cancel_only_keyboard(scope="s", cancel_action="home"),
         )
+    elif action.action == "wallet_receipt_upload":
+        if not action.value:
+            await callback.answer("Wallet charge is missing.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(receipt_transaction_id=action.value)
+        await state.set_state(ReceiptUploadStates.photo)
+        await callback.message.edit_text(
+            _wallet_receipt_upload_request_text(action.value),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="wallet"),
+        )
     elif action.action == "wallet_add":
         if not action.value:
             await callback.answer("Amount is missing.", show_alert=True)
@@ -846,7 +858,7 @@ async def seller_menu_callback(
         await state.clear()
         await callback.message.edit_text(
             _wallet_charge_request_text(charge),
-            reply_markup=wallet_charge_menu(),
+            reply_markup=wallet_charge_request_actions(charge.transaction.id),
         )
     elif action.action == "wallet_cancel":
         await state.clear()
@@ -1867,6 +1879,10 @@ async def receipt_upload_photo(
     if message.from_user is None:
         return
     data = await state.get_data()
+    transaction_id = str(data.get("receipt_transaction_id") or "").strip()
+    if transaction_id:
+        await _handle_wallet_receipt_photo(message, seller_context, state, transaction_id=transaction_id)
+        return
     order_id = str(data.get("receipt_order_id") or "").strip()
     if not order_id:
         await state.clear()
@@ -1933,6 +1949,81 @@ async def receipt_upload_photo(
             ]
         ),
         reply_markup=payment_request_actions(order_id),
+    )
+
+
+async def _handle_wallet_receipt_photo(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+    *,
+    transaction_id: str,
+) -> None:
+    if message.from_user is None:
+        return
+    if not message.photo:
+        await message.answer(
+            "\n".join(
+                [
+                    title("ارسال فیش شارژ کیف پول"),
+                    "لطفاً عکس فیش شارژ کیف پول را همینجا ارسال کنید.",
+                    "",
+                    "اگر روش پرداخت دیگری مدنظر دارید، به پشتیبانی پیام بدهید.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="wallet"),
+        )
+        return
+    try:
+        transaction = await seller_context.get_buyer_wallet_transaction(
+            buyer_telegram_id=message.from_user.id,
+            transaction_id=transaction_id,
+        )
+    except ValueError:
+        await state.clear()
+        await message.answer("درخواست شارژ کیف پول پیدا نشد.", reply_markup=wallet_charge_menu())
+        return
+    if transaction.status != "pending":
+        await state.clear()
+        await message.answer("این درخواست شارژ قبلاً بررسی شده است.", reply_markup=wallet_charge_menu())
+        return
+    contacts = await seller_context.get_payment_notification_contacts(
+        buyer_telegram_id=message.from_user.id,
+    )
+    caption = _wallet_receipt_notification_caption(
+        buyer_telegram_id=message.from_user.id,
+        transaction=transaction,
+    )
+    photo_file_id = message.photo[-1].file_id
+    await _send_wallet_receipt_to_contact(
+        message,
+        chat_id=contacts.admin_telegram_id,
+        photo_file_id=photo_file_id,
+        caption=caption,
+        transaction_id=transaction.id,
+        include_actions=True,
+    )
+    if contacts.support_contact is not None and contacts.support_contact != contacts.admin_telegram_id:
+        await _send_wallet_receipt_to_contact(
+            message,
+            chat_id=contacts.support_contact,
+            photo_file_id=photo_file_id,
+            caption=caption,
+            transaction_id=transaction.id,
+            include_actions=False,
+        )
+    await state.clear()
+    await message.answer(
+        "\n".join(
+            [
+                title("فیش شارژ ارسال شد"),
+                "عکس فیش برای ادمین و پشتیبان ارسال شد.",
+                "بعد از تایید ادمین، مبلغ به کیف پول شما اضافه می‌شود.",
+                "",
+                "برای روش پرداخت دیگر، به پشتیبانی پیام بدهید.",
+            ]
+        ),
+        reply_markup=wallet_charge_request_actions(transaction.id),
     )
 
 
@@ -2548,7 +2639,7 @@ async def _send_legacy_start(message: Message, seller_context: SellerContextServ
                 "Available now:",
                 "/start - open your buyer profile",
                 "/plans - show available VPN plans",
-                "/buy <plan_id> [coupon] - request card-to-card payment",
+                "/buy - buy from wallet using buttons",
                 "/renew <service_id> <plan_id> [coupon] - renew an existing service",
                 "/my_services - show your VPN services",
                 "/wallet - show wallet balance",
@@ -2559,7 +2650,7 @@ async def _send_legacy_start(message: Message, seller_context: SellerContextServ
                 "/reply_ticket <ticket_id> <message>",
                 "/admin - reseller admin panel",
                 "",
-                "Payment approval and provisioning are next.",
+                "Charge your wallet first. Service purchases are paid from wallet balance.",
             ]
         )
     )
@@ -2668,15 +2759,8 @@ async def charge_wallet(
             return
         raise
     await message.answer(
-        "\n".join(
-            [
-                "Wallet charge request created.",
-                f"Transaction ID: {charge.transaction.id}",
-                f"Amount: {charge.transaction.amount:,.0f}",
-                "",
-                charge.instructions,
-            ]
-        )
+        _wallet_charge_request_text(charge),
+        reply_markup=wallet_charge_request_actions(charge.transaction.id),
     )
 
 
@@ -3734,6 +3818,20 @@ def _receipt_upload_request_text(order_id: str) -> str:
     )
 
 
+def _wallet_receipt_upload_request_text(transaction_id: str) -> str:
+    return "\n".join(
+        [
+            title("📤 ارسال فیش شارژ کیف پول"),
+            f"شماره تراکنش: {transaction_id}",
+            "",
+            "عکس فیش شارژ کیف پول را همینجا داخل ربات ارسال کنید.",
+            "ربات عکس را برای ادمین و پشتیبان ارسال می‌کند.",
+            "",
+            "برای روش پرداخت دیگر، به پشتیبانی پیام بدهید.",
+        ]
+    )
+
+
 def _receipt_notification_caption(*, buyer_telegram_id: int, order_status) -> str:
     order = order_status.order
     payment = order_status.payment
@@ -3754,6 +3852,20 @@ def _receipt_notification_caption(*, buyer_telegram_id: int, order_status) -> st
     )
 
 
+def _wallet_receipt_notification_caption(*, buyer_telegram_id: int, transaction) -> str:
+    return "\n".join(
+        [
+            title("فیش شارژ کیف پول"),
+            f"Buyer Telegram ID: {buyer_telegram_id}",
+            f"Transaction ID: {transaction.id}",
+            f"Amount: {transaction.amount:,.0f} تومان",
+            f"Status: {status_label(transaction.status)}",
+            "",
+            "بعد از بررسی عکس، شارژ کیف پول را approve کنید.",
+        ]
+    )
+
+
 async def _send_receipt_to_contact(
     message: Message,
     *,
@@ -3769,6 +3881,26 @@ async def _send_receipt_to_contact(
             photo_file_id,
             caption=caption,
             reply_markup=admin_payment_actions(payment_id) if include_actions else None,
+        )
+    except TelegramAPIError:
+        return
+
+
+async def _send_wallet_receipt_to_contact(
+    message: Message,
+    *,
+    chat_id: int | str,
+    photo_file_id: str,
+    caption: str,
+    transaction_id: str,
+    include_actions: bool,
+) -> None:
+    try:
+        await message.bot.send_photo(
+            chat_id,
+            photo_file_id,
+            caption=caption,
+            reply_markup=admin_wallet_charge_actions(transaction_id) if include_actions else None,
         )
     except TelegramAPIError:
         return
@@ -3801,10 +3933,13 @@ def _pending_payment_detail_text(pending) -> str:
 def _wallet_charge_confirm_text(amount: float) -> str:
     return "\n".join(
         [
-            title("Confirm Wallet Charge"),
-            f"Amount: {amount:,.0f}",
+            title("تایید شارژ کیف پول"),
+            f"مبلغ شارژ: {amount:,.0f} تومان",
             "",
-            "Confirm to create the card-to-card charge request.",
+            "با تایید، درخواست شارژ کیف پول ساخته می‌شود.",
+            "بعد از ساخت درخواست، عکس فیش را داخل ربات ارسال کنید.",
+            "",
+            "برای روش پرداخت دیگر، به پشتیبانی پیام بدهید.",
         ]
     )
 
@@ -3812,11 +3947,14 @@ def _wallet_charge_confirm_text(amount: float) -> str:
 def _wallet_charge_request_text(charge) -> str:
     return "\n".join(
         [
-            title("Wallet Charge Request"),
-            f"Transaction ID: {charge.transaction.id}",
-            f"Amount: {charge.transaction.amount:,.0f}",
+            title("درخواست شارژ کیف پول"),
+            f"شماره تراکنش: {charge.transaction.id}",
+            f"مبلغ: {charge.transaction.amount:,.0f} تومان",
             "",
             charge.instructions,
+            "",
+            "بعد از پرداخت، عکس فیش را با دکمه ارسال فیش بفرستید.",
+            "برای روش پرداخت دیگر، به پشتیبانی پیام بدهید.",
         ]
     )
 
