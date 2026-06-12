@@ -608,10 +608,7 @@ def plan_list_menu(plans: list[object]) -> InlineKeyboardMarkup:
     for plan in plans:
         plan_id = str(getattr(plan, "id"))
         name = str(getattr(plan, "name", "Plan")).strip() or "Plan"
-        price = float(getattr(plan, "price", 0))
-        duration_days = int(getattr(plan, "duration_days", 0))
-        label = f"{name[:18]} | {price:,.0f} | {duration_days} روز"
-        rows.append([(label, build_callback("s", "buy", plan_id))])
+        rows.append([(name[:48], build_callback("s", "buy", plan_id))])
     rows.append(nav_row(scope="s", refresh_action="plans", home_action="home"))
     return inline_keyboard(rows)
 

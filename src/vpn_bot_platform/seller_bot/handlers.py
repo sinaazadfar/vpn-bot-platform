@@ -100,7 +100,10 @@ class AdminCustomerSearchStates(StatesGroup):
 
 
 class AdminPlanCreateStates(StatesGroup):
-    spec = State()
+    name = State()
+    volume = State()
+    days = State()
+    price = State()
     confirm = State()
 
 
@@ -964,19 +967,15 @@ async def seller_menu_callback(
             await callback.answer("You do not have reseller admin access.", show_alert=True)
             return
         await state.clear()
-        await state.set_state(AdminPlanCreateStates.spec)
+        await state.set_state(AdminPlanCreateStates.name)
         await callback.message.edit_text(
             "\n".join(
                 [
                     title("افزودن پلن فروش"),
-                    "مشخصات پلن را در یک پیام بفرستید:",
+                    "اسم پلن را بفرستید.",
                     "",
-                    "نام | قیمت | روز | حجم",
-                    "",
-                    "مثال:",
-                    "پلن 30 روزه 50 گیگ | 120000 | 30 | 50",
-                    "",
-                    "برای حجم نامحدود بنویسید: unlimited",
+                    "این همان متنی است که کاربر روی دکمه خرید می‌بیند.",
+                    "مثال: پلن اقتصادی 30 روزه",
                 ]
             ),
             reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
@@ -1420,27 +1419,22 @@ async def wallet_charge_waiting_for_confirmation(message: Message) -> None:
     )
 
 
-@router.message(AdminPlanCreateStates.spec)
-async def admin_plan_create_spec(
+@router.message(AdminPlanCreateStates.name)
+async def admin_plan_create_name(
     message: Message,
     state: FSMContext,
     seller_context: SellerContextService,
 ) -> None:
     if message.from_user is None:
         return
-    try:
-        spec = _parse_admin_plan_spec(message.text or "")
-    except ValueError as exc:
+    name = (message.text or "").strip()
+    if not name or name.startswith("/"):
         await message.answer(
             "\n".join(
                 [
                     title("افزودن پلن فروش"),
-                    str(exc),
-                    "",
-                    "فرمت درست:",
-                    "نام | قیمت | روز | حجم",
-                    "مثال: پلن 30 روزه 50 گیگ | 120000 | 30 | 50",
-                    "برای حجم نامحدود بنویسید: unlimited",
+                    "اسم پلن نباید خالی یا دستور باشد.",
+                    "مثال: پلن اقتصادی 30 روزه",
                 ]
             ),
             reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
@@ -1452,6 +1446,110 @@ async def admin_plan_create_spec(
         await state.clear()
         await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
         return
+    await state.update_data(admin_plan={"name": name[:128]})
+    await state.set_state(AdminPlanCreateStates.volume)
+    await message.answer(
+        "\n".join(
+            [
+                title("حجم پلن"),
+                "حجم پلن را به گیگابایت بفرستید.",
+                "",
+                "فقط عدد وارد کنید. نامحدود نداریم.",
+                "مثال: 50",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+    )
+
+
+@router.message(AdminPlanCreateStates.volume)
+async def admin_plan_create_volume(message: Message, state: FSMContext) -> None:
+    data_limit_gb = _parse_positive_int(message.text)
+    if data_limit_gb is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("حجم پلن"),
+                    "حجم باید یک عدد صحیح بیشتر از صفر باشد.",
+                    "",
+                    "نامحدود نداریم.",
+                    "مثال: 50",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+        )
+        return
+    data = await state.get_data()
+    spec = dict(data.get("admin_plan") or {})
+    spec["data_limit_gb"] = data_limit_gb
+    await state.update_data(admin_plan=spec)
+    await state.set_state(AdminPlanCreateStates.days)
+    await message.answer(
+        "\n".join(
+            [
+                title("مدت پلن"),
+                "مدت پلن را به روز بفرستید.",
+                "",
+                "فقط عدد وارد کنید.",
+                "مثال: 30",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+    )
+
+
+@router.message(AdminPlanCreateStates.days)
+async def admin_plan_create_days(message: Message, state: FSMContext) -> None:
+    duration_days = _parse_positive_int(message.text)
+    if duration_days is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("مدت پلن"),
+                    "مدت باید یک عدد صحیح بیشتر از صفر باشد.",
+                    "مثال: 30",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+        )
+        return
+    data = await state.get_data()
+    spec = dict(data.get("admin_plan") or {})
+    spec["duration_days"] = duration_days
+    await state.update_data(admin_plan=spec)
+    await state.set_state(AdminPlanCreateStates.price)
+    await message.answer(
+        "\n".join(
+            [
+                title("قیمت پلن"),
+                "قیمت فروش پلن را به تومان بفرستید.",
+                "",
+                "فقط عدد وارد کنید.",
+                "مثال: 120000",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+    )
+
+
+@router.message(AdminPlanCreateStates.price)
+async def admin_plan_create_price(message: Message, state: FSMContext) -> None:
+    price = _parse_positive_float(message.text)
+    if price is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("قیمت پلن"),
+                    "قیمت باید یک عدد بیشتر از صفر باشد.",
+                    "مثال: 120000",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="s", cancel_action="admin_plans"),
+        )
+        return
+    data = await state.get_data()
+    spec = dict(data.get("admin_plan") or {})
+    spec["price"] = price
     await state.update_data(admin_plan=spec)
     await state.set_state(AdminPlanCreateStates.confirm)
     await message.answer(
@@ -3397,45 +3495,28 @@ def _admin_plans_text(plans) -> str:
     return "\n".join([title("🛒 تعرفه خدمات"), section("پلن های فعال", rows)])
 
 
-def _parse_admin_plan_spec(raw: str) -> dict:
-    parts = [part.strip() for part in raw.split("|")]
-    if len(parts) != 4:
-        raise ValueError("اطلاعات کامل نیست.")
-    name, raw_price, raw_days, raw_gb = parts
-    if not name:
-        raise ValueError("نام پلن خالی است.")
+def _parse_positive_int(raw: str | None) -> int | None:
     try:
-        price = float(raw_price.replace(",", ""))
+        value = int((raw or "").strip().replace(",", ""))
     except ValueError:
-        raise ValueError("قیمت باید عدد باشد.") from None
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def _parse_positive_float(raw: str | None) -> float | None:
     try:
-        duration_days = int(raw_days)
+        value = float((raw or "").strip().replace(",", ""))
     except ValueError:
-        raise ValueError("روز باید عدد صحیح باشد.") from None
-    if price <= 0:
-        raise ValueError("قیمت باید بیشتر از صفر باشد.")
-    if duration_days <= 0:
-        raise ValueError("تعداد روز باید بیشتر از صفر باشد.")
-    normalized_gb = raw_gb.strip().lower()
-    if normalized_gb in {"unlimited", "نامحدود", "-", "none"}:
-        data_limit_gb = None
-    else:
-        try:
-            data_limit_gb = int(raw_gb)
-        except ValueError:
-            raise ValueError("حجم باید عدد گیگابایت یا unlimited باشد.") from None
-        if data_limit_gb <= 0:
-            raise ValueError("حجم باید بیشتر از صفر باشد.")
-    return {
-        "name": name[:128],
-        "price": price,
-        "duration_days": duration_days,
-        "data_limit_gb": data_limit_gb,
-    }
+        return None
+    if value <= 0:
+        return None
+    return value
 
 
 def _admin_plan_confirm_text(spec: dict) -> str:
-    traffic = "نامحدود" if spec["data_limit_gb"] is None else f"{spec['data_limit_gb']} گیگ"
+    traffic = f"{spec['data_limit_gb']} گیگ"
     return "\n".join(
         [
             title("تایید پلن فروش"),
@@ -3450,7 +3531,7 @@ def _admin_plan_confirm_text(spec: dict) -> str:
 
 
 def _admin_plan_created_text(plan) -> str:
-    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
+    traffic = f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
             title("پلن فروش ساخته شد"),
