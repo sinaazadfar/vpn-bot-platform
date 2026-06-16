@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import math
+import datetime as dt
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
@@ -420,14 +422,7 @@ async def seller_menu_callback(
             return
         await state.clear()
         await callback.message.edit_text(
-            "\n".join(
-                [
-                    title("✅ خرید با موفقیت انجام شد"),
-                    f"مبلغ کسر شده از کیف پول: {abs(float(wallet_purchase.transaction.amount)):,.0f} تومان",
-                    "",
-                    _service_created_text("سرویس شما ساخته شد.", provisioned.vpn_service),
-                ]
-            ),
+            _service_created_text("سرویس شما ساخته شد.", provisioned.vpn_service),
             reply_markup=service_actions(provisioned.vpn_service.id),
         )
     elif action.action == "buy_cancel":
@@ -486,15 +481,7 @@ async def seller_menu_callback(
             await callback.answer("لینک اشتراک در دسترس نیست.", show_alert=True)
             return
         await callback.message.edit_text(
-            "\n".join(
-                [
-                    title("لینک اشتراک"),
-                    f"سرویس: {service.marzban_username}",
-                    f"کد سرویس: {service.id}",
-                    "",
-                    service.subscription_url,
-                ]
-            ),
+            _service_config_details_text(service),
             reply_markup=service_actions(service.id),
         )
     elif action.action == "service_guide":
@@ -2750,16 +2737,7 @@ async def trial(
             return
         raise
 
-    text = "\n".join(
-        [
-            "سرویس تستی VPN ساخته شد.",
-            f"کد سرویس: {service.id}",
-            f"نام کاربری: {service.marzban_username}",
-            f"حجم: {service.data_limit_gb} گیگ",
-            f"انقضا: {service.expire_at.isoformat() if service.expire_at else 'نامحدود'}",
-            f"لینک اشتراک: {service.subscription_url or '-'}",
-        ]
-    )
+    text = _service_config_details_text(service)
     if not service.subscription_url:
         await message.answer(text)
         return
@@ -3326,22 +3304,7 @@ def _service_card_text(service) -> str:
 
 
 def _service_detail_text(service) -> str:
-    traffic = "نامحدود" if service.data_limit_gb is None else f"{service.data_limit_gb} گیگ"
-    expire = service.expire_at.isoformat() if service.expire_at else "نامحدود"
-    subscription = service.subscription_url or "-"
-    return "\n".join(
-        [
-            title("🌐 اطلاعات سرویس شما"),
-            f"🔎 وضعیت سرویس: {status_label('active' if service.is_active else 'disabled')}",
-            f"👤 نام کاربری: {service.marzban_username}",
-            f"♾ حجم سرویس: {traffic}",
-            f"📅 فعال تا تاریخ: {expire}",
-            f"#️⃣ کد سرویس: {service.id}",
-            "",
-            "🔗 لینک اتصال:",
-            subscription,
-        ]
-    )
+    return _service_config_details_text(service)
 
 
 def _service_guide_text(service_id: str) -> str:
@@ -3950,18 +3913,40 @@ def _wallet_charge_request_text(charge) -> str:
 
 
 def _service_created_text(header: str, service) -> str:
-    traffic = "نامحدود" if service.data_limit_gb is None else f"{service.data_limit_gb} گیگ"
-    expire = service.expire_at.isoformat() if service.expire_at else "نامحدود"
+    return _service_config_details_text(service)
+
+
+def _service_config_details_text(service) -> str:
+    traffic = _service_traffic_text(service)
+    duration = _service_duration_text(service)
+    subscription = service.subscription_url or "-"
     return "\n".join(
         [
-            title(header),
-            f"کد سرویس: {service.id}",
-            f"نام کاربری: {service.marzban_username}",
-            f"حجم: {traffic}",
-            f"تاریخ انقضا: {expire}",
-            f"لینک اشتراک: {service.subscription_url or '-'}",
+            f"👤 نام کاربری: {service.marzban_username}",
+            f"🔋 حجم اشتراک: {traffic}",
+            f"⏳ مدت زمان اشتراک: {duration}",
+            "",
+            "🔗 لینک سرویس: (لینک رو لمس کنید کپی میشه)",
+            subscription,
         ]
     )
+
+
+def _service_traffic_text(service) -> str:
+    if service.data_limit_gb is None:
+        return "نامحدود"
+    return f"{float(service.data_limit_gb):.1f} GB"
+
+
+def _service_duration_text(service) -> str:
+    if service.expire_at is None:
+        return "نامحدود"
+    expire_at = service.expire_at
+    if expire_at.tzinfo is None:
+        expire_at = expire_at.replace(tzinfo=dt.UTC)
+    remaining_seconds = (expire_at - dt.datetime.now(dt.UTC)).total_seconds()
+    remaining_days = max(0, math.ceil(remaining_seconds / 86400))
+    return f"{remaining_days} روز"
 
 
 def _trial_error_text(error: str) -> str:
@@ -4756,15 +4741,7 @@ async def provision_order(
         raise
 
     subscription_url = provisioned.vpn_service.subscription_url
-    text = "\n".join(
-        [
-            "سرویس VPN ساخته شد.",
-            f"کد سفارش: {provisioned.order.id}",
-            f"کد سرویس: {provisioned.vpn_service.id}",
-            f"نام کاربری: {provisioned.vpn_service.marzban_username}",
-            f"لینک اشتراک: {subscription_url or '-'}",
-        ]
-    )
+    text = _service_config_details_text(provisioned.vpn_service)
     if not subscription_url:
         await message.answer(text)
         return
