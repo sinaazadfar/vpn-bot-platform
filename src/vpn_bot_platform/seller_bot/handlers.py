@@ -40,6 +40,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     renewal_confirm_menu,
     renewal_coupon_menu,
     renewal_plan_button,
+    renewal_plan_list_menu,
     seller_admin_menu,
     seller_buyer_menu,
     seller_report_menu,
@@ -288,7 +289,7 @@ async def seller_reply_menu_alias(
         try:
             config = await seller_context.get_crypto_payment_config(admin_telegram_id=message.from_user.id)
         except PermissionError:
-            await message.answer("You do not have reseller admin access.")
+            await message.answer("شما دسترسی ادمین فروشنده ندارید.")
             return
         await message.answer(
             _crypto_payment_settings_text(config),
@@ -298,7 +299,7 @@ async def seller_reply_menu_alias(
         try:
             report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=1)
         except PermissionError:
-            await message.answer("You do not have reseller admin access.")
+            await message.answer("شما دسترسی ادمین فروشنده ندارید.")
             return
         await message.answer(_format_report("Sales Report - Today", report), reply_markup=seller_report_menu())
     elif message.text in {"Buyer Home", "📱 منوی اصلی"}:
@@ -340,11 +341,11 @@ async def seller_menu_callback(
         )
     elif action.action == "buy":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.PURCHASE)
         if plan is None:
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await state.update_data(
@@ -361,11 +362,11 @@ async def seller_menu_callback(
     elif action.action == "buy_coupon":
         data = await state.get_data()
         if not data.get("buy_plan_id"):
-            await callback.answer("Purchase draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس خرید پیدا نشد.", show_alert=True)
             return
         await state.set_state(PurchaseCreateStates.coupon)
         await callback.message.edit_text(
-            "\n".join([title("Purchase Coupon"), "Send the coupon code for this purchase."]),
+            "\n".join([title("کد تخفیف خرید"), "کد تخفیف این خرید را ارسال کنید."]),
             reply_markup=purchase_coupon_menu(),
         )
     elif action.action == "buy_no_coupon":
@@ -374,7 +375,7 @@ async def seller_menu_callback(
         data = await state.get_data()
         plan_id = data.get("buy_plan_id")
         if not plan_id:
-            await callback.answer("Purchase draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس خرید پیدا نشد.", show_alert=True)
             await state.clear()
             return
         try:
@@ -390,11 +391,11 @@ async def seller_menu_callback(
             )
         except ValueError as exc:
             if str(exc) == "plan_not_found":
-                await callback.answer("Plan not found.", show_alert=True)
+                await callback.answer("پلن پیدا نشد.", show_alert=True)
                 await state.clear()
                 return
             if str(exc) == "discount_not_found":
-                await callback.answer("Coupon not found.", show_alert=True)
+                await callback.answer("کد تخفیف پیدا نشد.", show_alert=True)
                 return
             if str(exc) == "insufficient_wallet_balance":
                 await state.clear()
@@ -411,7 +412,7 @@ async def seller_menu_callback(
                 )
                 return
             if str(exc) == "panel_assignment_not_found":
-                await callback.answer("No active Marzban panel is assigned.", show_alert=True)
+                await callback.answer("هیچ پنل مرزبان فعالی اختصاص داده نشده است.", show_alert=True)
                 return
             raise
         except httpx.HTTPStatusError as exc:
@@ -432,7 +433,7 @@ async def seller_menu_callback(
     elif action.action == "buy_cancel":
         await state.clear()
         await callback.message.edit_text(
-            "\n".join([title("Purchase Canceled"), "No payment request was created."]),
+            "\n".join([title("خرید لغو شد"), "هیچ درخواست پرداختی ساخته نشد."]),
             reply_markup=seller_section_menu("plans"),
         )
     elif action.action == "services":
@@ -444,7 +445,7 @@ async def seller_menu_callback(
         )
     elif action.action == "service_detail":
         if not action.value:
-            await callback.answer("Service is missing.", show_alert=True)
+            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -452,7 +453,7 @@ async def seller_menu_callback(
             service_id=action.value,
         )
         if service is None:
-            await callback.answer("Service not found.", show_alert=True)
+            await callback.answer("سرویس پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _service_detail_text(service),
@@ -460,21 +461,21 @@ async def seller_menu_callback(
         )
     elif action.action == "service_qr":
         if not action.value:
-            await callback.answer("Service is missing.", show_alert=True)
+            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
             return
         services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
         service = next((item for item in services if item.id == action.value), None)
         if service is None or not service.subscription_url:
-            await callback.answer("Subscription is not available.", show_alert=True)
+            await callback.answer("لینک اشتراک در دسترس نیست.", show_alert=True)
             return
         qr_file = BufferedInputFile(
             make_qr_png_bytes(service.subscription_url),
             filename=f"{service.marzban_username}.png",
         )
-        await callback.message.answer_photo(qr_file, caption=f"QR Code\nService: {service.id}")
+        await callback.message.answer_photo(qr_file, caption=f"کد QR\nسرویس: {service.id}")
     elif action.action == "service_sub":
         if not action.value:
-            await callback.answer("Service is missing.", show_alert=True)
+            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -482,14 +483,14 @@ async def seller_menu_callback(
             service_id=action.value,
         )
         if service is None or not service.subscription_url:
-            await callback.answer("Subscription is not available.", show_alert=True)
+            await callback.answer("لینک اشتراک در دسترس نیست.", show_alert=True)
             return
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Subscription"),
-                    f"Service: {service.marzban_username}",
-                    f"Service ID: {service.id}",
+                    title("لینک اشتراک"),
+                    f"سرویس: {service.marzban_username}",
+                    f"کد سرویس: {service.id}",
                     "",
                     service.subscription_url,
                 ]
@@ -498,7 +499,7 @@ async def seller_menu_callback(
         )
     elif action.action == "service_guide":
         if not action.value:
-            await callback.answer("Service is missing.", show_alert=True)
+            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -506,7 +507,7 @@ async def seller_menu_callback(
             service_id=action.value,
         )
         if service is None:
-            await callback.answer("Service not found.", show_alert=True)
+            await callback.answer("سرویس پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _service_guide_text(service.id),
@@ -514,7 +515,7 @@ async def seller_menu_callback(
         )
     elif action.action == "renew":
         if not action.value:
-            await callback.answer("Service is missing.", show_alert=True)
+            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -522,24 +523,19 @@ async def seller_menu_callback(
             service_id=action.value,
         )
         if service is None:
-            await callback.answer("Service not found.", show_alert=True)
+            await callback.answer("سرویس پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await state.update_data(renew_service_id=service.id)
         await state.set_state(RenewalCreateStates.plan)
+        plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
         await callback.message.edit_text(
-            await _renewal_text(seller_context, service_id=service.id),
-            reply_markup=service_actions(service.id),
+            _renewal_text_from_list(plans, service_id=service.id),
+            reply_markup=renewal_plan_list_menu(plans),
         )
-        plans = await seller_context.list_plans(purpose=PlanPurpose.RENEWAL)
-        for plan in plans[:8]:
-            await callback.message.answer(
-                _renewal_plan_card_text(plan),
-                reply_markup=renewal_plan_button(plan.id),
-            )
     elif action.action == "extra_volume":
         if not action.value:
-            await callback.answer("Service is missing.", show_alert=True)
+            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -547,7 +543,7 @@ async def seller_menu_callback(
             service_id=action.value,
         )
         if service is None:
-            await callback.answer("Service not found.", show_alert=True)
+            await callback.answer("سرویس پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await state.update_data(extra_service_id=service.id)
@@ -571,16 +567,16 @@ async def seller_menu_callback(
         )
     elif action.action == "renew_plan":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         data = await state.get_data()
         service_id = data.get("renew_service_id")
         if not service_id:
-            await callback.answer("Choose a service first.", show_alert=True)
+            await callback.answer("ابتدا یک سرویس انتخاب کنید.", show_alert=True)
             return
-        plan = await _find_plan(seller_context, plan_id=action.value)
+        plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.PURCHASE)
         if plan is None:
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -588,7 +584,7 @@ async def seller_menu_callback(
             service_id=str(service_id),
         )
         if service is None:
-            await callback.answer("Service not found.", show_alert=True)
+            await callback.answer("سرویس پیدا نشد.", show_alert=True)
             await state.clear()
             return
         await state.update_data(renew_plan_id=plan.id, renew_coupon=None)
@@ -599,16 +595,16 @@ async def seller_menu_callback(
         )
     elif action.action == "extra_plan":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         data = await state.get_data()
         service_id = data.get("extra_service_id")
         if not service_id:
-            await callback.answer("Choose a service first.", show_alert=True)
+            await callback.answer("ابتدا یک سرویس انتخاب کنید.", show_alert=True)
             return
         plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.EXTRA_VOLUME)
         if plan is None:
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         service = await _find_buyer_service(
             seller_context,
@@ -616,7 +612,7 @@ async def seller_menu_callback(
             service_id=str(service_id),
         )
         if service is None:
-            await callback.answer("Service not found.", show_alert=True)
+            await callback.answer("سرویس پیدا نشد.", show_alert=True)
             await state.clear()
             return
         await state.update_data(extra_plan_id=plan.id, extra_coupon=None)
@@ -628,11 +624,11 @@ async def seller_menu_callback(
     elif action.action == "renew_coupon":
         data = await state.get_data()
         if not data.get("renew_service_id") or not data.get("renew_plan_id"):
-            await callback.answer("Renewal draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس تمدید پیدا نشد.", show_alert=True)
             return
         await state.set_state(RenewalCreateStates.coupon)
         await callback.message.edit_text(
-            "\n".join([title("Renew Coupon"), "Send the coupon code for this renewal."]),
+            "\n".join([title("کد تخفیف تمدید"), "کد تخفیف تمدید را ارسال کنید."]),
             reply_markup=renewal_coupon_menu(),
         )
     elif action.action == "renew_no_coupon":
@@ -640,11 +636,11 @@ async def seller_menu_callback(
     elif action.action == "extra_coupon":
         data = await state.get_data()
         if not data.get("extra_service_id") or not data.get("extra_plan_id"):
-            await callback.answer("Extra-volume draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس خرید حجم اضافه پیدا نشد.", show_alert=True)
             return
         await state.set_state(ExtraVolumeCreateStates.coupon)
         await callback.message.edit_text(
-            "\n".join([title("Extra Volume Coupon"), "Send the coupon code for this extra-volume purchase."]),
+            "\n".join([title("کد تخفیف حجم اضافه"), "کد تخفیف خرید حجم اضافه را ارسال کنید."]),
             reply_markup=extra_volume_coupon_menu(),
         )
     elif action.action == "extra_no_coupon":
@@ -654,7 +650,7 @@ async def seller_menu_callback(
         service_id = data.get("renew_service_id")
         plan_id = data.get("renew_plan_id")
         if not service_id or not plan_id:
-            await callback.answer("Renewal draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس تمدید پیدا نشد.", show_alert=True)
             await state.clear()
             return
         try:
@@ -666,14 +662,14 @@ async def seller_menu_callback(
             )
         except ValueError as exc:
             if str(exc) == "service_not_found":
-                await callback.answer("Service not found.", show_alert=True)
+                await callback.answer("سرویس پیدا نشد.", show_alert=True)
                 await state.clear()
                 return
             if str(exc) == "plan_not_found":
-                await callback.answer("Plan not found.", show_alert=True)
+                await callback.answer("پلن پیدا نشد.", show_alert=True)
                 return
             if str(exc) == "discount_not_found":
-                await callback.answer("Coupon not found.", show_alert=True)
+                await callback.answer("کد تخفیف پیدا نشد.", show_alert=True)
                 return
             raise
         await state.clear()
@@ -686,7 +682,7 @@ async def seller_menu_callback(
         service_id = data.get("extra_service_id")
         plan_id = data.get("extra_plan_id")
         if not service_id or not plan_id:
-            await callback.answer("Extra-volume draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس خرید حجم اضافه پیدا نشد.", show_alert=True)
             await state.clear()
             return
         try:
@@ -698,14 +694,14 @@ async def seller_menu_callback(
             )
         except ValueError as exc:
             if str(exc) == "service_not_found":
-                await callback.answer("Service not found.", show_alert=True)
+                await callback.answer("سرویس پیدا نشد.", show_alert=True)
                 await state.clear()
                 return
             if str(exc) == "plan_not_found":
-                await callback.answer("Plan not found.", show_alert=True)
+                await callback.answer("پلن پیدا نشد.", show_alert=True)
                 return
             if str(exc) == "discount_not_found":
-                await callback.answer("Coupon not found.", show_alert=True)
+                await callback.answer("کد تخفیف پیدا نشد.", show_alert=True)
                 return
             raise
         await state.clear()
@@ -716,13 +712,13 @@ async def seller_menu_callback(
     elif action.action == "renew_cancel":
         await state.clear()
         await callback.message.edit_text(
-            "\n".join([title("Renewal Canceled"), "No renewal payment request was created."]),
+            "\n".join([title("تمدید لغو شد"), "هیچ درخواست پرداخت تمدیدی ساخته نشد."]),
             reply_markup=seller_section_menu("services"),
         )
     elif action.action == "extra_cancel":
         await state.clear()
         await callback.message.edit_text(
-            "\n".join([title("Extra Volume Canceled"), "No extra-volume payment request was created."]),
+            "\n".join([title("خرید حجم اضافه لغو شد"), "هیچ درخواست پرداخت حجم اضافه ساخته نشد."]),
             reply_markup=seller_section_menu("services"),
         )
     elif action.action == "wallet":
@@ -739,7 +735,7 @@ async def seller_menu_callback(
             )
     elif action.action == "wallet_tx":
         if not action.value:
-            await callback.answer("Transaction is missing.", show_alert=True)
+            await callback.answer("تراکنش مشخص نشده است.", show_alert=True)
             return
         try:
             transaction = await seller_context.get_buyer_wallet_transaction(
@@ -747,7 +743,7 @@ async def seller_menu_callback(
                 transaction_id=action.value,
             )
         except ValueError:
-            await callback.answer("Transaction not found.", show_alert=True)
+            await callback.answer("تراکنش پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _wallet_transaction_detail_text(transaction),
@@ -755,7 +751,7 @@ async def seller_menu_callback(
         )
     elif action.action == "order_status":
         if not action.value:
-            await callback.answer("Order is missing.", show_alert=True)
+            await callback.answer("سفارش مشخص نشده است.", show_alert=True)
             return
         try:
             order_status = await seller_context.get_buyer_order_status(
@@ -763,7 +759,7 @@ async def seller_menu_callback(
                 order_id=action.value,
             )
         except ValueError:
-            await callback.answer("Order not found.", show_alert=True)
+            await callback.answer("سفارش پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _buyer_order_status_text(order_status),
@@ -771,7 +767,7 @@ async def seller_menu_callback(
         )
     elif action.action == "receipt_upload":
         if not action.value:
-            await callback.answer("Order is missing.", show_alert=True)
+            await callback.answer("سفارش مشخص نشده است.", show_alert=True)
             return
         await state.clear()
         await state.update_data(receipt_order_id=action.value)
@@ -782,7 +778,7 @@ async def seller_menu_callback(
         )
     elif action.action == "wallet_receipt_upload":
         if not action.value:
-            await callback.answer("Wallet charge is missing.", show_alert=True)
+            await callback.answer("درخواست شارژ کیف پول مشخص نشده است.", show_alert=True)
             return
         await state.clear()
         await state.update_data(receipt_transaction_id=action.value)
@@ -793,12 +789,12 @@ async def seller_menu_callback(
         )
     elif action.action == "wallet_add":
         if not action.value:
-            await callback.answer("Amount is missing.", show_alert=True)
+            await callback.answer("مبلغ مشخص نشده است.", show_alert=True)
             return
         try:
             amount = float(action.value)
         except ValueError:
-            await callback.answer("Invalid amount.", show_alert=True)
+            await callback.answer("مبلغ نامعتبر است.", show_alert=True)
             return
         await state.update_data(wallet_amount=amount)
         await state.set_state(WalletChargeStates.confirm)
@@ -816,8 +812,8 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Custom Wallet Charge"),
-                    "Send the amount you want to charge.",
+                    title("شارژ دلخواه کیف پول"),
+                    "مبلغ دلخواه برای شارژ را بفرستید.",
                     "",
                     "Example: 250000",
                 ]
@@ -828,7 +824,7 @@ async def seller_menu_callback(
         data = await state.get_data()
         amount = data.get("wallet_amount")
         if amount is None:
-            await callback.answer("Wallet charge draft is missing.", show_alert=True)
+            await callback.answer("پیش نویس شارژ کیف پول پیدا نشد.", show_alert=True)
             await state.clear()
             return
         try:
@@ -837,7 +833,7 @@ async def seller_menu_callback(
                 amount=float(amount),
             )
         except ValueError:
-            await callback.answer("Invalid wallet charge.", show_alert=True)
+            await callback.answer("شارژ کیف پول نامعتبر است.", show_alert=True)
             return
         await state.clear()
         await callback.message.edit_text(
@@ -847,7 +843,7 @@ async def seller_menu_callback(
     elif action.action == "wallet_cancel":
         await state.clear()
         await callback.message.edit_text(
-            "\n".join([title("Wallet Charge Canceled"), "No wallet charge request was created."]),
+            "\n".join([title("شارژ کیف پول لغو شد"), "هیچ درخواست شارژی ساخته نشد."]),
             reply_markup=wallet_charge_menu(),
         )
     elif action.action == "trial":
@@ -866,7 +862,7 @@ async def seller_menu_callback(
             )
         else:
             await callback.message.edit_text(
-                _service_created_text("Trial VPN service created.", service),
+                _service_created_text("سرویس تستی VPN ساخته شد.", service),
                 reply_markup=seller_section_menu("trial"),
             )
     elif action.action == "support":
@@ -894,7 +890,7 @@ async def seller_menu_callback(
             )
     elif action.action == "ticket_detail":
         if not action.value:
-            await callback.answer("Ticket is missing.", show_alert=True)
+            await callback.answer("تیکت مشخص نشده است.", show_alert=True)
             return
         try:
             thread = await seller_context.get_buyer_ticket_thread(
@@ -902,7 +898,7 @@ async def seller_menu_callback(
                 ticket_id=action.value,
             )
         except ValueError:
-            await callback.answer("Ticket not found.", show_alert=True)
+            await callback.answer("تیکت پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _ticket_thread_text(thread),
@@ -910,7 +906,7 @@ async def seller_menu_callback(
         )
     elif action.action == "ticket_reply":
         if not action.value:
-            await callback.answer("Ticket is missing.", show_alert=True)
+            await callback.answer("تیکت مشخص نشده است.", show_alert=True)
             return
         try:
             thread = await seller_context.get_buyer_ticket_thread(
@@ -918,7 +914,7 @@ async def seller_menu_callback(
                 ticket_id=action.value,
             )
         except ValueError:
-            await callback.answer("Ticket not found.", show_alert=True)
+            await callback.answer("تیکت پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await state.update_data(reply_ticket_id=thread.ticket.id)
@@ -926,11 +922,11 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Reply To Ticket"),
-                    f"Ticket ID: {thread.ticket.id}",
-                    f"Subject: {thread.ticket.subject}",
+                    title("پاسخ به تیکت"),
+                    f"کد تیکت: {thread.ticket.id}",
+                    f"موضوع: {thread.ticket.subject}",
                     "",
-                    "Send your reply message.",
+                    "پیام پاسخ خود را بفرستید.",
                 ]
             ),
             reply_markup=buyer_ticket_actions(thread.ticket.id),
@@ -960,7 +956,7 @@ async def seller_menu_callback(
         subject = str(data.get("ticket_subject") or "").strip()
         body = str(data.get("ticket_body") or "").strip()
         if not subject or not body:
-            await callback.answer("Ticket draft is incomplete.", show_alert=True)
+            await callback.answer("پیش نویس تیکت کامل نیست.", show_alert=True)
             await state.clear()
             return
         try:
@@ -986,9 +982,9 @@ async def seller_menu_callback(
             "\n".join(
                 [
                     title("تیکت ثبت شد"),
-                    f"Ticket ID: {thread.ticket.id}",
-                    f"Subject: {thread.ticket.subject}",
-                    f"Status: {status_label(thread.ticket.status)}",
+                    f"کد تیکت: {thread.ticket.id}",
+                    f"موضوع: {thread.ticket.subject}",
+                    f"وضعیت: {status_label(thread.ticket.status)}",
                 ]
             ),
             reply_markup=support_menu(),
@@ -996,7 +992,7 @@ async def seller_menu_callback(
     elif action.action == "ticket_cancel":
         await state.clear()
         await callback.message.edit_text(
-            "\n".join([title("Ticket Canceled"), "No ticket was created."]),
+            "\n".join([title("تیکت لغو شد"), "هیچ تیکتی ساخته نشد."]),
             reply_markup=support_menu(),
         )
     elif action.action == "guides":
@@ -1018,7 +1014,7 @@ async def seller_menu_callback(
         try:
             await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         await state.clear()
         await state.set_state(CryptoPaymentSetupStates.currency)
@@ -1038,7 +1034,7 @@ async def seller_menu_callback(
         spec = data.get("crypto_payment")
         if not isinstance(spec, dict):
             await state.clear()
-            await callback.answer("Payment draft expired. Start again.", show_alert=True)
+            await callback.answer("پیش نویس پرداخت منقضی شد. دوباره شروع کنید.", show_alert=True)
             await _show_admin_payment_settings(callback, seller_context)
             return
         try:
@@ -1051,11 +1047,11 @@ async def seller_menu_callback(
             )
         except PermissionError:
             await state.clear()
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
             await state.clear()
-            await callback.answer("Could not save crypto payment settings.", show_alert=True)
+            await callback.answer("ذخیره تنظیمات پرداخت ارز دیجیتال ممکن نشد.", show_alert=True)
             return
         await state.clear()
         await callback.message.edit_text(
@@ -1074,15 +1070,15 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Customer Search"),
-                    "Send Telegram ID, @username, customer name, or VPN username.",
+                    title("جستجوی کاربر"),
+                    "Telegram ID، @username، نام کاربر یا نام VPN را بفرستید.",
                 ]
             ),
             reply_markup=admin_customers_menu(),
         )
     elif action.action == "admin_customer_detail":
         if not action.value:
-            await callback.answer("Customer is missing.", show_alert=True)
+            await callback.answer("کاربر مشخص نشده است.", show_alert=True)
             return
         try:
             detail = await seller_context.get_customer_detail(
@@ -1090,17 +1086,17 @@ async def seller_menu_callback(
                 buyer_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Customer not found.", show_alert=True)
+            await callback.answer("کاربر پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _admin_customer_detail_text(detail),
             reply_markup=admin_customer_detail_actions(detail.buyer.id),
         )
     elif action.action in {"admin_customer_message", "admin_customer_wallet", "admin_customer_block"}:
-        await callback.answer("This customer action is next in the roadmap.", show_alert=True)
+        await callback.answer("این عملیات کاربر در مرحله بعدی اضافه می‌شود.", show_alert=True)
     elif action.action == "admin_tickets":
         await _show_admin_tickets(callback, seller_context)
     elif action.action == "admin_support_settings":
@@ -1109,7 +1105,7 @@ async def seller_menu_callback(
         try:
             await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         await state.clear()
         await state.set_state(SupportSettingsStates.telegram_id)
@@ -1144,7 +1140,7 @@ async def seller_menu_callback(
         try:
             settings = await seller_context.delete_support_telegram_id(admin_telegram_id=callback.from_user.id)
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         await callback.message.edit_text(
             _support_settings_text(settings),
@@ -1154,16 +1150,16 @@ async def seller_menu_callback(
         await _show_admin_plans(callback, seller_context)
     elif action.action == "admin_plan_detail":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         try:
             plans = await seller_context.list_admin_plans(admin_telegram_id=callback.from_user.id)
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         plan = _find_admin_plan(plans, plan_id=action.value)
         if plan is None:
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _admin_plan_card_text(plan),
@@ -1173,7 +1169,7 @@ async def seller_menu_callback(
         try:
             await seller_context.ensure_reseller_admin(admin_telegram_id=callback.from_user.id)
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         await state.clear()
         await state.set_state(AdminPlanCreateStates.name)
@@ -1192,7 +1188,7 @@ async def seller_menu_callback(
         )
     elif action.action == "admin_plan_edit":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         try:
             plan = await seller_context.get_admin_plan(
@@ -1200,10 +1196,10 @@ async def seller_menu_callback(
                 plan_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await state.set_state(AdminPlanCreateStates.name)
@@ -1224,7 +1220,7 @@ async def seller_menu_callback(
         spec = data.get("admin_plan")
         if not isinstance(spec, dict):
             await state.clear()
-            await callback.answer("Plan draft expired. Start again.", show_alert=True)
+            await callback.answer("پیش نویس پلن منقضی شد. دوباره شروع کنید.", show_alert=True)
             await _show_admin_plans(callback, seller_context)
             return
         try:
@@ -1251,11 +1247,11 @@ async def seller_menu_callback(
                 )
         except PermissionError:
             await state.clear()
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
             await state.clear()
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await callback.message.edit_text(
@@ -1264,7 +1260,7 @@ async def seller_menu_callback(
         )
     elif action.action == "admin_plan_delete_confirm":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         await callback.message.edit_text(
             "\n".join(
@@ -1284,7 +1280,7 @@ async def seller_menu_callback(
         )
     elif action.action == "admin_plan_delete":
         if not action.value:
-            await callback.answer("Plan is missing.", show_alert=True)
+            await callback.answer("پلن مشخص نشده است.", show_alert=True)
             return
         try:
             plan = await seller_context.deactivate_admin_plan(
@@ -1292,10 +1288,10 @@ async def seller_menu_callback(
                 plan_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Plan not found.", show_alert=True)
+            await callback.answer("پلن پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             "\n".join([title("پلن حذف شد"), f"نام: {plan.name}", "", "این پلن دیگر برای کاربران نمایش داده نمی‌شود."]),
@@ -1303,7 +1299,7 @@ async def seller_menu_callback(
         )
     elif action.action == "admin_ticket_detail":
         if not action.value:
-            await callback.answer("Ticket is missing.", show_alert=True)
+            await callback.answer("تیکت مشخص نشده است.", show_alert=True)
             return
         try:
             thread = await seller_context.get_admin_ticket_thread(
@@ -1311,10 +1307,10 @@ async def seller_menu_callback(
                 ticket_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Ticket not found.", show_alert=True)
+            await callback.answer("تیکت پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             _ticket_thread_text(thread),
@@ -1322,7 +1318,7 @@ async def seller_menu_callback(
         )
     elif action.action == "admin_ticket_reply":
         if not action.value:
-            await callback.answer("Ticket is missing.", show_alert=True)
+            await callback.answer("تیکت مشخص نشده است.", show_alert=True)
             return
         try:
             thread = await seller_context.get_admin_ticket_thread(
@@ -1330,10 +1326,10 @@ async def seller_menu_callback(
                 ticket_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Ticket not found.", show_alert=True)
+            await callback.answer("تیکت پیدا نشد.", show_alert=True)
             return
         await state.clear()
         await state.update_data(reply_ticket_id=thread.ticket.id)
@@ -1341,11 +1337,11 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Admin Reply"),
-                    f"Ticket ID: {thread.ticket.id}",
-                    f"Subject: {thread.ticket.subject}",
+                    title("پاسخ ادمین"),
+                    f"کد تیکت: {thread.ticket.id}",
+                    f"موضوع: {thread.ticket.subject}",
                     "",
-                    "Send the reply for this customer.",
+                    "پاسخ این کاربر را بفرستید.",
                 ]
             ),
             reply_markup=admin_ticket_actions(thread.ticket.id),
@@ -1354,16 +1350,16 @@ async def seller_menu_callback(
         days = 1
         if action.value:
             if not action.value.isdigit():
-                await callback.answer("Invalid report range.", show_alert=True)
+                await callback.answer("بازه گزارش نامعتبر است.", show_alert=True)
                 return
             days = int(action.value)
         if days not in {1, 7, 30}:
-            await callback.answer("Invalid report range.", show_alert=True)
+            await callback.answer("بازه گزارش نامعتبر است.", show_alert=True)
             return
         try:
             report = await seller_context.sales_report(admin_telegram_id=callback.from_user.id, days=days)
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         label = "Today" if days == 1 else f"Last {days} Days"
         await callback.message.edit_text(
@@ -1376,8 +1372,8 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Custom Sales Report"),
-                    "Send the number of days to include.",
+                    title("گزارش فروش دلخواه"),
+                    "تعداد روزهای گزارش را بفرستید.",
                     "",
                     "Example: 14",
                 ]
@@ -1390,8 +1386,8 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Create Broadcast"),
-                    "Send the broadcast title for your customers.",
+                    title("ساخت پیام همگانی"),
+                    "عنوان پیام همگانی برای کاربران خود را بفرستید.",
                     "",
                     "Example: New plans are available",
                 ]
@@ -1403,7 +1399,7 @@ async def seller_menu_callback(
         broadcast_title = str(data.get("seller_broadcast_title") or "").strip()
         broadcast_body = str(data.get("seller_broadcast_body") or "").strip()
         if not broadcast_title or not broadcast_body:
-            await callback.answer("Broadcast draft is incomplete.", show_alert=True)
+            await callback.answer("پیش نویس پیام همگانی کامل نیست.", show_alert=True)
             await state.clear()
             return
         try:
@@ -1413,14 +1409,14 @@ async def seller_menu_callback(
                 body=broadcast_body,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             await state.clear()
             return
         await state.clear()
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Broadcast Draft Created"),
+                    title("پیش نویس پیام همگانی ساخته شد"),
                     f"ID: {draft.broadcast.id}",
                     f"Targets: {len(draft.recipients)}",
                     "",
@@ -1432,12 +1428,12 @@ async def seller_menu_callback(
     elif action.action == "broadcast_cancel":
         await state.clear()
         await callback.message.edit_text(
-            "\n".join([title("Broadcast Canceled"), "No broadcast draft was created."]),
+            "\n".join([title("پیام همگانی لغو شد"), "هیچ پیش نویسی ساخته نشد."]),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "pay_detail":
         if not action.value:
-            await callback.answer("Payment is missing.", show_alert=True)
+            await callback.answer("پرداخت مشخص نشده است.", show_alert=True)
             return
         try:
             pending = await seller_context.get_pending_payment(
@@ -1445,10 +1441,10 @@ async def seller_menu_callback(
                 payment_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Pending payment not found.", show_alert=True)
+            await callback.answer("پرداخت در انتظار پیدا نشد.", show_alert=True)
             return
         await _edit_or_answer_callback(
             callback,
@@ -1457,7 +1453,7 @@ async def seller_menu_callback(
         )
     elif action.action == "pay_ok":
         if not action.value:
-            await callback.answer("Payment is missing.", show_alert=True)
+            await callback.answer("پرداخت مشخص نشده است.", show_alert=True)
             return
         try:
             approved = await seller_context.approve_payment(
@@ -1465,10 +1461,10 @@ async def seller_menu_callback(
                 payment_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Pending payment not found.", show_alert=True)
+            await callback.answer("پرداخت در انتظار پیدا نشد.", show_alert=True)
             return
         is_renewal = approved.order.order_type == OrderType.RENEWAL.value
         is_extra_volume = approved.order.order_type == OrderType.EXTRA_VOLUME.value
@@ -1476,10 +1472,10 @@ async def seller_menu_callback(
             callback,
             "\n".join(
                 [
-                    title("Payment Approved"),
-                    f"Payment ID: {approved.payment.id}",
-                    f"Order ID: {approved.order.id}",
-                    f"Order status: {status_label(approved.order.status)}",
+                    title("پرداخت تایید شد"),
+                    f"کد پرداخت: {approved.payment.id}",
+                    f"کد سفارش: {approved.order.id}",
+                    f"وضعیت سفارش: {status_label(approved.order.status)}",
                 ]
             ),
             reply_markup=admin_order_actions(
@@ -1490,16 +1486,16 @@ async def seller_menu_callback(
         )
     elif action.action == "pay_reject_confirm":
         if not action.value:
-            await callback.answer("Payment is missing.", show_alert=True)
+            await callback.answer("پرداخت مشخص نشده است.", show_alert=True)
             return
         await _edit_or_answer_callback(
             callback,
             "\n".join(
                 [
-                    title("Confirm Payment Rejection"),
-                    f"Payment ID: {action.value}",
+                    title("تایید رد پرداخت"),
+                    f"کد پرداخت: {action.value}",
                     "",
-                    "Rejecting cancels the order and cannot provision a service from this payment.",
+                    "رد کردن پرداخت، سفارش را لغو می‌کند و دیگر نمی‌توان از این پرداخت سرویس ساخت.",
                 ]
             ),
             reply_markup=confirm_keyboard(
@@ -1511,7 +1507,7 @@ async def seller_menu_callback(
         )
     elif action.action == "pay_reject":
         if not action.value:
-            await callback.answer("Payment is missing.", show_alert=True)
+            await callback.answer("پرداخت مشخص نشده است.", show_alert=True)
             return
         try:
             rejected = await seller_context.reject_payment(
@@ -1519,19 +1515,19 @@ async def seller_menu_callback(
                 payment_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Pending payment not found.", show_alert=True)
+            await callback.answer("پرداخت در انتظار پیدا نشد.", show_alert=True)
             return
         await _edit_or_answer_callback(
             callback,
             "\n".join(
                 [
-                    title("Payment Rejected"),
-                    f"Payment ID: {rejected.payment.id}",
-                    f"Payment status: {status_label(rejected.payment.status)}",
-                    f"Order ID: {rejected.order.id}",
+                    title("پرداخت رد شد"),
+                    f"کد پرداخت: {rejected.payment.id}",
+                    f"وضعیت پرداخت: {status_label(rejected.payment.status)}",
+                    f"کد سفارش: {rejected.order.id}",
                     f"Order status: {status_label(rejected.order.status)}",
                 ]
             ),
@@ -1539,7 +1535,7 @@ async def seller_menu_callback(
         )
     elif action.action in {"confirm_provision", "confirm_renewal", "confirm_extra_volume"}:
         if not action.value:
-            await callback.answer("Order is missing.", show_alert=True)
+            await callback.answer("سفارش مشخص نشده است.", show_alert=True)
             return
         is_renewal = action.action == "confirm_renewal"
         is_extra_volume = action.action == "confirm_extra_volume"
@@ -1555,8 +1551,8 @@ async def seller_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Confirm Provision"),
-                    f"Order ID: {action.value}",
+                    title("تایید ساخت سرویس"),
+                    f"کد سفارش: {action.value}",
                     f"Action: {action_label}",
                     "",
                     "Confirm only after checking the approved payment.",
@@ -1571,7 +1567,7 @@ async def seller_menu_callback(
         )
     elif action.action == "provision_order":
         if not action.value:
-            await callback.answer("Order is missing.", show_alert=True)
+            await callback.answer("سفارش مشخص نشده است.", show_alert=True)
             return
         try:
             provisioned = await provisioning_service.provision_order(
@@ -1579,12 +1575,12 @@ async def seller_menu_callback(
                 order_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError as exc:
             if str(exc) == "order_already_completed_without_service_link":
                 await callback.answer(
-                    "Order is already completed, but its service link is missing. Ask super admin to repair it.",
+                    "سفارش تکمیل شده اما لینک سرویس آن ثبت نشده است. از سوپر ادمین بخواهید آن را اصلاح کند.",
                     show_alert=True,
                 )
                 return
@@ -1599,7 +1595,7 @@ async def seller_menu_callback(
         )
     elif action.action == "apply_renewal":
         if not action.value:
-            await callback.answer("Order is missing.", show_alert=True)
+            await callback.answer("سفارش مشخص نشده است.", show_alert=True)
             return
         try:
             renewed = await provisioning_service.apply_renewal(
@@ -1607,7 +1603,7 @@ async def seller_menu_callback(
                 order_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError as exc:
             await callback.answer(f"Could not renew: {exc}", show_alert=True)
@@ -1621,7 +1617,7 @@ async def seller_menu_callback(
         )
     elif action.action == "apply_extra_volume":
         if not action.value:
-            await callback.answer("Order is missing.", show_alert=True)
+            await callback.answer("سفارش مشخص نشده است.", show_alert=True)
             return
         try:
             applied = await provisioning_service.apply_extra_volume(
@@ -1629,7 +1625,7 @@ async def seller_menu_callback(
                 order_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError as exc:
             await callback.answer(f"Could not add volume: {exc}", show_alert=True)
@@ -1643,7 +1639,7 @@ async def seller_menu_callback(
         )
     elif action.action == "wallet_ok":
         if not action.value:
-            await callback.answer("Transaction is missing.", show_alert=True)
+            await callback.answer("تراکنش مشخص نشده است.", show_alert=True)
             return
         try:
             approved = await seller_context.approve_wallet_charge(
@@ -1651,7 +1647,7 @@ async def seller_menu_callback(
                 transaction_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
             await callback.answer("این شارژ قبلاً تایید شده یا دیگر pending نیست.", show_alert=True)
@@ -1660,16 +1656,16 @@ async def seller_menu_callback(
             callback,
             "\n".join(
                 [
-                    title("Wallet Charge Approved"),
+                    title("شارژ کیف پول تایید شد"),
                     f"Transaction ID: {approved.transaction.id}",
-                    f"Amount: {approved.transaction.amount:,.0f}",
+                    f"مبلغ: {approved.transaction.amount:,.0f}",
                 ]
             ),
             reply_markup=seller_admin_menu(),
         )
     elif action.action == "ticket_close":
         if not action.value:
-            await callback.answer("Ticket is missing.", show_alert=True)
+            await callback.answer("تیکت مشخص نشده است.", show_alert=True)
             return
         try:
             ticket_item = await seller_context.close_ticket(
@@ -1677,18 +1673,18 @@ async def seller_menu_callback(
                 ticket_id=action.value,
             )
         except PermissionError:
-            await callback.answer("You do not have reseller admin access.", show_alert=True)
+            await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
             return
         except ValueError:
-            await callback.answer("Ticket not found.", show_alert=True)
+            await callback.answer("تیکت پیدا نشد.", show_alert=True)
             return
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Ticket Closed"),
-                    f"Ticket ID: {ticket_item.id}",
-                    f"Subject: {ticket_item.subject}",
-                    f"Status: {status_label(ticket_item.status)}",
+                    title("تیکت بسته شد"),
+                    f"کد تیکت: {ticket_item.id}",
+                    f"موضوع: {ticket_item.subject}",
+                    f"وضعیت: {status_label(ticket_item.status)}",
                 ]
             ),
             reply_markup=seller_admin_menu(),
@@ -1846,7 +1842,7 @@ async def support_settings_telegram_id(
         )
     except PermissionError:
         await state.clear()
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     await state.clear()
     await message.answer(
@@ -2021,13 +2017,13 @@ async def wallet_charge_amount(message: Message, state: FSMContext) -> None:
         amount = float(raw_amount)
     except ValueError:
         await message.answer(
-            "\n".join([title("Custom Wallet Charge"), "Send a valid number. Example: 250000"]),
+            "\n".join([title("شارژ دلخواه کیف پول"), "یک عدد معتبر بفرستید. مثال: 250000"]),
             reply_markup=wallet_charge_menu(),
         )
         return
     if amount <= 0:
         await message.answer(
-            "\n".join([title("Custom Wallet Charge"), "Amount must be greater than zero."]),
+            "\n".join([title("شارژ دلخواه کیف پول"), "مبلغ باید بیشتر از صفر باشد."]),
             reply_markup=wallet_charge_menu(),
         )
         return
@@ -2046,7 +2042,7 @@ async def wallet_charge_amount(message: Message, state: FSMContext) -> None:
 @router.message(WalletChargeStates.confirm)
 async def wallet_charge_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Confirm Wallet Charge"), "Use Confirm or Cancel below the preview."])
+        "\n".join([title("تایید شارژ کیف پول"), "از دکمه تایید یا لغو زیر پیش نمایش استفاده کنید."])
     )
 
 
@@ -2075,7 +2071,7 @@ async def admin_plan_create_name(
         await seller_context.ensure_reseller_admin(admin_telegram_id=message.from_user.id)
     except PermissionError:
         await state.clear()
-        await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.", reply_markup=seller_buyer_menu())
         return
     data = await state.get_data()
     is_edit = data.get("admin_plan_mode") == "edit"
@@ -2237,7 +2233,7 @@ async def purchase_username_input(
     )
     if plan is None:
         await state.clear()
-        await message.answer("Plan not found. Start again from Buy VPN.")
+        await message.answer("پلن پیدا نشد. دوباره از خرید سرویس شروع کنید.")
         return
     await state.set_state(PurchaseCreateStates.coupon)
     await message.answer(
@@ -2257,7 +2253,7 @@ async def purchase_coupon_input(
     coupon = (message.text or "").strip()
     if not coupon or coupon.startswith("/"):
         await message.answer(
-            "\n".join([title("Purchase Coupon"), "Send a coupon code, or use Skip Coupon."]),
+            "\n".join([title("کد تخفیف خرید"), "کد تخفیف را ارسال کنید یا ادامه بدون کد را بزنید."]),
             reply_markup=purchase_coupon_menu(),
         )
         return
@@ -2267,7 +2263,7 @@ async def purchase_coupon_input(
 @router.message(PurchaseCreateStates.confirm)
 async def purchase_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Confirm Purchase"), "Use Confirm or Cancel below the preview."])
+        "\n".join([title("تایید خرید"), "از دکمه تایید یا لغو زیر پیش نمایش استفاده کنید."])
     )
 
 
@@ -2282,7 +2278,7 @@ async def renewal_coupon_input(
     coupon = (message.text or "").strip()
     if not coupon or coupon.startswith("/"):
         await message.answer(
-            "\n".join([title("Renew Coupon"), "Send a coupon code, or use Skip Coupon."]),
+            "\n".join([title("کد تخفیف تمدید"), "کد تخفیف را ارسال کنید یا ادامه بدون کد را بزنید."]),
             reply_markup=renewal_coupon_menu(),
         )
         return
@@ -2292,14 +2288,14 @@ async def renewal_coupon_input(
 @router.message(RenewalCreateStates.plan)
 async def renewal_waiting_for_plan(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Renew Service"), "Choose one of the renewal plan buttons."])
+        "\n".join([title("تمدید سرویس"), "یکی از دکمه های پلن تمدید را انتخاب کنید."])
     )
 
 
 @router.message(RenewalCreateStates.confirm)
 async def renewal_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Confirm Renewal"), "Use Confirm or Cancel below the preview."])
+        "\n".join([title("تایید تمدید"), "از دکمه تایید یا لغو زیر پیش نمایش استفاده کنید."])
     )
 
 
@@ -2314,7 +2310,7 @@ async def extra_volume_coupon_input(
     coupon = (message.text or "").strip()
     if not coupon or coupon.startswith("/"):
         await message.answer(
-            "\n".join([title("Extra Volume Coupon"), "Send a coupon code, or use Skip Coupon."]),
+            "\n".join([title("کد تخفیف حجم اضافه"), "کد تخفیف را ارسال کنید یا ادامه بدون کد را بزنید."]),
             reply_markup=extra_volume_coupon_menu(),
         )
         return
@@ -2324,14 +2320,14 @@ async def extra_volume_coupon_input(
 @router.message(ExtraVolumeCreateStates.plan)
 async def extra_volume_waiting_for_plan(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Extra Volume"), "Choose one of the extra-volume plan buttons."])
+        "\n".join([title("حجم اضافه"), "یکی از دکمه های پلن حجم اضافه را انتخاب کنید."])
     )
 
 
 @router.message(ExtraVolumeCreateStates.confirm)
 async def extra_volume_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Confirm Extra Volume"), "Use Confirm or Cancel below the preview."])
+        "\n".join([title("تایید حجم اضافه"), "از دکمه تایید یا لغو زیر پیش نمایش استفاده کنید."])
     )
 
 
@@ -2379,7 +2375,7 @@ async def ticket_create_body(message: Message, state: FSMContext) -> None:
         "\n".join(
             [
                 title("تایید ثبت تیکت"),
-                f"Subject: {data.get('ticket_subject')}",
+                f"موضوع: {data.get('ticket_subject')}",
                 "",
                 str(data.get("ticket_body")),
             ]
@@ -2409,13 +2405,13 @@ async def buyer_ticket_reply_body(
         return
     body = (message.text or "").strip()
     if not body:
-        await message.answer("Send a non-empty reply message.")
+        await message.answer("یک پیام پاسخ غیرخالی بفرستید.")
         return
     data = await state.get_data()
     ticket_id = str(data.get("reply_ticket_id") or "").strip()
     if not ticket_id:
         await state.clear()
-        await message.answer("Ticket reply draft expired.", reply_markup=support_menu())
+        await message.answer("پیش نویس پاسخ تیکت منقضی شد.", reply_markup=support_menu())
         return
     try:
         thread = await seller_context.reply_ticket_as_buyer(
@@ -2425,7 +2421,7 @@ async def buyer_ticket_reply_body(
         )
     except ValueError:
         await state.clear()
-        await message.answer("Ticket not found.", reply_markup=support_menu())
+        await message.answer("تیکت پیدا نشد.", reply_markup=support_menu())
         return
     await state.clear()
     await _notify_support_about_ticket(
@@ -2453,13 +2449,13 @@ async def admin_ticket_reply_body(
         return
     body = (message.text or "").strip()
     if not body:
-        await message.answer("Send a non-empty reply message.")
+        await message.answer("یک پیام پاسخ غیرخالی بفرستید.")
         return
     data = await state.get_data()
     ticket_id = str(data.get("reply_ticket_id") or "").strip()
     if not ticket_id:
         await state.clear()
-        await message.answer("Ticket reply draft expired.", reply_markup=seller_admin_menu())
+        await message.answer("پیش نویس پاسخ تیکت منقضی شد.", reply_markup=seller_admin_menu())
         return
     try:
         thread = await seller_context.reply_ticket_as_admin(
@@ -2469,11 +2465,11 @@ async def admin_ticket_reply_body(
         )
     except PermissionError:
         await state.clear()
-        await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.", reply_markup=seller_buyer_menu())
         return
     except ValueError:
         await state.clear()
-        await message.answer("Ticket not found.", reply_markup=seller_admin_menu())
+        await message.answer("تیکت پیدا نشد.", reply_markup=seller_admin_menu())
         return
     await state.clear()
     await message.answer(
@@ -2489,7 +2485,7 @@ async def seller_broadcast_create_title(message: Message, state: FSMContext) -> 
     broadcast_title = (message.text or "").strip()
     if not broadcast_title or broadcast_title.startswith("/"):
         await message.answer(
-            "\n".join([title("Create Broadcast"), "Send a title, not a command."]),
+            "\n".join([title("ساخت پیام همگانی"), "یک عنوان بفرستید؛ دستور ربات نفرستید."]),
             reply_markup=seller_admin_menu(),
         )
         return
@@ -2498,8 +2494,8 @@ async def seller_broadcast_create_title(message: Message, state: FSMContext) -> 
     await message.answer(
         "\n".join(
             [
-                title("Create Broadcast"),
-                "Send the message body.",
+                title("ساخت پیام همگانی"),
+                "متن پیام را بفرستید.",
                 "",
                 "This will be previewed before any draft is created.",
             ]
@@ -2515,7 +2511,7 @@ async def seller_broadcast_create_body(message: Message, state: FSMContext) -> N
     broadcast_body = (message.text or "").strip()
     if not broadcast_body or broadcast_body.startswith("/"):
         await message.answer(
-            "\n".join([title("Create Broadcast"), "Send a message body, not a command."]),
+            "\n".join([title("ساخت پیام همگانی"), "متن پیام را بفرستید؛ دستور ربات نفرستید."]),
             reply_markup=seller_admin_menu(),
         )
         return
@@ -2525,7 +2521,7 @@ async def seller_broadcast_create_body(message: Message, state: FSMContext) -> N
     await message.answer(
         "\n".join(
             [
-                title("Confirm Broadcast Draft"),
+                title("تایید پیش نویس پیام"),
                 f"Title: {data.get('seller_broadcast_title')}",
                 "",
                 str(data.get("seller_broadcast_body")),
@@ -2542,7 +2538,7 @@ async def seller_broadcast_create_body(message: Message, state: FSMContext) -> N
 @router.message(SellerBroadcastCreateStates.confirm)
 async def seller_broadcast_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
-        "\n".join([title("Confirm Broadcast Draft"), "Use Confirm or Cancel below the preview."])
+        "\n".join([title("تایید پیش نویس پیام"), "از دکمه تایید یا لغو زیر پیش نمایش استفاده کنید."])
     )
 
 
@@ -2557,7 +2553,7 @@ async def seller_report_custom_days(
     days = _parse_bounded_days(message.text)
     if days is None:
         await message.answer(
-            "\n".join([title("Custom Sales Report"), "Send a number from 1 to 365."]),
+            "\n".join([title("گزارش فروش دلخواه"), "یک عدد بین ۱ تا ۳۶۵ بفرستید."]),
             reply_markup=seller_report_menu(),
         )
         return
@@ -2565,7 +2561,7 @@ async def seller_report_custom_days(
         report = await seller_context.sales_report(admin_telegram_id=message.from_user.id, days=days)
     except PermissionError:
         await state.clear()
-        await message.answer("You do not have reseller admin access.", reply_markup=seller_buyer_menu())
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.", reply_markup=seller_buyer_menu())
         return
     await state.clear()
     await message.answer(
@@ -2584,7 +2580,7 @@ async def admin_customer_search_query(
         return
     query = message.text.strip()
     if not query:
-        await message.answer("Send Telegram ID, @username, customer name, or VPN username.")
+        await message.answer("Telegram ID، @username، نام کاربر یا نام VPN را بفرستید.")
         return
     try:
         customers = await seller_context.search_customers(
@@ -2593,11 +2589,11 @@ async def admin_customer_search_query(
         )
     except PermissionError:
         await state.clear()
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     await state.clear()
     await message.answer(
-        _admin_customers_text(customers, heading=f"Customer Search: {query}"),
+        _admin_customers_text(customers, heading=f"جستجوی کاربر: {query}"),
         reply_markup=admin_customers_menu(),
     )
     for item in customers[:8]:
@@ -2647,19 +2643,19 @@ async def plans(message: Message, seller_context: SellerContextService) -> None:
         return
     available_plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
     if not available_plans:
-        await message.answer("No active plans are available yet.")
+        await message.answer("هنوز هیچ پلن فعالی وجود ندارد.")
         return
 
-    lines = ["Available plans:"]
+    lines = ["پلن های موجود:"]
     for plan in available_plans:
-        traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+        traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
         lines.append(
-            f"- {plan.name}: {plan.price:,.0f} | {plan.duration_days} days | {traffic} | id={plan.id}"
+            f"- {plan.name}: {plan.price:,.0f} | {plan.duration_days} روز | {traffic} | کد={plan.id}"
         )
     await message.answer("\n".join(lines))
     for plan in available_plans[:5]:
         await message.answer(
-            f"{plan.name}\nAmount: {plan.price:,.0f}\nDuration: {plan.duration_days} days",
+            f"{plan.name}\nمبلغ: {plan.price:,.0f}\nمدت: {plan.duration_days} روز",
             reply_markup=plan_buy_button(plan.id),
         )
 
@@ -2683,9 +2679,9 @@ async def wallet(message: Message, seller_context: SellerContextService) -> None
         buyer_telegram_id=message.from_user.id,
     )
     balance = wallet_info.buyer.wallet_balance if wallet_info.buyer else 0
-    lines = [f"Wallet balance: {balance:,.0f}", "", "Recent transactions:"]
+    lines = [f"موجودی کیف پول: {balance:,.0f}", "", "تراکنش های اخیر:"]
     if not wallet_info.transactions:
-        lines.append("- none")
+        lines.append("- موردی وجود ندارد")
     for transaction in wallet_info.transactions[:10]:
         lines.append(
             f"- {transaction.transaction_type} | {transaction.status} | {transaction.amount:,.0f}"
@@ -2707,7 +2703,7 @@ async def charge_wallet(
     try:
         amount = float(raw_amount)
     except ValueError:
-        await message.answer("Usage: /charge_wallet <amount>")
+        await message.answer("فرمت دستور: /charge_wallet <amount>")
         return
     try:
         charge = await seller_context.request_wallet_charge(
@@ -2716,7 +2712,7 @@ async def charge_wallet(
         )
     except ValueError as exc:
         if str(exc) == "invalid_amount":
-            await message.answer("Amount must be greater than zero.")
+            await message.answer("مبلغ باید بیشتر از صفر باشد.")
             return
         raise
     await message.answer(
@@ -2744,24 +2740,24 @@ async def trial(
         )
     except ValueError as exc:
         if str(exc) == "trial_disabled":
-            await message.answer("Trial accounts are disabled right now.")
+            await message.answer("سرویس تستی فعلاً غیرفعال است.")
             return
         if str(exc) == "trial_already_used":
-            await message.answer("You have already used your trial account.")
+            await message.answer("شما قبلاً سرویس تستی خود را استفاده کرده اید.")
             return
         if str(exc) == "panel_assignment_not_found":
-            await message.answer("Trial is not available because no panel is assigned.")
+            await message.answer("سرویس تستی در دسترس نیست چون هیچ پنلی اختصاص داده نشده است.")
             return
         raise
 
     text = "\n".join(
         [
-            "Trial VPN service created.",
-            f"Service ID: {service.id}",
-            f"Username: {service.marzban_username}",
-            f"Traffic: {service.data_limit_gb} GB",
-            f"Expires: {service.expire_at.isoformat() if service.expire_at else 'Unlimited'}",
-            f"Subscription: {service.subscription_url or '-'}",
+            "سرویس تستی VPN ساخته شد.",
+            f"کد سرویس: {service.id}",
+            f"نام کاربری: {service.marzban_username}",
+            f"حجم: {service.data_limit_gb} گیگ",
+            f"انقضا: {service.expire_at.isoformat() if service.expire_at else 'نامحدود'}",
+            f"لینک اشتراک: {service.subscription_url or '-'}",
         ]
     )
     if not service.subscription_url:
@@ -2786,11 +2782,11 @@ async def ticket(
         return
     raw = (command.args or "").strip()
     if " | " not in raw:
-        await message.answer("Usage: /ticket <subject> | <message>")
+        await message.answer("فرمت دستور: /ticket <subject> | <message>")
         return
     subject, body = [part.strip() for part in raw.split(" | ", maxsplit=1)]
     if not subject or not body:
-        await message.answer("Usage: /ticket <subject> | <message>")
+        await message.answer("فرمت دستور: /ticket <subject> | <message>")
         return
     thread = await seller_context.open_ticket(
         buyer_telegram_id=message.from_user.id,
@@ -2807,7 +2803,7 @@ async def ticket(
         body=body,
     )
     await message.answer(
-        f"تیکت ثبت شد.\nTicket ID: {thread.ticket.id}\nSubject: {thread.ticket.subject}"
+        f"تیکت ثبت شد.\nکد تیکت: {thread.ticket.id}\nموضوع: {thread.ticket.subject}"
     )
 
 
@@ -2819,9 +2815,9 @@ async def my_tickets(message: Message, seller_context: SellerContextService) -> 
         return
     tickets = await seller_context.list_my_tickets(buyer_telegram_id=message.from_user.id)
     if not tickets:
-        await message.answer("You do not have any tickets.")
+        await message.answer("شما هیچ تیکتی ندارید.")
         return
-    lines = ["Your tickets:"]
+    lines = ["تیکت های شما:"]
     for ticket_item in tickets:
         lines.append(f"- {ticket_item.id} | {ticket_item.status} | {ticket_item.subject}")
     await message.answer("\n".join(lines))
@@ -2839,7 +2835,7 @@ async def reply_ticket(
         return
     args = (command.args or "").strip().split(maxsplit=1)
     if len(args) != 2:
-        await message.answer("Usage: /reply_ticket <ticket_id> <message>")
+        await message.answer("فرمت دستور: /reply_ticket <ticket_id> <message>")
         return
     try:
         thread = await seller_context.reply_ticket_as_buyer(
@@ -2849,7 +2845,7 @@ async def reply_ticket(
         )
     except ValueError as exc:
         if str(exc) == "ticket_not_found":
-            await message.answer("Ticket not found.")
+            await message.answer("تیکت پیدا نشد.")
             return
         raise
     await _notify_support_about_ticket(
@@ -2861,7 +2857,7 @@ async def reply_ticket(
         subject=thread.ticket.subject,
         body=args[1],
     )
-    await message.answer(f"Reply added to ticket {thread.ticket.id}.")
+    await message.answer(f"پاسخ به تیکت {thread.ticket.id} اضافه شد.")
 
 
 @router.message(Command("buy"))
@@ -2898,7 +2894,7 @@ async def renew(
         return
     args = (command.args or "").strip().split(maxsplit=2)
     if len(args) < 2:
-        await message.answer("Usage: /renew <service_id> <plan_id> [coupon]")
+        await message.answer("فرمت دستور: /renew <service_id> <plan_id> [coupon]")
         return
     try:
         payment_request = await seller_context.request_renewal_payment(
@@ -2909,23 +2905,23 @@ async def renew(
         )
     except ValueError as exc:
         if str(exc) == "service_not_found":
-            await message.answer("Service not found. Use /my_services to see your services.")
+            await message.answer("سرویس پیدا نشد. برای دیدن سرویس ها از /my_services استفاده کنید.")
             return
         if str(exc) == "plan_not_found":
-            await message.answer("Plan not found or inactive. Use /plans.")
+            await message.answer("پلن پیدا نشد یا غیرفعال است. از /plans استفاده کنید.")
             return
         if str(exc) == "discount_not_found":
-            await message.answer("Coupon not found, inactive, or already used up.")
+            await message.answer("کد تخفیف پیدا نشد، غیرفعال است یا ظرفیت آن تمام شده است.")
             return
         raise
     await message.answer(
         "\n".join(
             [
-                "Renewal payment request created.",
-                f"Order ID: {payment_request.order.id}",
-                f"Payment ID: {payment_request.payment.id}",
-                f"Plan: {payment_request.plan.name}",
-                f"Amount: {payment_request.payment.amount:,.0f}",
+                "درخواست پرداخت تمدید ساخته شد.",
+                f"کد سفارش: {payment_request.order.id}",
+                f"کد پرداخت: {payment_request.payment.id}",
+                f"پلن: {payment_request.plan.name}",
+                f"مبلغ: {payment_request.payment.amount:,.0f}",
                 "",
                 payment_request.instructions,
             ]
@@ -2943,37 +2939,37 @@ async def admin(message: Message, seller_context: SellerContextService) -> None:
             admin_telegram_id=message.from_user.id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
 
     lines = [
-        title("Reseller Admin"),
-        "Choose an action from the buttons below.",
+        title("مدیریت فروشنده"),
+        "یکی از عملیات زیر را انتخاب کنید.",
         "",
-        "Pending payments:",
+        "پرداخت های در انتظار:",
     ]
     if not pending:
-        lines.append("- none")
+        lines.append("- موردی وجود ندارد")
     for item in pending:
         lines.append(
-            f"- payment={item.payment.id} | order={item.order.id} | "
-            f"plan={item.plan.name} | amount={item.payment.amount:,.0f}"
+            f"- پرداخت={item.payment.id} | سفارش={item.order.id} | "
+            f"پلن={item.plan.name} | مبلغ={item.payment.amount:,.0f}"
         )
     pending_wallet = await seller_context.list_pending_wallet_charges(
         admin_telegram_id=message.from_user.id,
     )
-    lines.extend(["", "Pending wallet charges:"])
+    lines.extend(["", "شارژهای کیف پول در انتظار:"])
     if not pending_wallet:
-        lines.append("- none")
+        lines.append("- موردی وجود ندارد")
     for item in pending_wallet:
-        lines.append(f"- tx={item.id} | buyer={item.owner_id} | amount={item.amount:,.0f}")
+        lines.append(f"- تراکنش={item.id} | خریدار={item.owner_id} | مبلغ={item.amount:,.0f}")
     open_tickets = await seller_context.list_open_tickets(admin_telegram_id=message.from_user.id)
-    lines.extend(["", "Open tickets:"])
+    lines.extend(["", "تیکت های باز:"])
     if not open_tickets:
-        lines.append("- none")
+        lines.append("- موردی وجود ندارد")
     for ticket_item in open_tickets:
         lines.append(
-            f"- ticket={ticket_item.id} | subject={ticket_item.subject} | status={ticket_item.status}"
+            f"- تیکت={ticket_item.id} | موضوع={ticket_item.subject} | وضعیت={ticket_item.status}"
         )
     await message.answer("\n".join(lines), reply_markup=seller_admin_menu())
 
@@ -2988,7 +2984,7 @@ async def approve_payment(
         return
     payment_id = (command.args or "").strip()
     if not payment_id:
-        await message.answer("Usage: /approve_payment <payment_id>")
+        await message.answer("فرمت دستور: /approve_payment <payment_id>")
         return
     try:
         approved = await seller_context.approve_payment(
@@ -2996,23 +2992,23 @@ async def approve_payment(
             payment_id=payment_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "payment_not_found":
-            await message.answer("Pending payment not found.")
+            await message.answer("پرداخت در انتظار پیدا نشد.")
             return
         raise
 
     await message.answer(
         "\n".join(
             [
-                "Payment approved.",
-                f"Payment ID: {approved.payment.id}",
-                f"Order ID: {approved.order.id}",
-                f"Order status: {approved.order.status}",
+                "پرداخت تایید شد.",
+                f"کد پرداخت: {approved.payment.id}",
+                f"کد سفارش: {approved.order.id}",
+                f"وضعیت سفارش: {approved.order.status}",
                 "",
-                "Provisioning is the next step.",
+                "مرحله بعدی ساخت سرویس است.",
             ]
         )
     )
@@ -3028,7 +3024,7 @@ async def approve_wallet_charge(
         return
     transaction_id = (command.args or "").strip()
     if not transaction_id:
-        await message.answer("Usage: /approve_wallet_charge <transaction_id>")
+        await message.answer("فرمت دستور: /approve_wallet_charge <transaction_id>")
         return
     try:
         approved = await seller_context.approve_wallet_charge(
@@ -3036,19 +3032,19 @@ async def approve_wallet_charge(
             transaction_id=transaction_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "wallet_charge_not_found":
-            await message.answer("Pending wallet charge not found.")
+            await message.answer("شارژ کیف پول در انتظار پیدا نشد.")
             return
         raise
     await message.answer(
         "\n".join(
             [
-                "Wallet charge approved.",
-                f"Transaction ID: {approved.transaction.id}",
-                f"Amount: {approved.transaction.amount:,.0f}",
+                "شارژ کیف پول تایید شد.",
+                f"کد تراکنش: {approved.transaction.id}",
+                f"مبلغ: {approved.transaction.amount:,.0f}",
             ]
         )
     )
@@ -3064,7 +3060,7 @@ async def admin_reply_ticket(
         return
     args = (command.args or "").strip().split(maxsplit=1)
     if len(args) != 2:
-        await message.answer("Usage: /admin_reply_ticket <ticket_id> <message>")
+        await message.answer("فرمت دستور: /admin_reply_ticket <ticket_id> <message>")
         return
     try:
         thread = await seller_context.reply_ticket_as_admin(
@@ -3073,14 +3069,14 @@ async def admin_reply_ticket(
             body=args[1],
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "ticket_not_found":
-            await message.answer("Ticket not found.")
+            await message.answer("تیکت پیدا نشد.")
             return
         raise
-    await message.answer(f"Admin reply added to ticket {thread.ticket.id}.")
+    await message.answer(f"پاسخ ادمین به تیکت {thread.ticket.id} اضافه شد.")
 
 
 @router.message(Command("close_ticket"))
@@ -3093,7 +3089,7 @@ async def close_ticket(
         return
     ticket_id = (command.args or "").strip()
     if not ticket_id:
-        await message.answer("Usage: /close_ticket <ticket_id>")
+        await message.answer("فرمت دستور: /close_ticket <ticket_id>")
         return
     try:
         closed = await seller_context.close_ticket(
@@ -3101,14 +3097,14 @@ async def close_ticket(
             ticket_id=ticket_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "ticket_not_found":
-            await message.answer("Ticket not found.")
+            await message.answer("تیکت پیدا نشد.")
             return
         raise
-    await message.answer(f"Ticket closed.\nTicket ID: {closed.id}")
+    await message.answer(f"تیکت بسته شد.\nکد تیکت: {closed.id}")
 
 
 @router.message(Command("broadcast"))
@@ -3121,11 +3117,11 @@ async def broadcast(
         return
     raw = (command.args or "").strip()
     if " | " not in raw:
-        await message.answer("Usage: /broadcast <title> | <message>")
+        await message.answer("فرمت دستور: /broadcast <title> | <message>")
         return
     title, body = [part.strip() for part in raw.split(" | ", maxsplit=1)]
     if not title or not body:
-        await message.answer("Usage: /broadcast <title> | <message>")
+        await message.answer("فرمت دستور: /broadcast <title> | <message>")
         return
     try:
         draft = await seller_context.create_broadcast(
@@ -3134,15 +3130,15 @@ async def broadcast(
             body=body,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     await message.answer(
         "\n".join(
             [
-                "Broadcast draft created.",
-                f"Broadcast ID: {draft.broadcast.id}",
-                f"Targets: {len(draft.recipients)}",
-                f"Send with: /send_broadcast {draft.broadcast.id}",
+                "پیش نویس پیام همگانی ساخته شد.",
+                f"کد پیام: {draft.broadcast.id}",
+                f"تعداد گیرنده ها: {len(draft.recipients)}",
+                f"ارسال با دستور: /send_broadcast {draft.broadcast.id}",
             ]
         )
     )
@@ -3158,7 +3154,7 @@ async def send_broadcast(
         return
     broadcast_id = (command.args or "").strip()
     if not broadcast_id:
-        await message.answer("Usage: /send_broadcast <broadcast_id>")
+        await message.answer("فرمت دستور: /send_broadcast <broadcast_id>")
         return
     try:
         draft = await seller_context.get_broadcast_recipients(
@@ -3166,11 +3162,11 @@ async def send_broadcast(
             broadcast_id=broadcast_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "broadcast_not_found":
-            await message.answer("Broadcast not found.")
+            await message.answer("پیام همگانی پیدا نشد.")
             return
         raise
 
@@ -3207,7 +3203,7 @@ async def sales_report(
             days=days,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     await message.answer(_format_report(f"Sales report - last {days} day(s)", report))
 
@@ -3363,27 +3359,37 @@ def _service_guide_text(service_id: str) -> str:
 
 
 async def _renewal_text(seller_context: SellerContextService, *, service_id: str) -> str:
-    plans = await seller_context.list_plans(purpose=PlanPurpose.RENEWAL)
+    plans = await seller_context.list_plans(purpose=PlanPurpose.PURCHASE)
+    return _renewal_text_from_list(plans, service_id=service_id)
+
+
+def _renewal_text_from_list(plans, *, service_id: str) -> str:
     if not plans:
-        return "\n".join([title("💊 تمدید سرویس"), "❌ پلنی برای افزایش اعتبار زمانی یافت نشد."])
+        return "\n".join([title("🔄 تمدید و افزایش حجم"), "❌ پلنی برای تمدید سرویس یافت نشد."])
     rows = []
     for plan in plans[:12]:
-        traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
+        traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
         rows.append(
-            f"▫️ {plan.name} | {plan.price:,.0f} تومان | {plan.duration_days} روز | {traffic}"
+            f"▫️ {plan.name} | {plan.price:,.0f} تومان | +{plan.duration_days} روز | {traffic}"
         )
-    rows.extend(["", f"کد سرویس: {short_id(service_id)}", "👇🏻 یکی از پلن‌های زیر را برای افزایش اعتبار زمانی انتخاب کنید."])
-    return "\n".join([title("💊 تمدید سرویس"), section("پلن ها", rows)])
+    rows.extend(
+        [
+            "",
+            f"کد سرویس: {short_id(service_id)}",
+            "👇🏻 یک پلن انتخاب کنید؛ مدت زمان و حجم همان پلن به سرویس فعلی اضافه می‌شود.",
+        ]
+    )
+    return "\n".join([title("🔄 تمدید و افزایش حجم"), section("پلن ها", rows)])
 
 
 def _renewal_plan_card_text(plan) -> str:
-    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("💊 پلن تمدید"),
+            title("🔄 پلن تمدید و افزایش حجم"),
             f"نام پلن: {plan.name}",
             f"قیمت: {plan.price:,.0f} تومان",
-            f"مدت زمان: {plan.duration_days} روز",
+            f"افزایش زمان: +{plan.duration_days} روز",
             f"حجم: {traffic}",
             f"کد: {short_id(plan.id)}",
         ]
@@ -3478,9 +3484,9 @@ async def _show_purchase_confirm(
     plan_id = data.get("buy_plan_id")
     if not plan_id:
         if isinstance(target, CallbackQuery):
-            await target.answer("Purchase draft is missing.", show_alert=True)
+            await target.answer("پیش نویس خرید پیدا نشد.", show_alert=True)
         else:
-            await target.answer("Purchase draft is missing. Start again from Buy VPN.")
+            await target.answer("پیش نویس خرید پیدا نشد. دوباره از خرید سرویس شروع کنید.")
         await state.clear()
         return
     try:
@@ -3491,15 +3497,15 @@ async def _show_purchase_confirm(
     except ValueError as exc:
         if str(exc) == "discount_not_found":
             if isinstance(target, CallbackQuery):
-                await target.answer("Coupon not found.", show_alert=True)
+                await target.answer("کد تخفیف پیدا نشد.", show_alert=True)
             else:
-                await target.answer("Coupon not found. Send another code or use Skip Coupon.")
+                await target.answer("کد تخفیف پیدا نشد. کد دیگری بفرستید یا ادامه بدون کد را بزنید.")
             return
         if str(exc) == "plan_not_found":
             if isinstance(target, CallbackQuery):
-                await target.answer("Plan not found.", show_alert=True)
+                await target.answer("پلن پیدا نشد.", show_alert=True)
             else:
-                await target.answer("Plan not found. Start again from Buy VPN.")
+                await target.answer("پلن پیدا نشد. دوباره از خرید سرویس شروع کنید.")
             await state.clear()
             return
         raise
@@ -3515,11 +3521,14 @@ async def _show_purchase_confirm(
 
 
 def _renewal_coupon_text(service, plan) -> str:
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Renew Coupon"),
+            title("🎁 کد تخفیف تمدید"),
             f"سرویس انتخابی: {service.marzban_username}",
             f"پلن انتخابی: {plan.name}",
+            f"افزایش زمان: +{plan.duration_days} روز",
+            f"افزایش حجم: {traffic}",
             f"مبلغ: {plan.price:,.0f} تومان",
             "",
             "اگر کد تخفیف دارید ارسال کنید، در غیر این صورت ادامه بدون کد را بزنید.",
@@ -3528,15 +3537,18 @@ def _renewal_coupon_text(service, plan) -> str:
 
 
 def _renewal_confirm_text(service, plan, *, coupon: str | None) -> str:
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("🧾 فاکتور تمدید"),
+            title("🧾 فاکتور تمدید و افزایش حجم"),
             f"سرویس انتخابی: {service.marzban_username}",
             f"پلن انتخابی: {plan.name}",
+            f"افزایش زمان: +{plan.duration_days} روز",
+            f"افزایش حجم: {traffic}",
             f"مبلغ تمدید: {plan.price:,.0f} تومان",
             f"کد تخفیف: {coupon or '-'}",
             "",
-            "✅ برای تایید و تمدید سرویس روی دکمه تایید کلیک کنید.",
+            "✅ با تایید، زمان و حجم این پلن به سرویس فعلی اضافه می‌شود.",
         ]
     )
 
@@ -3585,9 +3597,9 @@ async def _show_renewal_confirm(
     plan_id = data.get("renew_plan_id")
     if not service_id or not plan_id:
         if isinstance(target, CallbackQuery):
-            await target.answer("Renewal draft is missing.", show_alert=True)
+            await target.answer("پیش نویس تمدید پیدا نشد.", show_alert=True)
         else:
-            await target.answer("Renewal draft is missing. Start again from My Services.")
+            await target.answer("پیش نویس تمدید پیدا نشد. دوباره از سرویس های من شروع کنید.")
         await state.clear()
         return
     service = await _find_buyer_service(
@@ -3595,12 +3607,12 @@ async def _show_renewal_confirm(
         buyer_telegram_id=from_user.id,
         service_id=str(service_id),
     )
-    plan = await _find_plan(seller_context, plan_id=str(plan_id), purpose=PlanPurpose.RENEWAL)
+    plan = await _find_plan(seller_context, plan_id=str(plan_id), purpose=PlanPurpose.PURCHASE)
     if service is None or plan is None:
         if isinstance(target, CallbackQuery):
-            await target.answer("Renewal draft is no longer valid.", show_alert=True)
+            await target.answer("پیش نویس تمدید دیگر معتبر نیست.", show_alert=True)
         else:
-            await target.answer("Renewal draft is no longer valid. Start again from My Services.")
+            await target.answer("پیش نویس تمدید دیگر معتبر نیست. دوباره از سرویس های من شروع کنید.")
         await state.clear()
         return
     await state.update_data(renew_coupon=coupon)
@@ -3626,9 +3638,9 @@ async def _show_extra_volume_confirm(
     plan_id = data.get("extra_plan_id")
     if not service_id or not plan_id:
         if isinstance(target, CallbackQuery):
-            await target.answer("Extra-volume draft is missing.", show_alert=True)
+            await target.answer("پیش نویس حجم اضافه پیدا نشد.", show_alert=True)
         else:
-            await target.answer("Extra-volume draft is missing. Start again from My Services.")
+            await target.answer("پیش نویس حجم اضافه پیدا نشد. دوباره از سرویس های من شروع کنید.")
         await state.clear()
         return
     service = await _find_buyer_service(
@@ -3639,9 +3651,9 @@ async def _show_extra_volume_confirm(
     plan = await _find_plan(seller_context, plan_id=str(plan_id), purpose=PlanPurpose.EXTRA_VOLUME)
     if service is None or plan is None:
         if isinstance(target, CallbackQuery):
-            await target.answer("Extra-volume draft is no longer valid.", show_alert=True)
+            await target.answer("پیش نویس حجم اضافه دیگر معتبر نیست.", show_alert=True)
         else:
-            await target.answer("Extra-volume draft is no longer valid. Start again from My Services.")
+            await target.answer("پیش نویس حجم اضافه دیگر معتبر نیست. دوباره از سرویس های من شروع کنید.")
         await state.clear()
         return
     await state.update_data(extra_coupon=coupon)
@@ -3668,11 +3680,11 @@ async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_i
 def _wallet_transaction_card_text(transaction) -> str:
     return "\n".join(
         [
-            title("Wallet Transaction"),
-            f"Transaction ID: {transaction.id}",
-            f"Type: {transaction.transaction_type}",
-            f"Status: {status_label(transaction.status)}",
-            f"Amount: {transaction.amount:,.0f}",
+            title("تراکنش کیف پول"),
+            f"کد تراکنش: {transaction.id}",
+            f"نوع: {transaction.transaction_type}",
+            f"وضعیت: {status_label(transaction.status)}",
+            f"مبلغ: {transaction.amount:,.0f}",
         ]
     )
 
@@ -3680,16 +3692,16 @@ def _wallet_transaction_card_text(transaction) -> str:
 def _wallet_transaction_detail_text(transaction) -> str:
     return "\n".join(
         [
-            title("Transaction Detail"),
-            f"Transaction ID: {transaction.id}",
-            f"Type: {transaction.transaction_type}",
-            f"Status: {status_label(transaction.status)}",
-            f"Amount: {transaction.amount:,.0f}",
-            f"Related payment: {transaction.related_payment_id or '-'}",
-            f"Approved by: {transaction.approved_by_telegram_id or '-'}",
-            f"Created: {transaction.created_at.isoformat()}",
+            title("جزئیات تراکنش"),
+            f"کد تراکنش: {transaction.id}",
+            f"نوع: {transaction.transaction_type}",
+            f"وضعیت: {status_label(transaction.status)}",
+            f"مبلغ: {transaction.amount:,.0f}",
+            f"پرداخت مرتبط: {transaction.related_payment_id or '-'}",
+            f"تایید کننده: {transaction.approved_by_telegram_id or '-'}",
+            f"زمان ساخت: {transaction.created_at.isoformat()}",
             "",
-            f"Note: {transaction.note or '-'}",
+            f"یادداشت: {transaction.note or '-'}",
         ]
     )
 
@@ -3704,32 +3716,32 @@ async def _buyer_tickets_text(
         f"- {ticket_item.id} | {status_label(ticket_item.status)} | {ticket_item.subject}"
         for ticket_item in tickets[:12]
     ]
-    rows.extend(["", "Tap a ticket card to view details or reply."])
-    return "\n".join([title("My Tickets"), section("Tickets", rows)])
+    rows.extend(["", "برای مشاهده جزئیات یا پاسخ، روی کارت تیکت بزنید."])
+    return "\n".join([title("تیکت های من"), section("تیکت ها", rows)])
 
 
 def _ticket_card_text(ticket_item) -> str:
     return "\n".join(
         [
-            title("Ticket"),
-            f"Ticket ID: {ticket_item.id}",
-            f"Subject: {ticket_item.subject}",
-            f"Status: {status_label(ticket_item.status)}",
+            title("تیکت"),
+            f"کد تیکت: {ticket_item.id}",
+            f"موضوع: {ticket_item.subject}",
+            f"وضعیت: {status_label(ticket_item.status)}",
         ]
     )
 
 
 def _ticket_thread_text(thread) -> str:
     rows = [
-        title("Ticket Detail"),
-        f"Ticket ID: {thread.ticket.id}",
-        f"Subject: {thread.ticket.subject}",
-        f"Status: {status_label(thread.ticket.status)}",
+        title("جزئیات تیکت"),
+        f"کد تیکت: {thread.ticket.id}",
+        f"موضوع: {thread.ticket.subject}",
+        f"وضعیت: {status_label(thread.ticket.status)}",
         "",
-        "Recent messages:",
+        "پیام های اخیر:",
     ]
     for message in thread.messages[-6:]:
-        sender = "Admin" if message.sender_type == "admin" else "Buyer"
+        sender = "ادمین" if message.sender_type == "admin" else "کاربر"
         body = " ".join((message.body or "").split())
         if len(body) > 260:
             body = f"{body[:257]}..."
@@ -3739,7 +3751,7 @@ def _ticket_thread_text(thread) -> str:
 
 def _payment_request_text(payment_request) -> str:
     plan = payment_request.plan
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
             title("☑️ فاکتور شما با موفقیت ساخته شد"),
@@ -3791,7 +3803,7 @@ def _receipt_upload_request_text(order_id: str) -> str:
             f"شماره سفارش: {order_id}",
             "",
             "عکس فیش پرداخت را همینجا داخل ربات ارسال کنید.",
-            "ربات عکس را برای ادمین و پشتیبان می‌فرستد تا پرداخت approve شود.",
+            "ربات عکس را برای ادمین و پشتیبان می‌فرستد تا پرداخت تایید شود.",
         ]
     )
 
@@ -3818,14 +3830,14 @@ def _receipt_notification_caption(*, buyer_telegram_id: int, order_status) -> st
     return "\n".join(
         [
             title("فیش پرداخت جدید"),
-            f"Buyer Telegram ID: {buyer_telegram_id}",
-            f"Order ID: {order.id}",
-            f"Payment ID: {payment.id if payment else '-'}",
-            f"Plan: {plan.name if plan else '-'}",
-            f"Amount: {amount:,.0f} تومان",
-            f"Payment status: {status_label(payment.status) if payment else '-'}",
+            f"Telegram ID خریدار: {buyer_telegram_id}",
+            f"کد سفارش: {order.id}",
+            f"کد پرداخت: {payment.id if payment else '-'}",
+            f"پلن: {plan.name if plan else '-'}",
+            f"مبلغ: {amount:,.0f} تومان",
+            f"وضعیت پرداخت: {status_label(payment.status) if payment else '-'}",
             "",
-            "بعد از بررسی عکس، پرداخت را approve یا reject کنید.",
+            "بعد از بررسی عکس، پرداخت را تایید یا رد کنید.",
         ]
     )
 
@@ -3834,12 +3846,12 @@ def _wallet_receipt_notification_caption(*, buyer_telegram_id: int, transaction)
     return "\n".join(
         [
             title("فیش شارژ کیف پول"),
-            f"Buyer Telegram ID: {buyer_telegram_id}",
-            f"Transaction ID: {transaction.id}",
-            f"Amount: {transaction.amount:,.0f} تومان",
-            f"Status: {status_label(transaction.status)}",
+            f"Telegram ID خریدار: {buyer_telegram_id}",
+            f"کد تراکنش: {transaction.id}",
+            f"مبلغ: {transaction.amount:,.0f} تومان",
+            f"وضعیت: {status_label(transaction.status)}",
             "",
-            "بعد از بررسی عکس، شارژ کیف پول را approve کنید.",
+            "بعد از بررسی عکس، شارژ کیف پول را تایید کنید.",
         ]
     )
 
@@ -3886,24 +3898,24 @@ async def _send_wallet_receipt_to_contact(
 
 def _pending_payment_detail_text(pending) -> str:
     plan = pending.plan
-    traffic = "Unlimited" if plan.data_limit_gb is None else f"{plan.data_limit_gb} GB"
+    traffic = "نامحدود" if plan.data_limit_gb is None else f"{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("Payment Detail"),
-            f"Payment ID: {pending.payment.id}",
-            f"Payment status: {status_label(pending.payment.status)}",
-            f"Method: {pending.payment.method}",
-            f"Amount: {pending.payment.amount:,.0f}",
+            title("جزئیات پرداخت"),
+            f"کد پرداخت: {pending.payment.id}",
+            f"وضعیت پرداخت: {status_label(pending.payment.status)}",
+            f"روش: {pending.payment.method}",
+            f"مبلغ: {pending.payment.amount:,.0f}",
             "",
-            f"Order ID: {pending.order.id}",
-            f"Order type: {pending.order.order_type}",
-            f"Order status: {status_label(pending.order.status)}",
+            f"کد سفارش: {pending.order.id}",
+            f"نوع سفارش: {pending.order.order_type}",
+            f"وضعیت سفارش: {status_label(pending.order.status)}",
             "",
-            f"Plan: {plan.name}",
-            f"Duration: {plan.duration_days} days",
-            f"Traffic: {traffic}",
+            f"پلن: {plan.name}",
+            f"مدت: {plan.duration_days} روز",
+            f"حجم: {traffic}",
             "",
-            "Approve only after checking the payment receipt/support message.",
+            "فقط بعد از بررسی فیش یا پیام پشتیبانی پرداخت را تایید کنید.",
         ]
     )
 
@@ -3938,40 +3950,42 @@ def _wallet_charge_request_text(charge) -> str:
 
 
 def _service_created_text(header: str, service) -> str:
+    traffic = "نامحدود" if service.data_limit_gb is None else f"{service.data_limit_gb} گیگ"
+    expire = service.expire_at.isoformat() if service.expire_at else "نامحدود"
     return "\n".join(
         [
             title(header),
-            f"Service ID: {service.id}",
-            f"Username: {service.marzban_username}",
-            f"Traffic: {service.data_limit_gb or 'Unlimited'} GB",
-            f"Expires: {service.expire_at.isoformat() if service.expire_at else 'Unlimited'}",
-            f"Subscription: {service.subscription_url or '-'}",
+            f"کد سرویس: {service.id}",
+            f"نام کاربری: {service.marzban_username}",
+            f"حجم: {traffic}",
+            f"تاریخ انقضا: {expire}",
+            f"لینک اشتراک: {service.subscription_url or '-'}",
         ]
     )
 
 
 def _trial_error_text(error: str) -> str:
     messages = {
-        "trial_disabled": "Trial accounts are disabled right now.",
-        "trial_already_used": "You have already used your trial account.",
-        "panel_assignment_not_found": "Trial is not available because no panel is assigned.",
+        "trial_disabled": "سرویس تستی فعلاً غیرفعال است.",
+        "trial_already_used": "شما قبلاً سرویس تستی خود را استفاده کرده اید.",
+        "panel_assignment_not_found": "سرویس تستی در دسترس نیست چون هیچ پنلی اختصاص داده نشده است.",
     }
-    return "\n".join([title("Trial"), messages.get(error, "Trial is not available right now.")])
+    return "\n".join([title("سرویس تستی"), messages.get(error, "سرویس تستی فعلاً در دسترس نیست.")])
 
 
 async def _show_admin_dashboard(callback: CallbackQuery, seller_context: SellerContextService) -> None:
     try:
         pending = await seller_context.list_pending_payments(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     await callback.message.edit_text(
         "\n".join(
             [
-                title("Reseller Admin"),
-                f"Pending payments: {len(pending)}",
+                title("مدیریت فروشنده"),
+                f"پرداخت های در انتظار: {len(pending)}",
                 "",
-                "Choose an admin action below.",
+                "یکی از عملیات مدیریت را انتخاب کنید.",
             ]
         ),
         reply_markup=seller_admin_menu(),
@@ -3982,26 +3996,26 @@ async def _show_admin_payments(callback: CallbackQuery, seller_context: SellerCo
     try:
         pending = await seller_context.list_pending_payments(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     rows = [
-        f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
+        f"- پرداخت={item.payment.id} | سفارش={short_id(item.order.id)} | {item.payment.amount:,.0f}"
         for item in pending[:15]
     ]
-    rows.extend(["", "Tap Details before approving a payment."])
+    rows.extend(["", "قبل از تایید پرداخت، جزئیات را بررسی کنید."])
     await callback.message.edit_text(
-        "\n".join([title("Pending Payments"), section("Payments", rows)]),
+        "\n".join([title("پرداخت های در انتظار"), section("پرداخت ها", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in pending[:5]:
         await callback.message.answer(
             "\n".join(
                 [
-                    title("Payment Action"),
-                    f"Payment ID: {item.payment.id}",
-                    f"Order ID: {item.order.id}",
-                    f"Plan: {item.plan.name}",
-                    f"Amount: {item.payment.amount:,.0f}",
+                    title("عملیات پرداخت"),
+                    f"کد پرداخت: {item.payment.id}",
+                    f"کد سفارش: {item.order.id}",
+                    f"پلن: {item.plan.name}",
+                    f"مبلغ: {item.payment.amount:,.0f}",
                 ]
             ),
             reply_markup=admin_payment_actions(item.payment.id),
@@ -4012,7 +4026,7 @@ async def _show_admin_payment_settings(callback: CallbackQuery, seller_context: 
     try:
         config = await seller_context.get_crypto_payment_config(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     await callback.message.edit_text(
         _crypto_payment_settings_text(config),
@@ -4024,7 +4038,7 @@ async def _show_admin_support_settings(callback: CallbackQuery, seller_context: 
     try:
         settings = await seller_context.get_support_settings(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     await callback.message.edit_text(
         _support_settings_text(settings),
@@ -4046,9 +4060,9 @@ def _support_settings_text(settings: object) -> str:
     return "\n".join(
         [
             title("پشتیبان"),
-            f"Contact: {contact}",
+            f"راه ارتباطی: {contact}",
             "",
-            "تیکت‌های جدید و پاسخ‌های کاربر برای این contact ارسال می‌شود.",
+            "تیکت‌های جدید و پاسخ‌های کاربر برای این راه ارتباطی ارسال می‌شود.",
         ]
     )
 
@@ -4084,7 +4098,7 @@ def _marzban_http_error_text(exc: httpx.HTTPStatusError) -> str:
     body = exc.response.text.strip()
     if len(body) > 160:
         body = f"{body[:157]}..."
-    return f"Marzban error {exc.response.status_code}: {body or exc.response.reason_phrase}"
+    return f"خطای مرزبان {exc.response.status_code}: {body or exc.response.reason_phrase}"
 
 
 def _normalize_service_username(value: str) -> str | None:
@@ -4151,9 +4165,9 @@ async def _notify_support_about_ticket(
     text = "\n".join(
         [
             title(header),
-            f"Ticket ID: {ticket_id}",
-            f"Buyer Telegram ID: {buyer_telegram_id}",
-            f"Subject: {subject}",
+            f"کد تیکت: {ticket_id}",
+            f"Telegram ID خریدار: {buyer_telegram_id}",
+            f"موضوع: {subject}",
             "",
             preview,
             "",
@@ -4213,26 +4227,26 @@ async def _send_admin_payments(message: Message, seller_context: SellerContextSe
     try:
         pending = await seller_context.list_pending_payments(admin_telegram_id=message.from_user.id)
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     rows = [
-        f"- payment={item.payment.id} | order={short_id(item.order.id)} | {item.payment.amount:,.0f}"
+        f"- پرداخت={item.payment.id} | سفارش={short_id(item.order.id)} | {item.payment.amount:,.0f}"
         for item in pending[:15]
     ]
-    rows.extend(["", "Tap Details before approving a payment."])
+    rows.extend(["", "قبل از تایید پرداخت، جزئیات را بررسی کنید."])
     await message.answer(
-        "\n".join([title("Pending Payments"), section("Payments", rows)]),
+        "\n".join([title("پرداخت های در انتظار"), section("پرداخت ها", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in pending[:5]:
         await message.answer(
             "\n".join(
                 [
-                    title("Payment Action"),
-                    f"Payment ID: {item.payment.id}",
-                    f"Order ID: {item.order.id}",
-                    f"Plan: {item.plan.name}",
-                    f"Amount: {item.payment.amount:,.0f}",
+                    title("عملیات پرداخت"),
+                    f"کد پرداخت: {item.payment.id}",
+                    f"کد سفارش: {item.order.id}",
+                    f"پلن: {item.plan.name}",
+                    f"مبلغ: {item.payment.amount:,.0f}",
                 ]
             ),
             reply_markup=admin_payment_actions(item.payment.id),
@@ -4243,12 +4257,12 @@ async def _show_admin_orders(callback: CallbackQuery, seller_context: SellerCont
     try:
         orders = await seller_context.list_provisioning_orders(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     rows = [_admin_order_row(item) for item in orders[:15]]
-    rows.extend(["", "Approved orders are ready for provisioning or renewal."])
+    rows.extend(["", "سفارش های تایید شده آماده ساخت، تمدید یا افزایش حجم هستند."])
     await callback.message.edit_text(
-        "\n".join([title("Provision Orders"), section("Ready orders", rows)]),
+        "\n".join([title("سفارش های آماده"), section("سفارش ها", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in orders[:5]:
@@ -4264,12 +4278,12 @@ async def _send_admin_orders(message: Message, seller_context: SellerContextServ
     try:
         orders = await seller_context.list_provisioning_orders(admin_telegram_id=message.from_user.id)
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     rows = [_admin_order_row(item) for item in orders[:15]]
-    rows.extend(["", "Approved orders are ready for provisioning or renewal."])
+    rows.extend(["", "سفارش های تایید شده آماده ساخت، تمدید یا افزایش حجم هستند."])
     await message.answer(
-        "\n".join([title("Provision Orders"), section("Ready orders", rows)]),
+        "\n".join([title("سفارش های آماده"), section("سفارش ها", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in orders[:5]:
@@ -4285,22 +4299,22 @@ async def _show_admin_wallet(callback: CallbackQuery, seller_context: SellerCont
     try:
         pending = await seller_context.list_pending_wallet_charges(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
-    rows = [f"- tx={item.id} | amount={item.amount:,.0f}" for item in pending[:15]]
-    rows.extend(["", "Tap an approval button on a wallet charge card below."])
+    rows = [f"- تراکنش={item.id} | مبلغ={item.amount:,.0f}" for item in pending[:15]]
+    rows.extend(["", "برای تایید، از کارت شارژ کیف پول زیر استفاده کنید."])
     await callback.message.edit_text(
-        "\n".join([title("Wallet Charges"), section("Pending charges", rows)]),
+        "\n".join([title("شارژهای کیف پول"), section("شارژهای در انتظار", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in pending[:5]:
         await callback.message.answer(
             "\n".join(
                 [
-                    title("Wallet Charge Action"),
-                    f"Transaction ID: {item.id}",
-                    f"Buyer ID: {item.owner_id}",
-                    f"Amount: {item.amount:,.0f}",
+                    title("عملیات شارژ کیف پول"),
+                    f"کد تراکنش: {item.id}",
+                    f"کد خریدار: {item.owner_id}",
+                    f"مبلغ: {item.amount:,.0f}",
                 ]
             ),
             reply_markup=admin_wallet_charge_actions(item.id),
@@ -4311,22 +4325,22 @@ async def _send_admin_wallet(message: Message, seller_context: SellerContextServ
     try:
         pending = await seller_context.list_pending_wallet_charges(admin_telegram_id=message.from_user.id)
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
-    rows = [f"- tx={item.id} | amount={item.amount:,.0f}" for item in pending[:15]]
-    rows.extend(["", "Tap an approval button on a wallet charge card below."])
+    rows = [f"- تراکنش={item.id} | مبلغ={item.amount:,.0f}" for item in pending[:15]]
+    rows.extend(["", "برای تایید، از کارت شارژ کیف پول زیر استفاده کنید."])
     await message.answer(
-        "\n".join([title("Wallet Charges"), section("Pending charges", rows)]),
+        "\n".join([title("شارژهای کیف پول"), section("شارژهای در انتظار", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in pending[:5]:
         await message.answer(
             "\n".join(
                 [
-                    title("Wallet Charge Action"),
-                    f"Transaction ID: {item.id}",
-                    f"Buyer ID: {item.owner_id}",
-                    f"Amount: {item.amount:,.0f}",
+                    title("عملیات شارژ کیف پول"),
+                    f"کد تراکنش: {item.id}",
+                    f"کد خریدار: {item.owner_id}",
+                    f"مبلغ: {item.amount:,.0f}",
                 ]
             ),
             reply_markup=admin_wallet_charge_actions(item.id),
@@ -4337,7 +4351,7 @@ async def _show_admin_customers(callback: CallbackQuery, seller_context: SellerC
     try:
         customers = await seller_context.list_customers(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     await callback.message.edit_text(
         _admin_customers_text(customers),
@@ -4354,7 +4368,7 @@ async def _send_admin_customers(message: Message, seller_context: SellerContextS
     try:
         customers = await seller_context.list_customers(admin_telegram_id=message.from_user.id)
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     await message.answer(
         _admin_customers_text(customers),
@@ -4371,7 +4385,7 @@ async def _show_admin_plans(callback: CallbackQuery, seller_context: SellerConte
     try:
         plans = await seller_context.list_admin_plans(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
     await callback.message.edit_text(_admin_plans_text(plans), reply_markup=admin_plan_list_menu(plans))
 
@@ -4380,28 +4394,28 @@ async def _send_admin_plans(message: Message, seller_context: SellerContextServi
     try:
         plans = await seller_context.list_admin_plans(admin_telegram_id=message.from_user.id)
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     await message.answer(_admin_plans_text(plans), reply_markup=admin_plan_list_menu(plans))
 
 
 def _admin_order_row(item) -> str:
     return (
-        f"- order={short_id(item.order.id)} | {item.order.order_type} | "
-        f"plan={item.plan.name} | amount={item.order.total_amount:,.0f}"
+        f"- سفارش={short_id(item.order.id)} | {item.order.order_type} | "
+        f"پلن={item.plan.name} | مبلغ={item.order.total_amount:,.0f}"
     )
 
 
 def _admin_order_card_text(item) -> str:
     return "\n".join(
         [
-            title("Provision Order"),
-            f"Order ID: {item.order.id}",
-            f"Type: {item.order.order_type}",
-            f"Status: {status_label(item.order.status)}",
-            f"Buyer TG: {item.buyer.telegram_user_id}",
-            f"Plan: {item.plan.name}",
-            f"Amount: {item.order.total_amount:,.0f}",
+            title("سفارش آماده ساخت"),
+            f"کد سفارش: {item.order.id}",
+            f"نوع: {item.order.order_type}",
+            f"وضعیت: {status_label(item.order.status)}",
+            f"Telegram ID خریدار: {item.buyer.telegram_user_id}",
+            f"پلن: {item.plan.name}",
+            f"مبلغ: {item.order.total_amount:,.0f}",
         ]
     )
 
@@ -4411,8 +4425,8 @@ def _admin_customer_row(item) -> str:
     username = f"@{user.username}" if user.username else "-"
     name = " ".join(part for part in [user.first_name, user.last_name] if part) or "-"
     return (
-        f"- tg={user.id} | {username} | {name} | "
-        f"wallet={item.buyer.wallet_balance:,.0f} | id={short_id(item.buyer.id)}"
+        f"- تلگرام={user.id} | {username} | {name} | "
+        f"کیف پول={item.buyer.wallet_balance:,.0f} | کد={short_id(item.buyer.id)}"
     )
 
 
@@ -4422,22 +4436,22 @@ def _admin_customer_card_text(item) -> str:
     name = " ".join(part for part in [user.first_name, user.last_name] if part) or "-"
     return "\n".join(
         [
-            title("Customer"),
-            f"Buyer ID: {item.buyer.id}",
+            title("کاربر"),
+            f"کد خریدار: {item.buyer.id}",
             f"Telegram ID: {user.id}",
-            f"Username: {username}",
-            f"Name: {name}",
-            f"Wallet: {item.buyer.wallet_balance:,.0f}",
+            f"یوزرنیم: {username}",
+            f"نام: {name}",
+            f"کیف پول: {item.buyer.wallet_balance:,.0f}",
         ]
     )
 
 
-def _admin_customers_text(customers, *, heading: str = "Customers") -> str:
+def _admin_customers_text(customers, *, heading: str = "کاربران") -> str:
     if not customers:
-        return "\n".join([title(heading), "No customers found.", "", "Use Search to find by Telegram ID, username, name, or VPN username."])
+        return "\n".join([title(heading), "کاربری پیدا نشد.", "", "برای جستجو از Telegram ID، یوزرنیم، نام یا نام VPN استفاده کنید."])
     rows = [_admin_customer_row(item) for item in customers[:20]]
-    rows.extend(["", "Tap a customer card below to open details."])
-    return "\n".join([title(heading), section("Recent customers", rows)])
+    rows.extend(["", "برای مشاهده جزئیات، روی کارت کاربر بزنید."])
+    return "\n".join([title(heading), section("کاربران اخیر", rows)])
 
 
 def _admin_customer_detail_text(detail) -> str:
@@ -4446,16 +4460,16 @@ def _admin_customer_detail_text(detail) -> str:
     name = " ".join(part for part in [user.first_name, user.last_name] if part) or "-"
     return "\n".join(
         [
-            title("Customer Detail"),
-            f"Buyer ID: {detail.buyer.id}",
+            title("جزئیات کاربر"),
+            f"کد خریدار: {detail.buyer.id}",
             f"Telegram ID: {user.id}",
-            f"Username: {username}",
-            f"Name: {name}",
-            f"Wallet: {detail.buyer.wallet_balance:,.0f}",
+            f"یوزرنیم: {username}",
+            f"نام: {name}",
+            f"کیف پول: {detail.buyer.wallet_balance:,.0f}",
             "",
-            f"Services: {detail.service_count}",
-            f"Orders: {detail.order_count}",
-            f"Tickets: {detail.ticket_count}",
+            f"سرویس ها: {detail.service_count}",
+            f"سفارش ها: {detail.order_count}",
+            f"تیکت ها: {detail.ticket_count}",
         ]
     )
 
@@ -4551,22 +4565,22 @@ async def _show_admin_tickets(callback: CallbackQuery, seller_context: SellerCon
     try:
         tickets = await seller_context.list_open_tickets(admin_telegram_id=callback.from_user.id)
     except PermissionError:
-        await callback.answer("You do not have reseller admin access.", show_alert=True)
+        await callback.answer("شما دسترسی ادمین فروشنده ندارید.", show_alert=True)
         return
-    rows = [f"- ticket={item.id} | {item.subject}" for item in tickets[:15]]
-    rows.extend(["", "Tap Close on a ticket card below, or reply by sending ticket ID and message."])
+    rows = [f"- تیکت={item.id} | {item.subject}" for item in tickets[:15]]
+    rows.extend(["", "برای بستن یا پاسخ، از کارت تیکت زیر استفاده کنید."])
     await callback.message.edit_text(
-        "\n".join([title("Open Tickets"), section("Tickets", rows)]),
+        "\n".join([title("تیکت های باز"), section("تیکت ها", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in tickets[:5]:
         await callback.message.answer(
             "\n".join(
                 [
-                    title("Ticket Action"),
-                    f"Ticket ID: {item.id}",
-                    f"Subject: {item.subject}",
-                    f"Status: {status_label(item.status)}",
+                    title("عملیات تیکت"),
+                    f"کد تیکت: {item.id}",
+                    f"موضوع: {item.subject}",
+                    f"وضعیت: {status_label(item.status)}",
                 ]
             ),
             reply_markup=admin_ticket_actions(item.id),
@@ -4577,22 +4591,22 @@ async def _send_admin_tickets(message: Message, seller_context: SellerContextSer
     try:
         tickets = await seller_context.list_open_tickets(admin_telegram_id=message.from_user.id)
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
-    rows = [f"- ticket={item.id} | {item.subject}" for item in tickets[:15]]
-    rows.extend(["", "Tap Close on a ticket card below, or reply by sending ticket ID and message."])
+    rows = [f"- تیکت={item.id} | {item.subject}" for item in tickets[:15]]
+    rows.extend(["", "برای بستن یا پاسخ، از کارت تیکت زیر استفاده کنید."])
     await message.answer(
-        "\n".join([title("Open Tickets"), section("Tickets", rows)]),
+        "\n".join([title("تیکت های باز"), section("تیکت ها", rows)]),
         reply_markup=seller_admin_menu(),
     )
     for item in tickets[:5]:
         await message.answer(
             "\n".join(
                 [
-                    title("Ticket Action"),
-                    f"Ticket ID: {item.id}",
-                    f"Subject: {item.subject}",
-                    f"Status: {status_label(item.status)}",
+                    title("عملیات تیکت"),
+                    f"کد تیکت: {item.id}",
+                    f"موضوع: {item.subject}",
+                    f"وضعیت: {status_label(item.status)}",
                 ]
             ),
             reply_markup=admin_ticket_actions(item.id),
@@ -4600,9 +4614,19 @@ async def _send_admin_tickets(message: Message, seller_context: SellerContextSer
 
 
 def _format_report(title: str, report: dict[str, float | int]) -> str:
+    labels = {
+        "completed_orders": "سفارش های تکمیل شده",
+        "total_revenue": "درآمد کل",
+        "new_services": "سرویس های جدید",
+        "renewals": "تمدیدها",
+        "extra_volume": "حجم اضافه",
+        "buyers": "خریداران",
+        "resellers": "فروشنده ها",
+        "payments": "پرداخت ها",
+    }
     lines = [title]
     for key, value in report.items():
-        label = key.replace("_", " ").title()
+        label = labels.get(key, key.replace("_", " "))
         if isinstance(value, float):
             lines.append(f"{label}: {value:,.0f}")
         else:
@@ -4613,7 +4637,7 @@ def _format_report(title: str, report: dict[str, float | int]) -> str:
 def _guided_text(name: str, description: str, examples: list[str]) -> str:
     rows = [title(name), description]
     if examples:
-        rows.extend(["", "When text is required, send one message in this format:", *[f"- {item}" for item in examples]])
+        rows.extend(["", "وقتی متن لازم است، یک پیام با این فرمت بفرستید:", *[f"- {item}" for item in examples]])
     return "\n".join(rows)
 
 
@@ -4627,7 +4651,7 @@ async def apply_renewal(
         return
     order_id = (command.args or "").strip()
     if not order_id:
-        await message.answer("Usage: /apply_renewal <order_id>")
+        await message.answer("فرمت دستور: /apply_renewal <order_id>")
         return
     try:
         renewed = await provisioning_service.apply_renewal(
@@ -4635,24 +4659,24 @@ async def apply_renewal(
             order_id=order_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "renewal_not_ready":
-            await message.answer("Renewal order is not ready.")
+            await message.answer("سفارش تمدید آماده نیست.")
             return
         if str(exc) == "panel_not_found":
-            await message.answer("Panel for this service is not available.")
+            await message.answer("پنل این سرویس در دسترس نیست.")
             return
         raise
     await message.answer(
         "\n".join(
             [
-                "VPN service renewed.",
-                f"Order ID: {renewed.order.id}",
-                f"Service ID: {renewed.vpn_service.id}",
-                f"Username: {renewed.vpn_service.marzban_username}",
-                f"New expiry: {renewed.vpn_service.expire_at.isoformat() if renewed.vpn_service.expire_at else 'Unlimited'}",
+                "سرویس VPN تمدید شد.",
+                f"کد سفارش: {renewed.order.id}",
+                f"کد سرویس: {renewed.vpn_service.id}",
+                f"نام کاربری: {renewed.vpn_service.marzban_username}",
+                f"انقضای جدید: {renewed.vpn_service.expire_at.isoformat() if renewed.vpn_service.expire_at else 'نامحدود'}",
             ]
         )
     )
@@ -4668,7 +4692,7 @@ async def apply_extra_volume(
         return
     order_id = (command.args or "").strip()
     if not order_id:
-        await message.answer("Usage: /apply_extra_volume <order_id>")
+        await message.answer("فرمت دستور: /apply_extra_volume <order_id>")
         return
     try:
         applied = await provisioning_service.apply_extra_volume(
@@ -4676,24 +4700,24 @@ async def apply_extra_volume(
             order_id=order_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "extra_volume_not_ready":
-            await message.answer("Extra-volume order is not ready.")
+            await message.answer("سفارش حجم اضافه آماده نیست.")
             return
         if str(exc) == "panel_not_found":
-            await message.answer("Panel for this service is not available.")
+            await message.answer("پنل این سرویس در دسترس نیست.")
             return
         raise
     await message.answer(
         "\n".join(
             [
-                "Extra volume applied.",
-                f"Order ID: {applied.order.id}",
-                f"Service ID: {applied.vpn_service.id}",
-                f"Username: {applied.vpn_service.marzban_username}",
-                f"New traffic: {'Unlimited' if applied.vpn_service.data_limit_gb is None else f'{applied.vpn_service.data_limit_gb} GB'}",
+                "حجم اضافه اعمال شد.",
+                f"کد سفارش: {applied.order.id}",
+                f"کد سرویس: {applied.vpn_service.id}",
+                f"نام کاربری: {applied.vpn_service.marzban_username}",
+                f"حجم جدید: {'نامحدود' if applied.vpn_service.data_limit_gb is None else f'{applied.vpn_service.data_limit_gb} گیگ'}",
             ]
         )
     )
@@ -4709,7 +4733,7 @@ async def provision_order(
         return
     order_id = (command.args or "").strip()
     if not order_id:
-        await message.answer("Usage: /provision_order <order_id>")
+        await message.answer("فرمت دستور: /provision_order <order_id>")
         return
     try:
         provisioned = await provisioning_service.provision_order(
@@ -4717,28 +4741,28 @@ async def provision_order(
             order_id=order_id,
         )
     except PermissionError:
-        await message.answer("You do not have reseller admin access.")
+        await message.answer("شما دسترسی ادمین فروشنده ندارید.")
         return
     except ValueError as exc:
         if str(exc) == "order_not_ready":
-            await message.answer("Order is not ready for provisioning.")
+            await message.answer("سفارش برای ساخت سرویس آماده نیست.")
             return
         if str(exc) == "order_already_completed_without_service_link":
-            await message.answer("Order is already completed, but its service link is missing. Ask super admin to repair it.")
+            await message.answer("سفارش تکمیل شده اما لینک سرویس آن ثبت نشده است. از سوپر ادمین بخواهید آن را اصلاح کند.")
             return
         if str(exc) == "panel_assignment_not_found":
-            await message.answer("No active Marzban panel is assigned to this reseller.")
+            await message.answer("هیچ پنل مرزبان فعالی به این فروشنده اختصاص داده نشده است.")
             return
         raise
 
     subscription_url = provisioned.vpn_service.subscription_url
     text = "\n".join(
         [
-            "VPN service provisioned.",
-            f"Order ID: {provisioned.order.id}",
-            f"Service ID: {provisioned.vpn_service.id}",
-            f"Username: {provisioned.vpn_service.marzban_username}",
-            f"Subscription: {subscription_url or '-'}",
+            "سرویس VPN ساخته شد.",
+            f"کد سفارش: {provisioned.order.id}",
+            f"کد سرویس: {provisioned.vpn_service.id}",
+            f"نام کاربری: {provisioned.vpn_service.marzban_username}",
+            f"لینک اشتراک: {subscription_url or '-'}",
         ]
     )
     if not subscription_url:
@@ -4758,9 +4782,9 @@ async def _blocked_by_forced_join(message: Message) -> bool:
     missing = await missing_required_chats(message.bot, user_id=message.from_user.id)
     if not missing:
         return False
-    lines = ["Please join required channel/group first:"]
+    lines = ["لطفاً ابتدا عضو کانال یا گروه الزامی شوید:"]
     for chat in missing:
         lines.append(f"- {chat.title or chat.chat_id}")
-    lines.extend(["", "After joining, press Check Again."])
+    lines.extend(["", "بعد از عضویت، دکمه «عضو شدم» را بزنید."])
     await message.answer("\n".join(lines), reply_markup=forced_join_blocked_menu())
     return True

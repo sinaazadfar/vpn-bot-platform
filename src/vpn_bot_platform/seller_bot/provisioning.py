@@ -272,9 +272,10 @@ class ProvisioningService:
                 raise ValueError("panel_not_found")
 
             new_expire = _renewed_expire_timestamp(vpn_service.expire_at, plan.duration_days)
+            new_data_limit_gb = _increased_data_limit(vpn_service.data_limit_gb, plan.data_limit_gb)
             update = MarzbanUserUpdate(
                 expire=new_expire,
-                data_limit=gb_to_bytes(plan.data_limit_gb) if plan.data_limit_gb is not None else None,
+                data_limit=gb_to_bytes(new_data_limit_gb) if new_data_limit_gb is not None else None,
                 status="active",
             )
             try:
@@ -287,7 +288,7 @@ class ProvisioningService:
                 raise
 
             vpn_service.expire_at = dt.datetime.fromtimestamp(new_expire, dt.UTC)
-            vpn_service.data_limit_gb = plan.data_limit_gb
+            vpn_service.data_limit_gb = new_data_limit_gb
             vpn_service.is_active = True
             await mark_order_completed(session, order=order)
             await record_audit_log(

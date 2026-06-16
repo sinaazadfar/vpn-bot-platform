@@ -44,6 +44,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     renewal_confirm_menu,
     renewal_coupon_menu,
     renewal_plan_button,
+    renewal_plan_list_menu,
     reseller_actions,
     reseller_card_actions,
     reseller_detail_actions,
@@ -184,6 +185,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         purchase_coupon_menu(),
         purchase_confirm_menu(),
         renewal_plan_button(uuid),
+        renewal_plan_list_menu([plan]),
         renewal_coupon_menu(),
         renewal_confirm_menu(),
         extra_volume_plan_button(uuid),
@@ -237,6 +239,6 @@ def test_pagination_helper_clamps_pages() -> None:
 
 
 def test_status_label_is_stable() -> None:
-    assert status_label("active") == "[OK] Active"
-    assert status_label("waiting_payment") == "[...] Waiting Payment"
-    assert status_label("paid") == "[OK] Paid"
+    assert status_label("active") == "[OK] فعال"
+    assert status_label("waiting_payment") == "[...] در انتظار پرداخت"
+    assert status_label("paid") == "[OK] پرداخت شده"

@@ -507,7 +507,7 @@ class SellerContextService:
                 session,
                 reseller_id=seller_bot.reseller_id,
                 plan_id=plan_id,
-                purpose=PlanPurpose.RENEWAL,
+                purpose=PlanPurpose.PURCHASE,
             )
             if plan is None:
                 raise ValueError("plan_not_found")

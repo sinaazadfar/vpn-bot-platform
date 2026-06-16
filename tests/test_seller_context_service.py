@@ -191,13 +191,6 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             duration_days=30,
             data_limit_gb=30,
         )
-        renewal_plan = await master_service.create_global_plan(
-            name="renew30",
-            price=90000,
-            duration_days=30,
-            data_limit_gb=30,
-            purpose=PlanPurpose.RENEWAL,
-        )
         extra_volume_plan = await master_service.create_global_plan(
             name="extra10",
             price=30000,
@@ -210,7 +203,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             name="reseller60",
             price=180000,
             duration_days=60,
-            data_limit_gb=None,
+            data_limit_gb=60,
         )
         seller_admin_plan = await seller_context.create_admin_plan(
             admin_telegram_id=111,
@@ -297,7 +290,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         renewal_request = await seller_context.request_renewal_payment(
             buyer_telegram_id=222,
             service_id=provisioned.vpn_service.id,
-            plan_id=renewal_plan.id,
+            plan_id=global_plan.id,
         )
         renewal_approved = await seller_context.approve_payment(
             admin_telegram_id=111,
@@ -404,12 +397,14 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert renewal_request.order.target_service_id == provisioned.vpn_service.id
     assert renewed.order.status == "completed"
     assert renewed.vpn_service.id == provisioned.vpn_service.id
-    assert renewed.vpn_service.data_limit_gb == renewal_plan.data_limit_gb
+    assert renewed.vpn_service.data_limit_gb == reseller_plan.data_limit_gb + global_plan.data_limit_gb
     assert extra_volume_request.order.order_type == "extra_volume"
     assert extra_volume_request.order.target_service_id == provisioned.vpn_service.id
     assert volume_applied.order.status == "completed"
     assert volume_applied.vpn_service.id == provisioned.vpn_service.id
-    assert volume_applied.vpn_service.data_limit_gb == renewal_plan.data_limit_gb + extra_volume_plan.data_limit_gb
+    assert volume_applied.vpn_service.data_limit_gb == (
+        reseller_plan.data_limit_gb + global_plan.data_limit_gb + extra_volume_plan.data_limit_gb
+    )
     assert reseller_report["completed_orders"] >= 3
     assert reseller_report["new_services"] >= 1
     assert global_report["completed_orders"] >= 3
