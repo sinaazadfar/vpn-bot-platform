@@ -689,7 +689,7 @@ def service_actions(service_id: str) -> InlineKeyboardMarkup:
                 ("📷 کد QR", build_callback("s", "service_qr", service_id)),
             ],
             [
-                ("🔄 تمدید و افزایش حجم", build_callback("s", "renew", service_id)),
+                ("🔄 تمدید سرویس", build_callback("s", "renew", service_id)),
             ],
             [("🔗 راهنمای اتصال", build_callback("s", "service_guide", service_id))],
             [("🔙 بازگشت به لیست سرویس ها", build_callback("s", "services")), ("📱 منوی اصلی", build_callback("s", "home"))],

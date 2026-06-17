@@ -30,9 +30,6 @@ from vpn_bot_platform.common.ui.keyboards import (
     cancel_only_keyboard,
     buyer_ticket_actions,
     confirm_keyboard,
-    extra_volume_confirm_menu,
-    extra_volume_coupon_menu,
-    extra_volume_plan_button,
     forced_join_blocked_menu,
     payment_request_actions,
     plan_list_menu,
@@ -89,12 +86,6 @@ class PurchaseCreateStates(StatesGroup):
 
 
 class RenewalCreateStates(StatesGroup):
-    plan = State()
-    coupon = State()
-    confirm = State()
-
-
-class ExtraVolumeCreateStates(StatesGroup):
     plan = State()
     coupon = State()
     confirm = State()
@@ -519,31 +510,6 @@ async def seller_menu_callback(
             _renewal_text_from_list(plans, service_id=service.id),
             reply_markup=renewal_plan_list_menu(plans),
         )
-    elif action.action == "extra_volume":
-        if not action.value:
-            await callback.answer("سرویس مشخص نشده است.", show_alert=True)
-            return
-        service = await _find_buyer_service(
-            seller_context,
-            buyer_telegram_id=callback.from_user.id,
-            service_id=action.value,
-        )
-        if service is None:
-            await callback.answer("سرویس پیدا نشد.", show_alert=True)
-            return
-        await state.clear()
-        await state.update_data(extra_service_id=service.id)
-        await state.set_state(ExtraVolumeCreateStates.plan)
-        await callback.message.edit_text(
-            await _extra_volume_text(seller_context, service_id=service.id),
-            reply_markup=service_actions(service.id),
-        )
-        plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
-        for plan in plans[:8]:
-            await callback.message.answer(
-                _extra_volume_plan_card_text(plan),
-                reply_markup=extra_volume_plan_button(plan.id),
-            )
     elif action.action == "renew_services":
         await state.clear()
         services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
@@ -579,34 +545,6 @@ async def seller_menu_callback(
             _renewal_coupon_text(service, plan),
             reply_markup=renewal_coupon_menu(),
         )
-    elif action.action == "extra_plan":
-        if not action.value:
-            await callback.answer("پلن مشخص نشده است.", show_alert=True)
-            return
-        data = await state.get_data()
-        service_id = data.get("extra_service_id")
-        if not service_id:
-            await callback.answer("ابتدا یک سرویس انتخاب کنید.", show_alert=True)
-            return
-        plan = await _find_plan(seller_context, plan_id=action.value, purpose=PlanPurpose.EXTRA_VOLUME)
-        if plan is None:
-            await callback.answer("پلن پیدا نشد.", show_alert=True)
-            return
-        service = await _find_buyer_service(
-            seller_context,
-            buyer_telegram_id=callback.from_user.id,
-            service_id=str(service_id),
-        )
-        if service is None:
-            await callback.answer("سرویس پیدا نشد.", show_alert=True)
-            await state.clear()
-            return
-        await state.update_data(extra_plan_id=plan.id, extra_coupon=None)
-        await state.set_state(ExtraVolumeCreateStates.coupon)
-        await callback.message.edit_text(
-            _extra_volume_coupon_text(service, plan),
-            reply_markup=extra_volume_coupon_menu(),
-        )
     elif action.action == "renew_coupon":
         data = await state.get_data()
         if not data.get("renew_service_id") or not data.get("renew_plan_id"):
@@ -619,18 +557,6 @@ async def seller_menu_callback(
         )
     elif action.action == "renew_no_coupon":
         await _show_renewal_confirm(callback, state, seller_context, coupon=None)
-    elif action.action == "extra_coupon":
-        data = await state.get_data()
-        if not data.get("extra_service_id") or not data.get("extra_plan_id"):
-            await callback.answer("پیش نویس خرید حجم اضافه پیدا نشد.", show_alert=True)
-            return
-        await state.set_state(ExtraVolumeCreateStates.coupon)
-        await callback.message.edit_text(
-            "\n".join([title("کد تخفیف حجم اضافه"), "کد تخفیف خرید حجم اضافه را ارسال کنید."]),
-            reply_markup=extra_volume_coupon_menu(),
-        )
-    elif action.action == "extra_no_coupon":
-        await _show_extra_volume_confirm(callback, state, seller_context, coupon=None)
     elif action.action == "renew_create":
         data = await state.get_data()
         service_id = data.get("renew_service_id")
@@ -663,48 +589,10 @@ async def seller_menu_callback(
             _payment_request_text(payment_request),
             reply_markup=payment_request_actions(payment_request.order.id),
         )
-    elif action.action == "extra_create":
-        data = await state.get_data()
-        service_id = data.get("extra_service_id")
-        plan_id = data.get("extra_plan_id")
-        if not service_id or not plan_id:
-            await callback.answer("پیش نویس خرید حجم اضافه پیدا نشد.", show_alert=True)
-            await state.clear()
-            return
-        try:
-            payment_request = await seller_context.request_extra_volume_payment(
-                buyer_telegram_id=callback.from_user.id,
-                service_id=str(service_id),
-                plan_id=str(plan_id),
-                coupon_code=data.get("extra_coupon"),
-            )
-        except ValueError as exc:
-            if str(exc) == "service_not_found":
-                await callback.answer("سرویس پیدا نشد.", show_alert=True)
-                await state.clear()
-                return
-            if str(exc) == "plan_not_found":
-                await callback.answer("پلن پیدا نشد.", show_alert=True)
-                return
-            if str(exc) == "discount_not_found":
-                await callback.answer("کد تخفیف پیدا نشد.", show_alert=True)
-                return
-            raise
-        await state.clear()
-        await callback.message.edit_text(
-            _payment_request_text(payment_request),
-            reply_markup=payment_request_actions(payment_request.order.id),
-        )
     elif action.action == "renew_cancel":
         await state.clear()
         await callback.message.edit_text(
             "\n".join([title("تمدید لغو شد"), "هیچ درخواست پرداخت تمدیدی ساخته نشد."]),
-            reply_markup=seller_section_menu("services"),
-        )
-    elif action.action == "extra_cancel":
-        await state.clear()
-        await callback.message.edit_text(
-            "\n".join([title("خرید حجم اضافه لغو شد"), "هیچ درخواست پرداخت حجم اضافه ساخته نشد."]),
             reply_markup=seller_section_menu("services"),
         )
     elif action.action == "wallet":
@@ -2285,38 +2173,6 @@ async def renewal_waiting_for_confirmation(message: Message) -> None:
     )
 
 
-@router.message(ExtraVolumeCreateStates.coupon)
-async def extra_volume_coupon_input(
-    message: Message,
-    state: FSMContext,
-    seller_context: SellerContextService,
-) -> None:
-    if message.from_user is None:
-        return
-    coupon = (message.text or "").strip()
-    if not coupon or coupon.startswith("/"):
-        await message.answer(
-            "\n".join([title("کد تخفیف حجم اضافه"), "کد تخفیف را ارسال کنید یا ادامه بدون کد را بزنید."]),
-            reply_markup=extra_volume_coupon_menu(),
-        )
-        return
-    await _show_extra_volume_confirm(message, state, seller_context, coupon=coupon)
-
-
-@router.message(ExtraVolumeCreateStates.plan)
-async def extra_volume_waiting_for_plan(message: Message) -> None:
-    await message.answer(
-        "\n".join([title("حجم اضافه"), "یکی از دکمه های پلن حجم اضافه را انتخاب کنید."])
-    )
-
-
-@router.message(ExtraVolumeCreateStates.confirm)
-async def extra_volume_waiting_for_confirmation(message: Message) -> None:
-    await message.answer(
-        "\n".join([title("تایید حجم اضافه"), "از دکمه تایید یا لغو زیر پیش نمایش استفاده کنید."])
-    )
-
-
 @router.message(TicketCreateStates.subject)
 async def ticket_create_subject(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -3327,7 +3183,7 @@ async def _renewal_text(seller_context: SellerContextService, *, service_id: str
 
 def _renewal_text_from_list(plans, *, service_id: str) -> str:
     if not plans:
-        return "\n".join([title("🔄 تمدید و افزایش حجم"), "❌ پلنی برای تمدید سرویس یافت نشد."])
+        return "\n".join([title("🔄 تمدید سرویس"), "❌ پلنی برای تمدید سرویس یافت نشد."])
     rows = []
     for plan in plans[:12]:
         traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
@@ -3341,42 +3197,17 @@ def _renewal_text_from_list(plans, *, service_id: str) -> str:
             "👇🏻 یک پلن انتخاب کنید؛ مدت زمان و حجم همان پلن به سرویس فعلی اضافه می‌شود.",
         ]
     )
-    return "\n".join([title("🔄 تمدید و افزایش حجم"), section("پلن ها", rows)])
+    return "\n".join([title("🔄 تمدید سرویس"), section("پلن ها", rows)])
 
 
 def _renewal_plan_card_text(plan) -> str:
     traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("🔄 پلن تمدید و افزایش حجم"),
+            title("🔄 پلن تمدید سرویس"),
             f"نام پلن: {plan.name}",
             f"قیمت: {plan.price:,.0f} تومان",
             f"افزایش زمان: +{plan.duration_days} روز",
-            f"حجم: {traffic}",
-            f"کد: {short_id(plan.id)}",
-        ]
-    )
-
-
-async def _extra_volume_text(seller_context: SellerContextService, *, service_id: str) -> str:
-    plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
-    if not plans:
-        return "\n".join([title("خرید حجم اضافه"), "❌ پلنی برای خرید حجم اضافه یافت نشد."])
-    rows = []
-    for plan in plans[:12]:
-        traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
-        rows.append(f"▫️ {plan.name} | {plan.price:,.0f} تومان | {traffic}")
-    rows.extend(["", f"کد سرویس: {short_id(service_id)}", "👇🏻 یکی از پلن‌های زیر را برای افزایش حجم اضافه انتخاب کنید."])
-    return "\n".join([title("خرید حجم اضافه"), section("پلن ها", rows)])
-
-
-def _extra_volume_plan_card_text(plan) -> str:
-    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
-    return "\n".join(
-        [
-            title("پلن حجم اضافه"),
-            f"نام پلن: {plan.name}",
-            f"قیمت: {plan.price:,.0f} تومان",
             f"حجم: {traffic}",
             f"کد: {short_id(plan.id)}",
         ]
@@ -3502,7 +3333,7 @@ def _renewal_confirm_text(service, plan, *, coupon: str | None) -> str:
     traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
     return "\n".join(
         [
-            title("🧾 فاکتور تمدید و افزایش حجم"),
+            title("🧾 فاکتور تمدید سرویس"),
             f"سرویس انتخابی: {service.marzban_username}",
             f"پلن انتخابی: {plan.name}",
             f"افزایش زمان: +{plan.duration_days} روز",
@@ -3511,37 +3342,6 @@ def _renewal_confirm_text(service, plan, *, coupon: str | None) -> str:
             f"کد تخفیف: {coupon or '-'}",
             "",
             "✅ با تایید، زمان و حجم این پلن به سرویس فعلی اضافه می‌شود.",
-        ]
-    )
-
-
-def _extra_volume_coupon_text(service, plan) -> str:
-    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
-    return "\n".join(
-        [
-            title("🎁 کد تخفیف حجم اضافه"),
-            f"سرویس انتخابی: {service.marzban_username}",
-            f"پلن انتخابی: {plan.name}",
-            f"حجم: {traffic}",
-            f"مبلغ: {plan.price:,.0f} تومان",
-            "",
-            "اگر کد تخفیف دارید ارسال کنید، در غیر این صورت ادامه بدون کد را بزنید.",
-        ]
-    )
-
-
-def _extra_volume_confirm_text(service, plan, *, coupon: str | None) -> str:
-    traffic = "نامحدود" if plan.data_limit_gb is None else f"+{plan.data_limit_gb} گیگ"
-    return "\n".join(
-        [
-            title("🟢 فاکتور خرید حجم اضافه"),
-            f"سرویس انتخابی: {service.marzban_username}",
-            f"پلن انتخابی: {plan.name}",
-            f"حجم اضافه: {traffic}",
-            f"قیمت فاکتور: {plan.price:,.0f} تومان",
-            f"کد تخفیف: {coupon or '-'}",
-            "",
-            "ℹ️ در صورت تایید و افزایش حجم سرویس روی دکمه تایید کلیک کنید.",
         ]
     )
 
@@ -3585,47 +3385,6 @@ async def _show_renewal_confirm(
             await target.message.edit_text(text, reply_markup=renewal_confirm_menu())
     else:
         await target.answer(text, reply_markup=renewal_confirm_menu())
-
-
-async def _show_extra_volume_confirm(
-    target: CallbackQuery | Message,
-    state: FSMContext,
-    seller_context: SellerContextService,
-    *,
-    coupon: str | None,
-) -> None:
-    from_user = target.from_user
-    data = await state.get_data()
-    service_id = data.get("extra_service_id")
-    plan_id = data.get("extra_plan_id")
-    if not service_id or not plan_id:
-        if isinstance(target, CallbackQuery):
-            await target.answer("پیش نویس حجم اضافه پیدا نشد.", show_alert=True)
-        else:
-            await target.answer("پیش نویس حجم اضافه پیدا نشد. دوباره از سرویس های من شروع کنید.")
-        await state.clear()
-        return
-    service = await _find_buyer_service(
-        seller_context,
-        buyer_telegram_id=from_user.id,
-        service_id=str(service_id),
-    )
-    plan = await _find_plan(seller_context, plan_id=str(plan_id), purpose=PlanPurpose.EXTRA_VOLUME)
-    if service is None or plan is None:
-        if isinstance(target, CallbackQuery):
-            await target.answer("پیش نویس حجم اضافه دیگر معتبر نیست.", show_alert=True)
-        else:
-            await target.answer("پیش نویس حجم اضافه دیگر معتبر نیست. دوباره از سرویس های من شروع کنید.")
-        await state.clear()
-        return
-    await state.update_data(extra_coupon=coupon)
-    await state.set_state(ExtraVolumeCreateStates.confirm)
-    text = _extra_volume_confirm_text(service, plan, coupon=coupon)
-    if isinstance(target, CallbackQuery):
-        if target.message is not None:
-            await target.message.edit_text(text, reply_markup=extra_volume_confirm_menu())
-    else:
-        await target.answer(text, reply_markup=extra_volume_confirm_menu())
 
 
 async def _wallet_text(seller_context: SellerContextService, *, buyer_telegram_id: int) -> str:
