@@ -41,7 +41,6 @@ from vpn_bot_platform.common.ui.keyboards import (
     purchase_coupon_menu,
     renewal_confirm_menu,
     renewal_coupon_menu,
-    renewal_plan_button,
     renewal_plan_list_menu,
     seller_admin_menu,
     seller_buyer_menu,
