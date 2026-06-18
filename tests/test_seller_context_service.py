@@ -130,7 +130,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         await seller_context.register_buyer(telegram_id=333, username="buyer2")
         wallet_charge = await seller_context.request_wallet_charge(
             buyer_telegram_id=222,
-            amount=50000,
+            amount=500000,
         )
         wallet_receipt = await seller_context.attach_wallet_charge_receipt(
             buyer_telegram_id=222,
@@ -288,7 +288,6 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             requested_username="sina_home",
         )
         discounts_after_purchase = await master_service.list_discounts()
-        pending = await seller_context.list_pending_payments(admin_telegram_id=111)
         provisioned = await provisioning.provision_buyer_order(
             buyer_telegram_id=222,
             order_id=wallet_purchase.order.id,
@@ -356,6 +355,8 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert profile.seller_bot.id == seller_bot.id
     assert profile.buyer.reseller_id == registered.reseller.id
     assert profile.buyer.telegram_user_id == 222
+    assert deleted_admin_plan.is_active is False
+    assert removable_admin_plan.id not in {plan.id for plan in admin_plans}
     assert wallet_receipt.proof_file_id == "wallet-proof-file-id"
     assert pending_wallet[0].id == wallet_charge.transaction.id
     assert pending_wallet[0].proof_file_id == "wallet-proof-file-id"
@@ -377,11 +378,11 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert len(global_recipients.recipients) == 2
     assert sent_global.sent_count == 2
     assert sent_global.status == "sent"
-    assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id}
+    assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id, seller_admin_plan.id}
     assert payment_request.payment.amount == 162000
     assert payment_receipt.proof_file_id == "payment-proof-file-id"
     assert discount.id in {item.id for item in discounts_after_purchase}
-    assert [item.used_count for item in discounts_after_purchase if item.id == discount.id] == [1]
+    assert [item.used_count for item in discounts_after_purchase if item.id == discount.id] == [2]
     assert payment_request.plan.id == reseller_plan.id
     assert payment_request.order.buyer_id == profile.buyer.id
     assert payment_request.order.status == "waiting_payment"
@@ -412,7 +413,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert [item.buyer.id for item in customer_search_by_service] == [profile.buyer.id]
     assert customer_detail.buyer.id == profile.buyer.id
     assert customer_detail.service_count == 1
-    assert customer_detail.order_count == 1
+    assert customer_detail.order_count == 2
     assert customer_detail.ticket_count == 1
     assert renewal_request.order.order_type == "renewal"
     assert renewal_request.order.target_service_id == provisioned.vpn_service.id

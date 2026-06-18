@@ -1,7 +1,7 @@
 """wallet charge receipts
 
-Revision ID: 0009_wallet_charge_receipts
-Revises: 0008_platform_settings
+Revision ID: 0014_wallet_charge_receipts
+Revises: 0013_order_requested_username
 Create Date: 2026-06-18
 """
 
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0009_wallet_charge_receipts"
-down_revision = "0008_platform_settings"
+revision = "0014_wallet_charge_receipts"
+down_revision = "0013_order_requested_username"
 branch_labels = None
 depends_on = None
 

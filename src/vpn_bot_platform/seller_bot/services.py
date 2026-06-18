@@ -72,7 +72,6 @@ from vpn_bot_platform.common.repositories import (
     set_plan_active,
     list_wallet_transactions_for_buyer,
     increment_discount_usage,
-    reject_payment,
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     search_customers_for_reseller,

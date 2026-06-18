@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import ceil
+import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -13,45 +14,6 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 
 from vpn_bot_platform.common.models import OrderType, Plan, VpnService
 from vpn_bot_platform.common.qr import make_qr_png_bytes
-from vpn_bot_platform.common.ui.callbacks import parse_callback
-from vpn_bot_platform.common.ui.keyboards import (
-    admin_order_actions,
-    admin_payment_actions,
-    admin_payment_settings_menu,
-    admin_support_settings_menu,
-    admin_customer_card_actions,
-    admin_customer_detail_actions,
-    admin_customers_menu,
-    admin_plan_actions,
-    admin_plan_list_menu,
-    admin_plans_menu,
-    admin_ticket_actions,
-    admin_wallet_charge_actions,
-    cancel_only_keyboard,
-    buyer_ticket_actions,
-    confirm_keyboard,
-    forced_join_blocked_menu,
-    payment_request_actions,
-    plan_list_menu,
-    plan_buy_button,
-    purchase_confirm_menu,
-    purchase_coupon_menu,
-    renewal_confirm_menu,
-    renewal_coupon_menu,
-    renewal_plan_list_menu,
-    seller_admin_menu,
-    seller_buyer_menu,
-    seller_report_menu,
-    seller_section_menu,
-    service_actions,
-    service_list_menu,
-    support_menu,
-    wallet_charge_menu,
-    wallet_charge_request_actions,
-    wallet_transaction_actions,
-)
-from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
-from vpn_bot_platform.common.models import OrderType, PlanPurpose
 from vpn_bot_platform.seller_bot.forced_join import missing_required_chats
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
 from vpn_bot_platform.seller_bot.services import SellerContextService, WalletChargeRequest
@@ -125,6 +87,15 @@ def money(value: float) -> str:
 
 def traffic(plan_or_service: Plan | VpnService) -> str:
     return "نامحدود" if plan_or_service.data_limit_gb is None else f"{plan_or_service.data_limit_gb} گیگ"
+
+
+def _normalize_service_username(value: str) -> str | None:
+    username = value.strip().removeprefix("@").lower()
+    if len(username) < 3 or username.startswith("_") or username.endswith("_"):
+        return None
+    if not re.fullmatch(r"[a-z0-9_]+", username):
+        return None
+    return username
 
 
 def paginate[T](items: Sequence[T], page: int) -> tuple[list[T], int, int]:
