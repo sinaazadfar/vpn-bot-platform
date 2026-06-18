@@ -29,6 +29,11 @@ class UiState(StatesGroup):
     waiting_coupon = State()
     waiting_wallet_amount = State()
     waiting_rejection_reason = State()
+    waiting_admin_support_contact = State()
+    waiting_admin_plan_name = State()
+    waiting_admin_plan_gb = State()
+    waiting_admin_plan_days = State()
+    waiting_admin_plan_price = State()
     waiting_ticket_subject = State()
     waiting_ticket_body = State()
     waiting_ticket_reply = State()
@@ -53,8 +58,8 @@ def kb(rows: Sequence[Sequence[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 def main_kb(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [("خرید سرویس", "plans:0"), ("تمدید سرویس", "services:0")],
-        [("سرویس‌های من", "services:0"), ("سفارش‌های من", "orders")],
+        [("خرید سرویس", "plans:0"), ("سرویس‌های من", "services:0")],
+        [("پرداختی‌های من", "orders")],
         [("کیف پول", "wallet"), ("تست رایگان", "trial")],
         [("پشتیبانی", "tickets:0")],
     ]
@@ -116,6 +121,27 @@ def payment_status_label(status: str) -> str:
         "rejected": "رد شده",
         "refunded": "بازگشت داده شده",
     }.get(status, status)
+
+
+def receipt_status(file_id: str | None) -> str:
+    return "ثبت شده" if file_id else "ثبت نشده"
+
+
+def parse_positive_int(value: str) -> int | None:
+    raw = value.replace(",", "").strip()
+    if not raw.isdigit():
+        return None
+    parsed = int(raw)
+    return parsed if parsed > 0 else None
+
+
+def parse_positive_float(value: str) -> float | None:
+    raw = value.replace(",", "").strip()
+    try:
+        parsed = float(raw)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _normalize_service_username(value: str) -> str | None:
@@ -407,15 +433,17 @@ async def orders_callback(callback: CallbackQuery, seller_context: SellerContext
         limit=10,
     )
     if not orders:
-        await render(callback, "هنوز سفارشی ثبت نشده است.", kb([[("خرید سرویس", "plans:0"), ("خانه", "home")]]))
+        await render(callback, "هنوز پرداختی ثبت نشده است.", kb([[("خرید سرویس", "plans:0"), ("خانه", "home")]]))
         return
     rows = []
-    lines = ["آخرین سفارش‌های شما:"]
+    lines = ["آخرین پرداختی‌های شما:"]
     for item in orders:
         plan_name = item.plan.name if item.plan else "بدون پلن"
         amount = money(item.payment.amount) if item.payment else money(item.order.total_amount)
-        lines.append(f"{plan_name} | {amount} | {order_status_label(item.order.status)}")
-        rows.append([(f"{plan_name} - {order_status_label(item.order.status)}", f"order:{item.order.id}")])
+        pay_status = payment_status_label(item.payment.status) if item.payment else order_status_label(item.order.status)
+        proof = receipt_status(item.payment.proof_file_id) if item.payment else "بدون پرداخت"
+        lines.append(f"{plan_name} | {amount} | پرداخت: {pay_status} | رسید: {proof}")
+        rows.append([(f"{plan_name} - {pay_status}", f"order:{item.order.id}")])
     rows.append([("خانه", "home")])
     await render(callback, "\n".join(lines), kb(rows))
 
@@ -431,11 +459,11 @@ async def order_detail(callback: CallbackQuery, seller_context: SellerContextSer
             order_id=order_id,
         )
     except ValueError:
-        await render(callback, "سفارش پیدا نشد.", kb([[("سفارش‌های من", "orders"), ("خانه", "home")]]))
+        await render(callback, "پرداختی پیدا نشد.", kb([[("پرداختی‌های من", "orders"), ("خانه", "home")]]))
         return
     plan_name = item.plan.name if item.plan else "بدون پلن"
     payment = item.payment
-    receipt = "دارد" if payment and payment.proof_file_id else "ندارد"
+    receipt = receipt_status(payment.proof_file_id) if payment else "بدون پرداخت"
     lines = [
         f"کد سفارش: {item.order.id}",
         f"پلن: {plan_name}",
@@ -456,7 +484,7 @@ async def order_detail(callback: CallbackQuery, seller_context: SellerContextSer
     await render(
         callback,
         "\n".join(lines),
-        kb([[("بازگشت به سفارش‌ها", "orders"), ("خانه", "home")]]),
+        kb([[("بازگشت به پرداختی‌ها", "orders"), ("خانه", "home")]]),
     )
 
 
@@ -942,10 +970,324 @@ async def admin_dashboard(target: Message | CallbackQuery, seller_context: Selle
             [
                 [("پرداخت‌ها", "admin:payments:0"), ("شارژ کیف پول", "admin:wallet:0")],
                 [("تیکت‌ها", "admin:tickets:0"), ("گزارش فروش", "admin:report")],
+                [("پلن‌های فروش", "admin:plans:0"), ("پشتیبان", "admin:support")],
                 [("خانه", "home")],
             ]
         ),
     )
+
+
+@router.callback_query(F.data == "admin:support")
+async def admin_support(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    try:
+        settings = await seller_context.get_support_settings(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await render(callback, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    current = str(settings.contact) if settings.contact is not None else "تنظیم نشده"
+    rows = [[("تنظیم پشتیبان", "admin:support:set")]]
+    if settings.contact is not None:
+        rows.append([("حذف پشتیبان", "admin:support:delete:confirm")])
+    rows.append([("پنل ادمین", "admin"), ("خانه", "home")])
+    await render(
+        callback,
+        "\n".join(
+            [
+                "تنظیمات پشتیبان",
+                f"پشتیبان فعلی: {current}",
+                "",
+                "برای تنظیم، می‌توانید یوزرنیم، آیدی عددی، پیام فوروارد شده یا کانتکت تلگرام ارسال کنید.",
+            ]
+        ),
+        kb(rows),
+    )
+
+
+@router.callback_query(F.data == "admin:support:set")
+async def admin_support_set(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(UiState.waiting_admin_support_contact)
+    await render(
+        callback,
+        "یوزرنیم مثل @support، آیدی عددی، پیام فوروارد شده یا کانتکت پشتیبان را ارسال کنید.\nبرای لغو، /cancel را بزنید.",
+    )
+
+
+@router.callback_query(F.data == "admin:support:delete:confirm")
+async def admin_support_delete_confirm(callback: CallbackQuery) -> None:
+    await render(
+        callback,
+        "پشتیبان حذف شود؟",
+        kb([[("بله، حذف شود", "admin:support:delete"), ("لغو", "admin:support")]]),
+    )
+
+
+@router.callback_query(F.data == "admin:support:delete")
+async def admin_support_delete(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    try:
+        await seller_context.delete_support_telegram_id(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await render(callback, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    await render(callback, "پشتیبان حذف شد.", kb([[("تنظیمات پشتیبان", "admin:support"), ("پنل ادمین", "admin")]]))
+
+
+def support_contact_from_message(message: Message) -> tuple[str | None, str | None]:
+    contact = message.contact
+    if contact is not None:
+        if contact.user_id:
+            return str(contact.user_id), None
+        if contact.phone_number:
+            return contact.phone_number, None
+        return None, "کانتکت ارسالی آیدی یا شماره قابل استفاده ندارد."
+
+    forwarded_user = getattr(message, "forward_from", None)
+    if forwarded_user is not None and getattr(forwarded_user, "id", None):
+        return str(forwarded_user.id), None
+
+    forward_origin = getattr(message, "forward_origin", None)
+    sender_user = getattr(forward_origin, "sender_user", None)
+    if sender_user is not None and getattr(sender_user, "id", None):
+        return str(sender_user.id), None
+    if forward_origin is not None:
+        return None, "تلگرام اطلاعات فرستنده پیام فوروارد شده را مخفی کرده است."
+
+    if message.text:
+        return message.text.strip(), None
+    return None, "یوزرنیم، آیدی عددی، پیام فوروارد شده یا کانتکت پشتیبان را ارسال کنید."
+
+
+@router.message(UiState.waiting_admin_support_contact)
+async def admin_support_contact_text(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    support_contact, error = support_contact_from_message(message)
+    if error:
+        await render(message, error)
+        return
+    try:
+        settings = await seller_context.set_support_contact(
+            admin_telegram_id=message.from_user.id,
+            support_contact=str(support_contact),
+        )
+    except PermissionError:
+        await state.clear()
+        await render(message, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    except ValueError:
+        await render(message, "پشتیبان معتبر نیست. یوزرنیم، آیدی عددی یا کانتکت معتبر ارسال کنید.")
+        return
+    await state.clear()
+    await render(
+        message,
+        f"پشتیبان تنظیم شد: {settings.contact}",
+        kb([[("تنظیمات پشتیبان", "admin:support"), ("پنل ادمین", "admin")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:plans:"))
+async def admin_plans(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    page = int((callback.data or "admin:plans:0").split(":")[2])
+    await show_admin_plans(callback, seller_context, page)
+
+
+async def show_admin_plans(
+    target: Message | CallbackQuery,
+    seller_context: SellerContextService,
+    page: int,
+    query: str | None = None,
+) -> None:
+    if target.from_user is None:
+        return
+    try:
+        plans = await seller_context.list_admin_plans(admin_telegram_id=target.from_user.id)
+    except PermissionError:
+        await render(target, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    if query:
+        normalized = query.casefold()
+        plans = [plan for plan in plans if normalized in plan.name.casefold() or normalized in plan.id]
+    page_items, safe_page, total_pages = paginate(plans, page)
+    rows = [
+        Row(
+            f"{plan.name} | {'اختصاصی' if plan.reseller_id else 'عمومی'}",
+            f"adminplan:{plan.id}",
+        )
+        for plan in page_items
+    ]
+    buttons = list_kb(
+        rows=rows,
+        page=safe_page,
+        total_pages=total_pages,
+        page_prefix="admin:plans",
+        search="admin_plans" if len(plans) > SEARCH_THRESHOLD else None,
+    ).inline_keyboard
+    buttons.insert(0, [InlineKeyboardButton(text="افزودن پلن", callback_data="admin:plan:add")])
+    await render(target, "پلن‌های فروش:", InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(F.data.startswith("adminplan:"))
+async def admin_plan_detail(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    plan_id = (callback.data or "").split(":", 1)[1]
+    try:
+        plans = await seller_context.list_admin_plans(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await render(callback, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    plan = next((item for item in plans if item.id == plan_id), None)
+    if plan is None:
+        await render(callback, "پلن پیدا نشد.", kb([[("بازگشت", "admin:plans:0")]]))
+        return
+    rows = [[("بازگشت", "admin:plans:0"), ("پنل ادمین", "admin")]]
+    if plan.reseller_id:
+        rows.insert(0, [("ویرایش", f"admin:plan:edit:{plan.id}"), ("حذف", f"admin:plan:delete:confirm:{plan.id}")])
+    else:
+        rows.insert(0, [("افزودن پلن اختصاصی", "admin:plan:add")])
+    await render(
+        callback,
+        "\n".join(
+            [
+                f"پلن: {plan.name}",
+                f"نوع: {'اختصاصی فروشنده' if plan.reseller_id else 'عمومی'}",
+                f"قیمت: {money(plan.price)}",
+                f"مدت: {plan.duration_days} روز",
+                f"حجم: {traffic(plan)}",
+            ]
+        ),
+        kb(rows),
+    )
+
+
+@router.callback_query(F.data == "admin:plan:add")
+async def admin_plan_add(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(UiState.waiting_admin_plan_name)
+    await state.update_data(admin_plan_mode="create")
+    await render(callback, "نام پلن را ارسال کنید.\nبرای لغو، /cancel را بزنید.")
+
+
+@router.callback_query(F.data.startswith("admin:plan:edit:"))
+async def admin_plan_edit(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
+    if callback.from_user is None:
+        return
+    plan_id = (callback.data or "").split(":")[-1]
+    try:
+        plan = await seller_context.get_admin_plan(admin_telegram_id=callback.from_user.id, plan_id=plan_id)
+    except (PermissionError, ValueError):
+        await render(callback, "این پلن قابل ویرایش نیست.", kb([[("بازگشت", "admin:plans:0")]]))
+        return
+    await state.set_state(UiState.waiting_admin_plan_name)
+    await state.update_data(admin_plan_mode="edit", admin_plan_id=plan.id)
+    await render(callback, f"نام جدید پلن را ارسال کنید.\nنام فعلی: {plan.name}\nبرای لغو، /cancel را بزنید.")
+
+
+@router.message(UiState.waiting_admin_plan_name, F.text)
+async def admin_plan_name_text(message: Message, state: FSMContext) -> None:
+    name = (message.text or "").strip()
+    if len(name) < 2:
+        await render(message, "نام پلن باید حداقل ۲ کاراکتر باشد.")
+        return
+    await state.update_data(admin_plan_name=name)
+    await state.set_state(UiState.waiting_admin_plan_gb)
+    await render(message, "حجم پلن را به گیگابایت ارسال کنید. فقط عدد مثبت.")
+
+
+@router.message(UiState.waiting_admin_plan_gb, F.text)
+async def admin_plan_gb_text(message: Message, state: FSMContext) -> None:
+    data_limit_gb = parse_positive_int(message.text or "")
+    if data_limit_gb is None:
+        await render(message, "حجم معتبر نیست. فقط عدد مثبت ارسال کنید.")
+        return
+    await state.update_data(admin_plan_gb=data_limit_gb)
+    await state.set_state(UiState.waiting_admin_plan_days)
+    await render(message, "مدت پلن را به روز ارسال کنید. فقط عدد مثبت.")
+
+
+@router.message(UiState.waiting_admin_plan_days, F.text)
+async def admin_plan_days_text(message: Message, state: FSMContext) -> None:
+    duration_days = parse_positive_int(message.text or "")
+    if duration_days is None:
+        await render(message, "مدت معتبر نیست. فقط عدد مثبت ارسال کنید.")
+        return
+    await state.update_data(admin_plan_days=duration_days)
+    await state.set_state(UiState.waiting_admin_plan_price)
+    await render(message, "قیمت پلن را به تومان ارسال کنید. فقط عدد مثبت.")
+
+
+@router.message(UiState.waiting_admin_plan_price, F.text)
+async def admin_plan_price_text(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    price = parse_positive_float(message.text or "")
+    if price is None:
+        await render(message, "قیمت معتبر نیست. فقط عدد مثبت ارسال کنید.")
+        return
+    data = await state.get_data()
+    try:
+        if data.get("admin_plan_mode") == "edit":
+            plan = await seller_context.update_admin_plan(
+                admin_telegram_id=message.from_user.id,
+                plan_id=str(data["admin_plan_id"]),
+                name=str(data["admin_plan_name"]),
+                data_limit_gb=int(data["admin_plan_gb"]),
+                duration_days=int(data["admin_plan_days"]),
+                price=price,
+            )
+            action_text = "ویرایش شد"
+        else:
+            plan = await seller_context.create_admin_plan(
+                admin_telegram_id=message.from_user.id,
+                name=str(data["admin_plan_name"]),
+                data_limit_gb=int(data["admin_plan_gb"]),
+                duration_days=int(data["admin_plan_days"]),
+                price=price,
+            )
+            action_text = "ساخته شد"
+    except (PermissionError, ValueError):
+        await state.clear()
+        await render(message, "ثبت پلن انجام نشد.", kb([[("پلن‌های فروش", "admin:plans:0"), ("پنل ادمین", "admin")]]))
+        return
+    await state.clear()
+    await render(
+        message,
+        f"پلن {action_text}.\n{plan.name} | {money(plan.price)} | {plan.duration_days} روز | {traffic(plan)}",
+        kb([[("پلن‌های فروش", "admin:plans:0"), ("پنل ادمین", "admin")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:plan:delete:confirm:"))
+async def admin_plan_delete_confirm(callback: CallbackQuery) -> None:
+    plan_id = (callback.data or "").split(":")[-1]
+    await render(
+        callback,
+        "این پلن از لیست فروش حذف شود؟",
+        kb([[("بله، حذف شود", f"admin:plan:delete:do:{plan_id}"), ("لغو", f"adminplan:{plan_id}")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:plan:delete:do:"))
+async def admin_plan_delete(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    plan_id = (callback.data or "").split(":")[-1]
+    try:
+        plan = await seller_context.deactivate_admin_plan(admin_telegram_id=callback.from_user.id, plan_id=plan_id)
+    except (PermissionError, ValueError):
+        await render(callback, "این پلن قابل حذف نیست.", kb([[("پلن‌های فروش", "admin:plans:0")]]))
+        return
+    await render(callback, f"پلن حذف شد: {plan.name}", kb([[("پلن‌های فروش", "admin:plans:0"), ("پنل ادمین", "admin")]]))
 
 
 @router.callback_query(F.data.startswith("admin:payments:"))
@@ -1064,7 +1406,7 @@ async def rejection_reason_text(
                 f"کد سفارش: {rejected.order.id}",
                 f"دلیل: {rejected.payment.rejection_reason}",
                 "",
-                "برای مشاهده جزئیات از بخش «سفارش‌های من» استفاده کنید.",
+                "برای مشاهده جزئیات از بخش «پرداختی‌های من» استفاده کنید.",
             ]
         ),
     )
@@ -1097,7 +1439,7 @@ async def approve_payment_callback(callback: CallbackQuery, seller_context: Sell
                 f"کد سفارش: {approved.order.id}",
                 "سرویس شما در حال ساخت است.",
                 "",
-                "برای پیگیری وضعیت از بخش «سفارش‌های من» استفاده کنید.",
+                "برای پیگیری وضعیت از بخش «پرداختی‌های من» استفاده کنید.",
             ]
         ),
     )
@@ -1365,6 +1707,8 @@ async def search_text(message: Message, seller_context: SellerContextService, st
         await show_admin_wallet(message, seller_context, 0, query)
     elif target == "admin_tickets":
         await show_admin_tickets(message, seller_context, 0, query)
+    elif target == "admin_plans":
+        await show_admin_plans(message, seller_context, 0, query)
     else:
         await render(message, "جستجو برای این بخش فعال نیست.", kb([[("خانه", "home")]]))
 

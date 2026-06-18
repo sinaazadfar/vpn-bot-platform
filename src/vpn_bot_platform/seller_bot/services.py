@@ -1441,6 +1441,9 @@ class SellerContextService:
         if normalized.isdigit():
             support_telegram_id = int(normalized)
             return support_telegram_id if support_telegram_id > 0 else None
+        phone = normalized.replace(" ", "").replace("-", "")
+        if phone.startswith("+") and phone[1:].isdigit() and 8 <= len(phone[1:]) <= 15:
+            return phone
         username = normalized[1:] if normalized.startswith("@") else normalized
         if len(username) < 5 or len(username) > 32:
             return None
