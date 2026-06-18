@@ -331,6 +331,7 @@ class WalletTransaction(Base):
     status: Mapped[str] = mapped_column(String(24), default=WalletTransactionStatus.COMPLETED.value)
     amount: Mapped[float] = mapped_column(Numeric(18, 2))
     note: Mapped[str | None] = mapped_column(Text)
+    proof_file_id: Mapped[str | None] = mapped_column(String(255))
     related_payment_id: Mapped[str | None] = mapped_column(ForeignKey("payments.id"))
     approved_by_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

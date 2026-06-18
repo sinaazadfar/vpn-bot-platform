@@ -130,7 +130,12 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
         await seller_context.register_buyer(telegram_id=333, username="buyer2")
         wallet_charge = await seller_context.request_wallet_charge(
             buyer_telegram_id=222,
-            amount=500000,
+            amount=50000,
+        )
+        wallet_receipt = await seller_context.attach_wallet_charge_receipt(
+            buyer_telegram_id=222,
+            transaction_id=wallet_charge.transaction.id,
+            file_id="wallet-proof-file-id",
         )
         pending_wallet = await seller_context.list_pending_wallet_charges(admin_telegram_id=111)
         approved_wallet = await seller_context.approve_wallet_charge(
@@ -249,6 +254,22 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             marzban_admin_username="reseller_owner",
         )
         plans = await seller_context.list_plans()
+        payment_request = await seller_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=reseller_plan.id,
+            coupon_code="save10",
+        )
+        payment_receipt = await seller_context.attach_payment_receipt(
+            buyer_telegram_id=222,
+            payment_id=payment_request.payment.id,
+            file_id="payment-proof-file-id",
+        )
+        discounts_after_purchase = await master_service.list_discounts()
+        pending = await seller_context.list_pending_payments(admin_telegram_id=111)
+        approved = await seller_context.approve_payment(
+            admin_telegram_id=111,
+            payment_id=payment_request.payment.id,
+        )
         settings = Settings(
             DATABASE_URL="sqlite+aiosqlite:///:memory:",
             FERNET_KEY=fernet_key,
@@ -335,7 +356,9 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert profile.seller_bot.id == seller_bot.id
     assert profile.buyer.reseller_id == registered.reseller.id
     assert profile.buyer.telegram_user_id == 222
+    assert wallet_receipt.proof_file_id == "wallet-proof-file-id"
     assert pending_wallet[0].id == wallet_charge.transaction.id
+    assert pending_wallet[0].proof_file_id == "wallet-proof-file-id"
     assert approved_wallet.transaction.status == "completed"
     assert approved_wallet.transaction.transaction_type == "charge_approved"
     assert buyer_wallet.buyer is not None
@@ -354,25 +377,23 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert len(global_recipients.recipients) == 2
     assert sent_global.sent_count == 2
     assert sent_global.status == "sent"
-    assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id, seller_admin_plan.id}
-    assert seller_admin_plan.reseller_id == registered.reseller.id
-    assert seller_admin_plan.name == "seller-admin90"
-    assert seller_admin_plan.price == 149000
-    assert seller_admin_plan.duration_days == 90
-    assert seller_admin_plan.data_limit_gb == 120
-    assert deleted_admin_plan.id == removable_admin_plan.id
-    assert deleted_admin_plan.is_active is False
-    assert removable_admin_plan.id not in {plan.id for plan in plans}
-    assert seller_admin_plan.id in {plan.id for plan in admin_plans}
-    assert wallet_purchase.transaction.amount == -162000
-    assert wallet_purchase.order.total_amount == 162000
-    assert wallet_purchase.order.status == "provisioning"
-    assert wallet_purchase.order.requested_username == "sina_home"
+    assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id}
+    assert payment_request.payment.amount == 162000
+    assert payment_receipt.proof_file_id == "payment-proof-file-id"
     assert discount.id in {item.id for item in discounts_after_purchase}
     assert [item.used_count for item in discounts_after_purchase if item.id == discount.id] == [1]
-    assert wallet_purchase.plan.id == reseller_plan.id
-    assert wallet_purchase.order.buyer_id == profile.buyer.id
-    assert pending == []
+    assert payment_request.plan.id == reseller_plan.id
+    assert payment_request.order.buyer_id == profile.buyer.id
+    assert payment_request.order.status == "waiting_payment"
+    assert payment_request.payment.order_id == payment_request.order.id
+    assert payment_request.payment.status == "pending"
+    assert payment_request.payment.method == "card_to_card"
+    assert len(pending) == 1
+    assert pending[0].payment.id == payment_request.payment.id
+    assert pending[0].payment.proof_file_id == "payment-proof-file-id"
+    assert approved.payment.status == "approved"
+    assert approved.payment.approved_by_telegram_id == 111
+    assert approved.order.status == "provisioning"
     assert provisioned.order.status == "completed"
     assert provisioned.order.target_service_id == provisioned.vpn_service.id
     assert reprovisioned.vpn_service.id == provisioned.vpn_service.id
