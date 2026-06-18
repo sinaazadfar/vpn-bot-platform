@@ -86,22 +86,17 @@ Backups are written as gzip SQL dumps and files older than 14 days are removed.
 
 ## GitHub Actions
 
-The deploy job is configured for a self-hosted runner because it uses the SSH alias directly:
+The deploy job runs on a GitHub-hosted Ubuntu runner and SSHes into `server-04`.
 
-```bash
-ssh server-04
-```
+Required GitHub secrets:
 
-Required GitHub secret:
-
+- `DEPLOY_HOST`: public IP or DNS name for `server-04`
+- `DEPLOY_USER`: SSH user allowed to deploy
+- `DEPLOY_SSH_KEY`: private SSH key for `DEPLOY_USER`
 - `DEPLOY_APP_DIR=/opt/vpn-bot-platform`
+- `DEPLOY_PORT`: optional, defaults to `22`
 
-The self-hosted runner must have:
-
-- SSH config containing the `server-04` alias.
-- Docker and Docker Compose available.
-- Git available.
-- Access to the repository origin.
+The server itself must have Docker, Docker Compose, Git, and access to the repository origin.
 
 ## Bot Update Mode
 

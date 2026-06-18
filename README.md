@@ -65,8 +65,10 @@ Default app path:
 
 GitHub Actions deployment expects these secrets:
 
+- `DEPLOY_HOST`
 - `DEPLOY_USER`
 - `DEPLOY_SSH_KEY`
 - `DEPLOY_APP_DIR`
+- `DEPLOY_PORT` (optional, defaults to `22`)
 
 See [docs/DEPLOY_SERVER_04.md](docs/DEPLOY_SERVER_04.md) for first-time setup, manual deploy, rolling seller restarts, and Postgres backups.

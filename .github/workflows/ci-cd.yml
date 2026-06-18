@@ -22,7 +22,7 @@ jobs:
       - name: Test
         run: pytest tests
       - name: Alembic heads
-        run: python -m alembic heads
+        run: alembic heads
 
   docker-build:
     needs: test
@@ -35,8 +35,32 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: docker-build
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Deploy to server-04
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
         run: |
-          ssh server-04 "APP_DIR='${{ secrets.DEPLOY_APP_DIR }}' DEPLOY_BRANCH='main' sh '${{ secrets.DEPLOY_APP_DIR }}/deploy/deploy.sh'"
+          set -eu
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_APP_DIR; do
+            eval "value=\${$name:-}"
+            if [ -z "$value" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing required GitHub secret(s):$missing" >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='$DEPLOY_APP_DIR' DEPLOY_BRANCH='main' sh '$DEPLOY_APP_DIR/deploy/deploy.sh'"
