@@ -801,6 +801,28 @@ async def get_buyer_order_status(
     return result.first()
 
 
+async def list_buyer_order_statuses(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    telegram_id: int,
+    limit: int = 10,
+) -> list[tuple[Order, Payment | None, Plan | None]]:
+    result = await session.execute(
+        select(Order, Payment, Plan)
+        .join(Buyer, Order.buyer_id == Buyer.id)
+        .outerjoin(Payment, Payment.order_id == Order.id)
+        .outerjoin(Plan, Order.plan_id == Plan.id)
+        .where(
+            Order.reseller_id == reseller_id,
+            Buyer.telegram_user_id == telegram_id,
+        )
+        .order_by(Order.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.all())
+
+
 async def approve_payment(
     session: AsyncSession,
     *,
@@ -834,6 +856,7 @@ async def reject_payment(
     reseller_id: str,
     payment_id: str,
     rejected_by_telegram_id: int,
+    rejection_reason: str,
 ) -> tuple[Payment, Order] | None:
     result = await session.execute(
         select(Payment, Order)
@@ -851,6 +874,7 @@ async def reject_payment(
     payment, order = row
     payment.status = PaymentStatus.REJECTED.value
     payment.approved_by_telegram_id = rejected_by_telegram_id
+    payment.rejection_reason = rejection_reason
     order.status = OrderStatus.CANCELED.value
     return payment, order
 

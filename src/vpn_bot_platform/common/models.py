@@ -300,6 +300,7 @@ class Payment(Base):
     method: Mapped[str] = mapped_column(String(32), default="card_to_card")
     amount: Mapped[float] = mapped_column(Numeric(18, 2))
     proof_file_id: Mapped[str | None] = mapped_column(String(255))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
     approved_by_telegram_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

@@ -60,6 +60,7 @@ from vpn_bot_platform.common.repositories import (
     get_vpn_service_for_buyer,
     list_pending_payments_for_reseller,
     list_provisioning_orders_for_reseller,
+    list_buyer_order_statuses,
     list_pending_wallet_charges_for_reseller,
     list_customers_for_reseller,
     list_buyer_tickets,
@@ -72,6 +73,7 @@ from vpn_bot_platform.common.repositories import (
     set_plan_active,
     list_wallet_transactions_for_buyer,
     increment_discount_usage,
+    reject_payment,
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     search_customers_for_reseller,
@@ -163,12 +165,14 @@ class SellerCustomerDetail:
 class ApprovedPayment:
     payment: Payment
     order: Order
+    buyer: Buyer
 
 
 @dataclass(frozen=True)
 class RejectedPayment:
     payment: Payment
     order: Order
+    buyer: Buyer
 
 
 @dataclass(frozen=True)
@@ -460,6 +464,30 @@ class SellerContextService:
                 raise ValueError("order_not_found")
             order, payment, plan = row
             return BuyerOrderStatus(order=order, payment=payment, plan=plan)
+
+    async def list_buyer_order_statuses(
+        self,
+        *,
+        buyer_telegram_id: int,
+        limit: int = 10,
+    ) -> list[BuyerOrderStatus]:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            rows = await list_buyer_order_statuses(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+                limit=limit,
+            )
+            return [
+                BuyerOrderStatus(order=order, payment=payment, plan=plan)
+                for order, payment, plan in rows
+            ]
 
     async def get_payment_notification_contacts(
         self,
@@ -1110,6 +1138,9 @@ class SellerContextService:
             if approved is None:
                 raise ValueError("payment_not_found")
             payment, order = approved
+            buyer = await session.get(Buyer, order.buyer_id)
+            if buyer is None:
+                raise ValueError("buyer_not_found")
             await record_audit_log(
                 session,
                 action="payment.approve",
@@ -1121,7 +1152,55 @@ class SellerContextService:
                 metadata={"order_id": order.id, "amount": float(payment.amount)},
             )
             await session.flush()
-            return ApprovedPayment(payment=payment, order=order)
+            return ApprovedPayment(payment=payment, order=order, buyer=buyer)
+
+    async def reject_payment(
+        self,
+        *,
+        admin_telegram_id: int,
+        payment_id: str,
+        reason: str,
+    ) -> RejectedPayment:
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("rejection_reason_required")
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            rejected = await reject_payment(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                payment_id=payment_id,
+                rejected_by_telegram_id=admin_telegram_id,
+                rejection_reason=normalized_reason[:500],
+            )
+            if rejected is None:
+                raise ValueError("payment_not_found")
+            payment, order = rejected
+            buyer = await session.get(Buyer, order.buyer_id)
+            if buyer is None:
+                raise ValueError("buyer_not_found")
+            await record_audit_log(
+                session,
+                action="payment.reject",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="payment",
+                target_id=payment.id,
+                metadata={
+                    "order_id": order.id,
+                    "amount": float(payment.amount),
+                    "reason": payment.rejection_reason,
+                },
+            )
+            await session.flush()
+            return RejectedPayment(payment=payment, order=order, buyer=buyer)
 
     async def attach_payment_receipt(
         self,

@@ -6,7 +6,7 @@ from math import ceil
 import re
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -28,6 +28,7 @@ class UiState(StatesGroup):
     waiting_search = State()
     waiting_coupon = State()
     waiting_wallet_amount = State()
+    waiting_rejection_reason = State()
     waiting_ticket_subject = State()
     waiting_ticket_body = State()
     waiting_ticket_reply = State()
@@ -53,8 +54,9 @@ def kb(rows: Sequence[Sequence[tuple[str, str]]]) -> InlineKeyboardMarkup:
 def main_kb(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [("خرید سرویس", "plans:0"), ("تمدید سرویس", "services:0")],
-        [("سرویس‌های من", "services:0"), ("کیف پول", "wallet")],
-        [("تست رایگان", "trial"), ("پشتیبانی", "tickets:0")],
+        [("سرویس‌های من", "services:0"), ("سفارش‌های من", "orders")],
+        [("کیف پول", "wallet"), ("تست رایگان", "trial")],
+        [("پشتیبانی", "tickets:0")],
     ]
     if is_admin:
         rows.append([("پنل ادمین", "admin")])
@@ -81,12 +83,39 @@ async def render(
     await target.answer(text, reply_markup=markup)
 
 
+async def notify_buyer(target: Message | CallbackQuery, buyer_telegram_id: int, text: str) -> None:
+    try:
+        await target.bot.send_message(buyer_telegram_id, text)
+    except TelegramAPIError:
+        return
+
+
 def money(value: float) -> str:
     return f"{float(value):,.0f} تومان"
 
 
 def traffic(plan_or_service: Plan | VpnService) -> str:
     return "نامحدود" if plan_or_service.data_limit_gb is None else f"{plan_or_service.data_limit_gb} گیگ"
+
+
+def order_status_label(status: str) -> str:
+    return {
+        "waiting_payment": "در انتظار پرداخت",
+        "waiting_approval": "در انتظار بررسی",
+        "provisioning": "در حال ساخت سرویس",
+        "completed": "تکمیل شده",
+        "canceled": "لغو شده",
+        "failed": "ناموفق",
+    }.get(status, status)
+
+
+def payment_status_label(status: str) -> str:
+    return {
+        "pending": "در انتظار بررسی",
+        "approved": "تایید شده",
+        "rejected": "رد شده",
+        "refunded": "بازگشت داده شده",
+    }.get(status, status)
 
 
 def _normalize_service_username(value: str) -> str | None:
@@ -369,6 +398,68 @@ async def services_callback(callback: CallbackQuery, seller_context: SellerConte
     await show_services(callback, seller_context, callback.from_user.id, page)
 
 
+@router.callback_query(F.data == "orders")
+async def orders_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    orders = await seller_context.list_buyer_order_statuses(
+        buyer_telegram_id=callback.from_user.id,
+        limit=10,
+    )
+    if not orders:
+        await render(callback, "هنوز سفارشی ثبت نشده است.", kb([[("خرید سرویس", "plans:0"), ("خانه", "home")]]))
+        return
+    rows = []
+    lines = ["آخرین سفارش‌های شما:"]
+    for item in orders:
+        plan_name = item.plan.name if item.plan else "بدون پلن"
+        amount = money(item.payment.amount) if item.payment else money(item.order.total_amount)
+        lines.append(f"{plan_name} | {amount} | {order_status_label(item.order.status)}")
+        rows.append([(f"{plan_name} - {order_status_label(item.order.status)}", f"order:{item.order.id}")])
+    rows.append([("خانه", "home")])
+    await render(callback, "\n".join(lines), kb(rows))
+
+
+@router.callback_query(F.data.startswith("order:"))
+async def order_detail(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    order_id = (callback.data or "").split(":", 1)[1]
+    try:
+        item = await seller_context.get_buyer_order_status(
+            buyer_telegram_id=callback.from_user.id,
+            order_id=order_id,
+        )
+    except ValueError:
+        await render(callback, "سفارش پیدا نشد.", kb([[("سفارش‌های من", "orders"), ("خانه", "home")]]))
+        return
+    plan_name = item.plan.name if item.plan else "بدون پلن"
+    payment = item.payment
+    receipt = "دارد" if payment and payment.proof_file_id else "ندارد"
+    lines = [
+        f"کد سفارش: {item.order.id}",
+        f"پلن: {plan_name}",
+        f"مبلغ: {money(payment.amount if payment else item.order.total_amount)}",
+        f"وضعیت سفارش: {order_status_label(item.order.status)}",
+    ]
+    if payment:
+        lines.extend(
+            [
+                f"کد پرداخت: {payment.id}",
+                f"روش پرداخت: {payment.method}",
+                f"وضعیت پرداخت: {payment_status_label(payment.status)}",
+                f"رسید: {receipt}",
+            ]
+        )
+        if payment.rejection_reason:
+            lines.extend(["", f"دلیل رد پرداخت: {payment.rejection_reason}"])
+    await render(
+        callback,
+        "\n".join(lines),
+        kb([[("بازگشت به سفارش‌ها", "orders"), ("خانه", "home")]]),
+    )
+
+
 async def show_services(
     target: Message | CallbackQuery,
     seller_context: SellerContextService,
@@ -425,8 +516,78 @@ async def service_detail(callback: CallbackQuery, seller_context: SellerContextS
                 f"لینک اشتراک: {service.subscription_url or '-'}",
             ]
         ),
-        kb([[("تمدید این سرویس", f"renewsvc:{service.id}")], [("بازگشت", "services:0"), ("خانه", "home")]]),
+        kb(
+            [
+                [("تمدید این سرویس", f"renewsvc:{service.id}")],
+                [("تعویض لینک اشتراک", f"revokeask:{service.id}")],
+                [("بازگشت", "services:0"), ("خانه", "home")],
+            ]
+        ),
     )
+
+
+@router.callback_query(F.data.startswith("revokeask:"))
+async def revoke_subscription_ask(callback: CallbackQuery) -> None:
+    service_id = (callback.data or "").split(":", 1)[1]
+    await render(
+        callback,
+        "\n".join(
+            [
+                "با تعویض لینک اشتراک، لینک قبلی دیگر قابل استفاده نیست.",
+                "این کار برای وقتی خوب است که لینک شما لو رفته یا روی دستگاه دیگری مانده باشد.",
+                "",
+                "ادامه می‌دهید؟",
+            ]
+        ),
+        kb([[("بله، تعویض کن", f"revokesub:{service_id}")], [("لغو", f"svc:{service_id}")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("revokesub:"))
+async def revoke_subscription_confirm(
+    callback: CallbackQuery,
+    provisioning_service: ProvisioningService,
+) -> None:
+    if callback.from_user is None:
+        return
+    service_id = (callback.data or "").split(":", 1)[1]
+    try:
+        service = await provisioning_service.revoke_subscription_link(
+            buyer_telegram_id=callback.from_user.id,
+            service_id=service_id,
+        )
+    except ValueError as exc:
+        messages = {
+            "service_not_found": "سرویس پیدا نشد.",
+            "panel_not_found": "پنل این سرویس در دسترس نیست.",
+            "subscription_url_not_returned": "لینک جدید از پنل دریافت نشد.",
+        }
+        await render(
+            callback,
+            messages.get(str(exc), "تعویض لینک انجام نشد."),
+            kb([[("بازگشت", f"svc:{service_id}"), ("خانه", "home")]]),
+        )
+        return
+    text = "\n".join(
+        [
+            "لینک اشتراک با موفقیت تعویض شد.",
+            f"نام کاربری: {service.marzban_username}",
+            f"لینک جدید: {service.subscription_url}",
+        ]
+    )
+    if service.subscription_url and callback.message:
+        qr_file = BufferedInputFile(
+            make_qr_png_bytes(service.subscription_url),
+            filename=f"{service.marzban_username}.png",
+        )
+        await callback.message.answer_photo(
+            qr_file,
+            caption=text,
+            reply_markup=kb([[("بازگشت به سرویس", f"svc:{service.id}"), ("خانه", "home")]]),
+        )
+        await callback.answer()
+        return
+    await render(callback, text, kb([[("بازگشت به سرویس", f"svc:{service.id}"), ("خانه", "home")]]))
 
 
 @router.callback_query(F.data.startswith("renewsvc:"))
@@ -853,7 +1014,64 @@ async def admin_payment_detail(callback: CallbackQuery, seller_context: SellerCo
                 f"کد پرداخت: {item.payment.id}",
             ]
         ),
-        kb([[("تایید پرداخت", f"approvepay:{item.payment.id}")], [("بازگشت", "admin:payments:0")]]),
+        kb(
+            [
+                [("تایید پرداخت", f"approvepay:{item.payment.id}")],
+                [("رد پرداخت", f"rejectpay:{item.payment.id}")],
+                [("بازگشت", "admin:payments:0")],
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data.startswith("rejectpay:"))
+async def reject_payment_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    payment_id = (callback.data or "").split(":", 1)[1]
+    await state.set_state(UiState.waiting_rejection_reason)
+    await state.update_data(reject_payment_id=payment_id)
+    await render(callback, "دلیل رد پرداخت را کوتاه ارسال کنید.\nبرای لغو، /cancel را بزنید.")
+
+
+@router.message(UiState.waiting_rejection_reason, F.text)
+async def rejection_reason_text(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    reason = (message.text or "").strip()
+    if not reason:
+        await render(message, "دلیل رد پرداخت نمی‌تواند خالی باشد.")
+        return
+    data = await state.get_data()
+    try:
+        rejected = await seller_context.reject_payment(
+            admin_telegram_id=message.from_user.id,
+            payment_id=str(data["reject_payment_id"]),
+            reason=reason,
+        )
+    except (PermissionError, ValueError):
+        await render(message, "پرداخت قابل رد کردن نیست.", kb([[("پرداخت‌ها", "admin:payments:0")]]))
+        return
+    await state.clear()
+    await notify_buyer(
+        message,
+        rejected.buyer.telegram_user_id,
+        "\n".join(
+            [
+                "پرداخت شما رد شد.",
+                f"کد سفارش: {rejected.order.id}",
+                f"دلیل: {rejected.payment.rejection_reason}",
+                "",
+                "برای مشاهده جزئیات از بخش «سفارش‌های من» استفاده کنید.",
+            ]
+        ),
+    )
+    await render(
+        message,
+        f"پرداخت رد شد.\nکد سفارش: {rejected.order.id}\nدلیل: {rejected.payment.rejection_reason}",
+        kb([[("پرداخت‌ها", "admin:payments:0"), ("پنل ادمین", "admin")]]),
     )
 
 
@@ -870,6 +1088,19 @@ async def approve_payment_callback(callback: CallbackQuery, seller_context: Sell
     except (PermissionError, ValueError):
         await render(callback, "پرداخت قابل تایید نیست.", kb([[("بازگشت", "admin:payments:0")]]))
         return
+    await notify_buyer(
+        callback,
+        approved.buyer.telegram_user_id,
+        "\n".join(
+            [
+                "پرداخت شما تایید شد.",
+                f"کد سفارش: {approved.order.id}",
+                "سرویس شما در حال ساخت است.",
+                "",
+                "برای پیگیری وضعیت از بخش «سفارش‌های من» استفاده کنید.",
+            ]
+        ),
+    )
     action = "applyrenew" if approved.order.order_type == OrderType.RENEWAL.value else "provision"
     label = "اعمال تمدید" if action == "applyrenew" else "ساخت سرویس"
     await render(

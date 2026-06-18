@@ -15,11 +15,12 @@ from vpn_bot_platform.integrations.marzban import (
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService, _marzban_username
 from vpn_bot_platform.seller_bot.services import SellerContextService
-from vpn_bot_platform.seller_bot.handlers import _normalize_service_username
+from vpn_bot_platform.seller_bot.handlers import _normalize_service_username, main_kb
 
 
 class FakeMarzbanClient:
     created_users: list[MarzbanUserCreate] = []
+    revoked_users: list[str] = []
 
     def __init__(self, credentials: MarzbanCredentials) -> None:
         self.credentials = credentials
@@ -39,6 +40,13 @@ class FakeMarzbanClient:
             "vless": [{"tag": "VLESS TCP REALITY"}],
             "vmess": [{"tag": "VMess WS TLS"}],
             "trojan": ["Trojan TCP TLS"],
+        }
+
+    async def revoke_user_subscription(self, username: str) -> dict:
+        self.revoked_users.append(username)
+        return {
+            "username": username,
+            "subscription_url": f"{self.credentials.base_url}/sub/revoked/{username}",
         }
 
 
@@ -77,9 +85,90 @@ def test_service_username_input_validation() -> None:
     assert _normalize_service_username("_bad") is None
 
 
+def test_buyer_main_menu_has_orders_button() -> None:
+    labels = [button.text for row in main_kb().inline_keyboard for button in row]
+
+    assert "سفارش‌های من" in labels
+
+
+@pytest.mark.asyncio
+async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="reseller30",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=30,
+        )
+        payment_request = await seller_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=plan.id,
+        )
+
+        rejected = await seller_context.reject_payment(
+            admin_telegram_id=111,
+            payment_id=payment_request.payment.id,
+            reason="رسید خوانا نیست",
+        )
+        pending = await seller_context.list_pending_payments(admin_telegram_id=111)
+        status = await seller_context.get_buyer_order_status(
+            buyer_telegram_id=222,
+            order_id=payment_request.order.id,
+        )
+        orders = await seller_context.list_buyer_order_statuses(buyer_telegram_id=222)
+
+        await master_service.register_reseller(telegram_id=333, display_name="Seller B")
+        other_seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=333,
+            bot_name="seller_b_bot",
+            bot_token="456:secret",
+        )
+        other_context = SellerContextService(other_seller_bot.id)
+        await other_context.register_buyer(telegram_id=222, username="buyer")
+        other_plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=333,
+            name="other30",
+            price=120000,
+            duration_days=30,
+            data_limit_gb=40,
+        )
+        other_request = await other_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=other_plan.id,
+        )
+        scoped_orders = await seller_context.list_buyer_order_statuses(buyer_telegram_id=222)
+    finally:
+        await dispose_engine()
+
+    assert rejected.payment.status == "rejected"
+    assert rejected.payment.rejection_reason == "رسید خوانا نیست"
+    assert rejected.order.status == "canceled"
+    assert rejected.buyer.telegram_user_id == 222
+    assert pending == []
+    assert status.payment is not None
+    assert status.payment.status == "rejected"
+    assert status.payment.rejection_reason == "رسید خوانا نیست"
+    assert [item.order.id for item in orders] == [payment_request.order.id]
+    assert other_request.order.id not in {item.order.id for item in scoped_orders}
+
+
 @pytest.mark.asyncio
 async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     FakeMarzbanClient.created_users = []
+    FakeMarzbanClient.revoked_users = []
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     fernet_key = Fernet.generate_key().decode("utf-8")
@@ -297,6 +386,15 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             order_id=wallet_purchase.order.id,
         )
         buyer_services = await seller_context.list_buyer_services(buyer_telegram_id=222)
+        revoked_service = await provisioning.revoke_subscription_link(
+            buyer_telegram_id=222,
+            service_id=provisioned.vpn_service.id,
+        )
+        with pytest.raises(ValueError, match="service_not_found"):
+            await provisioning.revoke_subscription_link(
+                buyer_telegram_id=333,
+                service_id=provisioned.vpn_service.id,
+            )
         customer_search_by_id = await seller_context.search_customers(admin_telegram_id=111, query="222")
         customer_search_by_username = await seller_context.search_customers(admin_telegram_id=111, query="@buyer")
         customer_search_by_service = await seller_context.search_customers(
@@ -395,12 +493,16 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert approved.payment.status == "approved"
     assert approved.payment.approved_by_telegram_id == 111
     assert approved.order.status == "provisioning"
+    assert approved.buyer.telegram_user_id == 222
     assert provisioned.order.status == "completed"
     assert provisioned.order.target_service_id == provisioned.vpn_service.id
     assert reprovisioned.vpn_service.id == provisioned.vpn_service.id
     assert provisioned.vpn_service.buyer_id == profile.buyer.id
     assert provisioned.vpn_service.panel_id == panel.id
     assert provisioned.vpn_service.subscription_url is not None
+    assert FakeMarzbanClient.revoked_users == [provisioned.vpn_service.marzban_username]
+    assert revoked_service.subscription_url is not None
+    assert revoked_service.subscription_url.endswith(f"/revoked/{provisioned.vpn_service.marzban_username}")
     assert FakeMarzbanClient.created_users[0].proxies == {"vless": {}, "vmess": {}, "trojan": {}}
     assert FakeMarzbanClient.created_users[0].inbounds == {
         "vless": ["VLESS TCP REALITY"],

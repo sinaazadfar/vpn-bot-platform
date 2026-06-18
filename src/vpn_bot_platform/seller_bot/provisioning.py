@@ -18,6 +18,7 @@ from vpn_bot_platform.common.repositories import (
     create_trial_grant,
     create_vpn_service,
     get_extra_volume_order_context,
+    get_vpn_service_for_buyer,
     get_provisioning_order_context,
     get_renewal_order_context,
     get_seller_bot_with_reseller,
@@ -48,6 +49,9 @@ class MarzbanCreateUserClient(Protocol):
         pass
 
     async def get_inbounds(self) -> dict:
+        pass
+
+    async def revoke_user_subscription(self, username: str) -> dict:
         pass
 
 
@@ -438,6 +442,50 @@ class ProvisioningService:
             grant.vpn_service_id = service.id
             await session.flush()
             return service
+
+    async def revoke_subscription_link(
+        self,
+        *,
+        buyer_telegram_id: int,
+        service_id: str,
+    ) -> VpnService:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            vpn_service = await get_vpn_service_for_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+                service_id=service_id,
+            )
+            if vpn_service is None:
+                raise ValueError("service_not_found")
+            panel = await get_marzban_panel(session, panel_id=vpn_service.panel_id)
+            if panel is None or not panel.is_active:
+                raise ValueError("panel_not_found")
+            response = await self.marzban_client_factory(
+                self._panel_credentials(panel)
+            ).revoke_user_subscription(vpn_service.marzban_username)
+            subscription_url = _extract_subscription_url(response)
+            if not subscription_url:
+                raise ValueError("subscription_url_not_returned")
+            vpn_service.subscription_url = subscription_url
+            await record_audit_log(
+                session,
+                action="vpn_service.revoke_subscription",
+                actor_type=AuditActorType.BUYER,
+                actor_telegram_id=buyer_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="vpn_service",
+                target_id=vpn_service.id,
+                metadata={"panel_id": panel.id},
+            )
+            await session.flush()
+            return vpn_service
 
     def _panel_credentials(self, panel) -> MarzbanCredentials:
         token = self.secret_box.decrypt(panel.token_encrypted)
