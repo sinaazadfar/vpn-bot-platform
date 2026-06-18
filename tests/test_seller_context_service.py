@@ -60,6 +60,11 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             buyer_telegram_id=222,
             amount=50000,
         )
+        wallet_receipt = await seller_context.attach_wallet_charge_receipt(
+            buyer_telegram_id=222,
+            transaction_id=wallet_charge.transaction.id,
+            file_id="wallet-proof-file-id",
+        )
         pending_wallet = await seller_context.list_pending_wallet_charges(admin_telegram_id=111)
         approved_wallet = await seller_context.approve_wallet_charge(
             admin_telegram_id=111,
@@ -148,6 +153,11 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             plan_id=reseller_plan.id,
             coupon_code="save10",
         )
+        payment_receipt = await seller_context.attach_payment_receipt(
+            buyer_telegram_id=222,
+            payment_id=payment_request.payment.id,
+            file_id="payment-proof-file-id",
+        )
         discounts_after_purchase = await master_service.list_discounts()
         pending = await seller_context.list_pending_payments(admin_telegram_id=111)
         approved = await seller_context.approve_payment(
@@ -195,7 +205,9 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert profile.seller_bot.id == seller_bot.id
     assert profile.buyer.reseller_id == registered.reseller.id
     assert profile.buyer.telegram_user_id == 222
+    assert wallet_receipt.proof_file_id == "wallet-proof-file-id"
     assert pending_wallet[0].id == wallet_charge.transaction.id
+    assert pending_wallet[0].proof_file_id == "wallet-proof-file-id"
     assert approved_wallet.transaction.status == "completed"
     assert approved_wallet.transaction.transaction_type == "charge_approved"
     assert buyer_wallet.buyer is not None
@@ -216,6 +228,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert sent_global.status == "sent"
     assert {plan.id for plan in plans} == {global_plan.id, reseller_plan.id}
     assert payment_request.payment.amount == 162000
+    assert payment_receipt.proof_file_id == "payment-proof-file-id"
     assert discount.id in {item.id for item in discounts_after_purchase}
     assert [item.used_count for item in discounts_after_purchase if item.id == discount.id] == [1]
     assert payment_request.plan.id == reseller_plan.id
@@ -226,6 +239,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert payment_request.payment.method == "card_to_card"
     assert len(pending) == 1
     assert pending[0].payment.id == payment_request.payment.id
+    assert pending[0].payment.proof_file_id == "payment-proof-file-id"
     assert approved.payment.status == "approved"
     assert approved.payment.approved_by_telegram_id == 111
     assert approved.order.status == "provisioning"

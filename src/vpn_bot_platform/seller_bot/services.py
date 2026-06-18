@@ -20,6 +20,10 @@ from vpn_bot_platform.common.models import (
     Ticket,
     TicketMessage,
     TicketMessageSenderType,
+    PaymentStatus,
+    WalletOwnerType,
+    WalletTransactionStatus,
+    WalletTransactionType,
 )
 from vpn_bot_platform.common.repositories import (
     approve_payment,
@@ -312,6 +316,45 @@ class SellerContextService:
             await session.flush()
             return ApprovedPayment(payment=payment, order=order)
 
+    async def attach_payment_receipt(
+        self,
+        *,
+        buyer_telegram_id: int,
+        payment_id: str,
+        file_id: str,
+    ) -> Payment:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            buyer = await upsert_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+            )
+            from sqlalchemy import select
+
+            result = await session.execute(
+                select(Payment, Order)
+                .join(Order, Payment.order_id == Order.id)
+                .where(
+                    Payment.id == payment_id,
+                    Payment.reseller_id == seller_bot.reseller_id,
+                    Payment.status == PaymentStatus.PENDING.value,
+                    Order.buyer_id == buyer.id,
+                )
+            )
+            row = result.one_or_none()
+            if row is None:
+                raise ValueError("payment_not_found")
+            payment, _order = row
+            payment.proof_file_id = file_id
+            await session.flush()
+            return payment
+
     async def list_buyer_services(self, *, buyer_telegram_id: int) -> list[VpnService]:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
@@ -419,6 +462,44 @@ class SellerContextService:
             transaction, _buyer = approved
             await session.flush()
             return WalletChargeRequest(transaction=transaction, instructions="")
+
+    async def attach_wallet_charge_receipt(
+        self,
+        *,
+        buyer_telegram_id: int,
+        transaction_id: str,
+        file_id: str,
+    ) -> WalletTransaction:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            buyer = await upsert_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+            )
+            from sqlalchemy import select
+
+            result = await session.execute(
+                select(WalletTransaction).where(
+                    WalletTransaction.id == transaction_id,
+                    WalletTransaction.reseller_id == seller_bot.reseller_id,
+                    WalletTransaction.owner_type == WalletOwnerType.BUYER.value,
+                    WalletTransaction.owner_id == buyer.id,
+                    WalletTransaction.transaction_type == WalletTransactionType.CHARGE_REQUEST.value,
+                    WalletTransaction.status == WalletTransactionStatus.PENDING.value,
+                )
+            )
+            transaction = result.scalar_one_or_none()
+            if transaction is None:
+                raise ValueError("wallet_charge_not_found")
+            transaction.proof_file_id = file_id
+            await session.flush()
+            return transaction
 
     @staticmethod
     def _ensure_reseller_admin(*, seller_bot: SellerBot, telegram_id: int) -> None:
