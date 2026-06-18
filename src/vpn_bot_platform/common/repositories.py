@@ -1156,6 +1156,33 @@ async def approve_buyer_wallet_charge(
     return transaction, buyer
 
 
+async def reject_buyer_wallet_charge(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    transaction_id: str,
+    rejected_by_telegram_id: int,
+) -> tuple[WalletTransaction, Buyer] | None:
+    result = await session.execute(
+        select(WalletTransaction, Buyer)
+        .join(Buyer, WalletTransaction.owner_id == Buyer.id)
+        .where(
+            WalletTransaction.id == transaction_id,
+            WalletTransaction.reseller_id == reseller_id,
+            WalletTransaction.owner_type == WalletOwnerType.BUYER.value,
+            WalletTransaction.transaction_type == WalletTransactionType.CHARGE_REQUEST.value,
+            WalletTransaction.status == WalletTransactionStatus.PENDING.value,
+        )
+    )
+    row = result.one_or_none()
+    if row is None:
+        return None
+    transaction, buyer = row
+    transaction.status = WalletTransactionStatus.REJECTED.value
+    transaction.approved_by_telegram_id = rejected_by_telegram_id
+    return transaction, buyer
+
+
 async def list_wallet_transactions_for_buyer(
     session: AsyncSession,
     *,

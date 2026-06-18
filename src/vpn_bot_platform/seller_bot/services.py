@@ -74,6 +74,7 @@ from vpn_bot_platform.common.repositories import (
     list_wallet_transactions_for_buyer,
     increment_discount_usage,
     reject_payment,
+    reject_buyer_wallet_charge,
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     search_customers_for_reseller,
@@ -1128,7 +1129,11 @@ class SellerContextService:
             )
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
-            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
             approved = await approve_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -1171,7 +1176,11 @@ class SellerContextService:
             )
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
-            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
             rejected = await reject_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -1363,7 +1372,11 @@ class SellerContextService:
             )
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
-            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
             approved = await approve_buyer_wallet_charge(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -1376,6 +1389,46 @@ class SellerContextService:
             await record_audit_log(
                 session,
                 action="wallet_charge.approve",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="wallet_transaction",
+                target_id=transaction.id,
+                metadata={"amount": float(transaction.amount)},
+            )
+            await session.flush()
+            return WalletChargeRequest(transaction=transaction, instructions="")
+
+    async def reject_wallet_charge(
+        self,
+        *,
+        admin_telegram_id: int,
+        transaction_id: str,
+    ) -> WalletChargeRequest:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
+            rejected = await reject_buyer_wallet_charge(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                transaction_id=transaction_id,
+                rejected_by_telegram_id=admin_telegram_id,
+            )
+            if rejected is None:
+                raise ValueError("wallet_charge_not_found")
+            transaction, _buyer = rejected
+            await record_audit_log(
+                session,
+                action="wallet_charge.reject",
                 actor_type=AuditActorType.RESELLER_ADMIN,
                 actor_telegram_id=admin_telegram_id,
                 reseller_id=seller_bot.reseller_id,
@@ -1428,6 +1481,19 @@ class SellerContextService:
     def _ensure_reseller_admin(*, seller_bot: SellerBot, telegram_id: int) -> None:
         if seller_bot.reseller.telegram_user_id != telegram_id:
             raise PermissionError("not_reseller_admin")
+
+    async def _ensure_reseller_payment_approver(self, session, *, seller_bot: SellerBot, telegram_id: int) -> None:
+        if seller_bot.reseller.telegram_user_id == telegram_id:
+            return
+        setting = await get_reseller_setting(
+            session,
+            reseller_id=seller_bot.reseller_id,
+            key=SUPPORT_TELEGRAM_ID_SETTING,
+        )
+        support_contact = self._parse_support_contact(setting.value if setting else None)
+        if isinstance(support_contact, int) and support_contact == telegram_id:
+            return
+        raise PermissionError("not_reseller_payment_approver")
 
     @staticmethod
     def _parse_support_contact(value: str | None) -> int | str | None:

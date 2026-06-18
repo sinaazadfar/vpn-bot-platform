@@ -95,6 +95,131 @@ async def notify_buyer(target: Message | CallbackQuery, buyer_telegram_id: int, 
         return
 
 
+def contact_url(contact: int | str | None) -> str | None:
+    if isinstance(contact, int):
+        return f"tg://user?id={contact}"
+    if isinstance(contact, str) and contact.startswith("@"):
+        return f"https://t.me/{contact.removeprefix('@')}"
+    return None
+
+
+def wallet_charge_user_actions(contacts: object | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = []
+    admin_id = getattr(contacts, "admin_telegram_id", None)
+    support_contact = getattr(contacts, "support_contact", None)
+    admin_url = contact_url(admin_id)
+    support_url = contact_url(support_contact)
+    if admin_url:
+        rows.append([("پیام به ادمین", admin_url)])
+    if support_url and support_url != admin_url:
+        rows.append([("پیام به پشتیبان", support_url)])
+    rows.append([("ثبت تیکت", "ticket:new"), ("کیف پول", "wallet")])
+    rows.append([("خانه", "home")])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=text, url=value)
+                if value.startswith(("tg://", "http://", "https://"))
+                else InlineKeyboardButton(text=text, callback_data=value)
+                for text, value in row
+            ]
+            for row in rows
+        ]
+    )
+
+
+async def notify_wallet_charge_approvers(
+    message: Message,
+    seller_context: SellerContextService,
+    *,
+    transaction_id: str,
+    amount: float,
+) -> None:
+    contacts = await seller_context.get_payment_notification_contacts(buyer_telegram_id=message.from_user.id)
+    chat_ids: list[int] = [contacts.admin_telegram_id]
+    if isinstance(contacts.support_contact, int) and contacts.support_contact not in chat_ids:
+        chat_ids.append(contacts.support_contact)
+    text = "\n".join(
+        [
+            "رسید شارژ کیف پول دریافت شد.",
+            f"کاربر: {message.from_user.id}",
+            f"مبلغ: {money(amount)}",
+            f"کد تراکنش: {transaction_id}",
+        ]
+    )
+    markup = kb(
+        [
+            [("تایید شارژ", f"approvetx:{transaction_id}"), ("رد شارژ", f"rejecttx:{transaction_id}")],
+            [("شارژهای کیف پول", "admin:wallet:0")],
+        ]
+    )
+    for chat_id in chat_ids:
+        try:
+            await message.copy_to(chat_id)
+            await message.bot.send_message(chat_id, text, reply_markup=markup)
+        except TelegramAPIError:
+            continue
+
+
+async def notify_payment_approvers(
+    message: Message,
+    seller_context: SellerContextService,
+    *,
+    payment_id: str,
+) -> None:
+    contacts = await seller_context.get_payment_notification_contacts(buyer_telegram_id=message.from_user.id)
+    chat_ids: list[int] = [contacts.admin_telegram_id]
+    if isinstance(contacts.support_contact, int) and contacts.support_contact not in chat_ids:
+        chat_ids.append(contacts.support_contact)
+    text = "\n".join(
+        [
+            "رسید پرداخت دریافت شد.",
+            f"کاربر: {message.from_user.id}",
+            f"کد پرداخت: {payment_id}",
+        ]
+    )
+    markup = kb(
+        [
+            [("تایید پرداخت", f"approvepay:{payment_id}"), ("رد پرداخت", f"rejectpay:{payment_id}")],
+            [("پرداخت‌ها", "admin:payments:0")],
+        ]
+    )
+    for chat_id in chat_ids:
+        try:
+            await message.copy_to(chat_id)
+            await message.bot.send_message(chat_id, text, reply_markup=markup)
+        except TelegramAPIError:
+            continue
+
+
+async def notify_wallet_purchase_for_provisioning(
+    target: Message | CallbackQuery,
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+    order_id: str,
+    plan_name: str,
+) -> None:
+    contacts = await seller_context.get_payment_notification_contacts(buyer_telegram_id=buyer_telegram_id)
+    chat_ids: list[int] = [contacts.admin_telegram_id]
+    if isinstance(contacts.support_contact, int) and contacts.support_contact not in chat_ids:
+        chat_ids.append(contacts.support_contact)
+    text = "\n".join(
+        [
+            "خرید با کیف پول ثبت شد و نیاز به ساخت سرویس دارد.",
+            f"کاربر: {buyer_telegram_id}",
+            f"پلن: {plan_name}",
+            f"کد سفارش: {order_id}",
+        ]
+    )
+    markup = kb([[("ساخت سرویس", f"provision:{order_id}")], [("پنل ادمین", "admin")]])
+    for chat_id in chat_ids:
+        try:
+            await target.bot.send_message(chat_id, text, reply_markup=markup)
+        except TelegramAPIError:
+            continue
+
+
 def money(value: float) -> str:
     return f"{float(value):,.0f} تومان"
 
@@ -315,7 +440,7 @@ async def plan_detail(callback: CallbackQuery, seller_context: SellerContextServ
         ),
         kb(
             [
-                [("خرید بدون کد تخفیف", f"buy:{plan.id}")],
+                [("خرید با کیف پول", f"buy:{plan.id}")],
                 [("وارد کردن کد تخفیف", f"coupon:new:{plan.id}")],
                 [("بازگشت", "plans:0"), ("خانه", "home")],
             ]
@@ -381,13 +506,48 @@ async def create_payment_request(
             )
             title = "درخواست تمدید ثبت شد."
         else:
-            request = await seller_context.request_card_to_card_payment(
+            purchase = await seller_context.purchase_with_wallet(
                 buyer_telegram_id=user.id,
                 plan_id=plan_id,
                 coupon_code=coupon_code,
             )
-            title = "درخواست خرید ثبت شد."
+            await notify_wallet_purchase_for_provisioning(
+                target,
+                seller_context,
+                buyer_telegram_id=user.id,
+                order_id=purchase.order.id,
+                plan_name=purchase.plan.name,
+            )
+            await state.clear()
+            await render(
+                target,
+                "\n".join(
+                    [
+                        "خرید با کیف پول ثبت شد.",
+                        f"پلن: {purchase.plan.name}",
+                        f"مبلغ کسر شده: {money(abs(float(purchase.transaction.amount)))}",
+                        f"کد سفارش: {purchase.order.id}",
+                        "",
+                        "سرویس بعد از بررسی ادمین ساخته می‌شود.",
+                    ]
+                ),
+                kb([[("پرداختی‌های من", "orders"), ("کیف پول", "wallet")], [("خانه", "home")]]),
+            )
+            return
     except ValueError as exc:
+        if str(exc) == "insufficient_wallet_balance":
+            contacts = await seller_context.get_payment_notification_contacts(buyer_telegram_id=user.id)
+            await render(
+                target,
+                "\n".join(
+                    [
+                        "موجودی کیف پول برای خرید این پلن کافی نیست.",
+                        "ابتدا کیف پول را شارژ کنید. بعد از پرداخت، رسید را ارسال کنید تا ادمین تایید کند.",
+                    ]
+                ),
+                wallet_charge_user_actions(contacts),
+            )
+            return
         messages = {
             "plan_not_found": "پلن پیدا نشد یا فعال نیست.",
             "service_not_found": "سرویس انتخاب‌شده پیدا نشد.",
@@ -753,10 +913,16 @@ async def create_wallet_charge(
         return
     await state.set_state(UiState.waiting_receipt)
     await state.update_data(receipt_kind="wallet", receipt_id=charge.transaction.id)
-    await render_receipt_prompt(target, charge)
+    contacts = await seller_context.get_payment_notification_contacts(buyer_telegram_id=target.from_user.id)
+    await render_receipt_prompt(target, charge, contacts=contacts)
 
 
-async def render_receipt_prompt(target: Message | CallbackQuery, charge: WalletChargeRequest) -> None:
+async def render_receipt_prompt(
+    target: Message | CallbackQuery,
+    charge: WalletChargeRequest,
+    *,
+    contacts: object | None = None,
+) -> None:
     await render(
         target,
         "\n".join(
@@ -770,7 +936,7 @@ async def render_receipt_prompt(target: Message | CallbackQuery, charge: WalletC
                 "بعد از پرداخت، عکس یا فایل رسید را همینجا ارسال کنید.",
             ]
         ),
-        kb([[("بعدا ارسال می‌کنم", "home")]]),
+        wallet_charge_user_actions(contacts),
     )
 
 
@@ -782,23 +948,34 @@ async def receipt_upload(message: Message, seller_context: SellerContextService,
     data = await state.get_data()
     try:
         if data.get("receipt_kind") == "wallet":
-            await seller_context.attach_wallet_charge_receipt(
+            transaction = await seller_context.attach_wallet_charge_receipt(
                 buyer_telegram_id=message.from_user.id,
                 transaction_id=str(data["receipt_id"]),
                 file_id=file_id,
             )
+            await notify_wallet_charge_approvers(
+                message,
+                seller_context,
+                transaction_id=transaction.id,
+                amount=float(transaction.amount),
+            )
         else:
-            await seller_context.attach_payment_receipt(
+            payment = await seller_context.attach_payment_receipt(
                 buyer_telegram_id=message.from_user.id,
                 payment_id=str(data["receipt_id"]),
                 file_id=file_id,
             )
+            await notify_payment_approvers(message, seller_context, payment_id=payment.id)
     except ValueError:
         await render(message, "رسید برای این درخواست ثبت نشد. لطفا دوباره از منو اقدام کنید.")
         await state.clear()
         return
     await state.clear()
-    await render(message, "رسید دریافت شد. بعد از بررسی ادمین، وضعیت سفارش به‌روزرسانی می‌شود.", kb([[("خانه", "home")]]))
+    await render(
+        message,
+        "رسید دریافت شد و برای ادمین ارسال شد. بعد از بررسی، وضعیت به‌روزرسانی می‌شود.",
+        kb([[("پرداختی‌های من", "orders"), ("کیف پول", "wallet")], [("خانه", "home")]]),
+    )
 
 
 @router.message(UiState.waiting_receipt)
@@ -1545,7 +1722,7 @@ async def admin_wallet_detail(callback: CallbackQuery, seller_context: SellerCon
     await render(
         callback,
         f"مبلغ: {money(item.amount)}\nرسید: {'دارد' if item.proof_file_id else 'ندارد'}\nکد تراکنش: {item.id}",
-        kb([[("تایید شارژ", f"approvetx:{item.id}")], [("بازگشت", "admin:wallet:0")]]),
+        kb([[("تایید شارژ", f"approvetx:{item.id}"), ("رد شارژ", f"rejecttx:{item.id}")], [("بازگشت", "admin:wallet:0")]]),
     )
 
 
@@ -1562,6 +1739,21 @@ async def approve_wallet_callback(callback: CallbackQuery, seller_context: Selle
         await render(callback, "شارژ قابل تایید نیست.", kb([[("پنل ادمین", "admin")]]))
         return
     await render(callback, "شارژ کیف پول تایید شد.", kb([[("پنل ادمین", "admin")]]))
+
+
+@router.callback_query(F.data.startswith("rejecttx:"))
+async def reject_wallet_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    try:
+        await seller_context.reject_wallet_charge(
+            admin_telegram_id=callback.from_user.id,
+            transaction_id=(callback.data or "").split(":", 1)[1],
+        )
+    except (PermissionError, ValueError):
+        await render(callback, "شارژ قابل رد کردن نیست.", kb([[("پنل ادمین", "admin")]]))
+        return
+    await render(callback, "شارژ کیف پول رد شد.", kb([[("پنل ادمین", "admin")]]))
 
 
 @router.callback_query(F.data.startswith("admin:tickets:"))
