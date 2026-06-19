@@ -85,10 +85,19 @@ def test_service_username_input_validation() -> None:
     assert _normalize_service_username("_bad") is None
 
 
-def test_buyer_main_menu_has_payments_button() -> None:
-    labels = [button.text for row in main_kb().inline_keyboard for button in row]
+def test_buyer_main_menu_has_subscription_layout() -> None:
+    labels_by_row = [[button.text for button in row] for row in main_kb().inline_keyboard]
+    labels = [label for row in labels_by_row for label in row]
 
-    assert "پرداختی‌های من" in labels
+    assert labels_by_row[:6] == [
+        ["خرید اشتراک"],
+        ["اشتراک‌های من", "جستجو اشتراک"],
+        ["حساب کاربری"],
+        ["افزایش موجودی"],
+        ["کسب درآمد", "آموزش"],
+        ["پشتیبانی"],
+    ]
+    assert "پرداختی‌های من" not in labels
     assert "تمدید سرویس" not in labels
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import ceil
+from random import randint
 import re
 
 from aiogram import F, Router
@@ -22,6 +23,7 @@ router = Router(name="seller_button_ui")
 
 PAGE_SIZE = 5
 SEARCH_THRESHOLD = 8
+POPULAR_VOLUME_GB = [5, 10, 15, 20, 30, 50, 75, 100]
 
 
 class UiState(StatesGroup):
@@ -34,6 +36,7 @@ class UiState(StatesGroup):
     waiting_admin_plan_gb = State()
     waiting_admin_plan_days = State()
     waiting_admin_plan_price = State()
+    waiting_config_name = State()
     waiting_ticket_subject = State()
     waiting_ticket_body = State()
     waiting_ticket_reply = State()
@@ -58,9 +61,11 @@ def kb(rows: Sequence[Sequence[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 def main_kb(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [("خرید سرویس", "plans:0"), ("سرویس‌های من", "services:0")],
-        [("پرداختی‌های من", "orders")],
-        [("کیف پول", "wallet"), ("تست رایگان", "trial")],
+        [("خرید اشتراک", "plans:0")],
+        [("اشتراک‌های من", "services:0"), ("جستجو اشتراک", "search:services")],
+        [("حساب کاربری", "account")],
+        [("افزایش موجودی", "wallet")],
+        [("کسب درآمد", "earn"), ("آموزش", "tutorial")],
         [("پشتیبانی", "tickets:0")],
     ]
     if is_admin:
@@ -73,6 +78,7 @@ async def render(
     text: str,
     markup: InlineKeyboardMarkup | None = None,
 ) -> None:
+    text = f"{text}\n\n\n "
     if isinstance(target, CallbackQuery):
         if target.message:
             try:
@@ -122,6 +128,25 @@ def wallet_charge_user_actions(contacts: object | None = None) -> InlineKeyboard
                 if value.startswith(("tg://", "http://", "https://"))
                 else InlineKeyboardButton(text=text, callback_data=value)
                 for text, value in row
+            ]
+            for row in rows
+        ]
+    )
+
+
+def support_button_row(contact: int | str | None) -> list[tuple[str, str]]:
+    url = contact_url(contact)
+    return [("پشتیبانی", url)] if url else [("پشتیبانی", "tickets:0")]
+
+
+def action_keyboard(rows: Sequence[Sequence[tuple[str, str]]]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=text, url=data)
+                if data.startswith(("tg://", "http://", "https://"))
+                else InlineKeyboardButton(text=text, callback_data=data)
+                for text, data in row
             ]
             for row in rows
         ]
@@ -322,7 +347,7 @@ async def show_home(
         is_admin = False
     await render(
         target,
-        "به پنل سرویس VPN خوش آمدید.\nیکی از گزینه‌های زیر را انتخاب کنید:",
+        "👋 به ربات خوش آمدی",
         main_kb(is_admin=is_admin),
     )
 
@@ -388,20 +413,107 @@ async def home_callback(callback: CallbackQuery, seller_context: SellerContextSe
 async def plans_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
     if await blocked_message(callback):
         return
-    page = int((callback.data or "plans:0").split(":")[1])
-    plans = await seller_context.list_plans()
-    await show_plans(callback, plans, page)
+    await show_volume_options(callback)
 
 
-async def show_plans(target: Message | CallbackQuery, plans: list[Plan], page: int, query: str | None = None) -> None:
+async def show_volume_options(target: Message | CallbackQuery) -> None:
+    rows = [
+        [(f"{POPULAR_VOLUME_GB[index]} گیگ", f"plansgb:{POPULAR_VOLUME_GB[index]}") for index in range(0, 2)],
+        [(f"{POPULAR_VOLUME_GB[index]} گیگ", f"plansgb:{POPULAR_VOLUME_GB[index]}") for index in range(2, 4)],
+        [(f"{POPULAR_VOLUME_GB[index]} گیگ", f"plansgb:{POPULAR_VOLUME_GB[index]}") for index in range(4, 6)],
+        [(f"{POPULAR_VOLUME_GB[index]} گیگ", f"plansgb:{POPULAR_VOLUME_GB[index]}") for index in range(6, 8)],
+        [("خانه", "home")],
+    ]
+    await render(target, "حجم اشتراک مورد نظرت رو انتخاب کن:", kb(rows))
+
+
+@router.callback_query(F.data.startswith("plansgb:"))
+async def plans_by_volume_callback(callback: CallbackQuery) -> None:
+    raw_volume = (callback.data or "plansgb:0").split(":", 1)[1]
+    volume_gb = parse_positive_int(raw_volume)
+    if volume_gb is None or volume_gb < 5 or volume_gb > 100:
+        await render(callback, "حجم انتخاب‌شده معتبر نیست.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    await show_duration_options(callback, volume_gb)
+
+
+async def show_duration_options(target: Message | CallbackQuery, volume_gb: int) -> None:
+    await render(
+        target,
+        f"مدت اشتراک {volume_gb} گیگ را انتخاب کن:",
+        kb(
+            [
+                [("یک ماهه", f"plansfilter:{volume_gb}:30"), ("سه ماهه", f"plansfilter:{volume_gb}:90")],
+                [("بازگشت به انتخاب حجم", "plans:0"), ("خانه", "home")],
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data.startswith("plansfilter:"))
+async def plans_filter_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    parts = (callback.data or "plansfilter:0:0").split(":")
+    if len(parts) != 3:
+        await render(callback, "انتخاب معتبر نیست.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    volume_gb = parse_positive_int(parts[1])
+    duration_days = parse_positive_int(parts[2])
+    if volume_gb is None or duration_days is None:
+        await render(callback, "انتخاب معتبر نیست.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    plans = [
+        plan
+        for plan in await seller_context.list_plans()
+        if plan.data_limit_gb == volume_gb and plan.duration_days == duration_days
+    ]
+    await show_plans(callback, plans, 0, volume_gb=volume_gb, duration_days=duration_days)
+
+
+@router.callback_query(F.data.startswith("plansgbpage:"))
+async def plans_by_volume_page_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    parts = (callback.data or "plansgbpage:0:0:0").split(":")
+    if len(parts) != 4:
+        await render(callback, "صفحه انتخاب‌شده معتبر نیست.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    volume_gb = parse_positive_int(parts[1])
+    duration_days = parse_positive_int(parts[2])
+    page = parse_positive_int(parts[3]) or 0
+    if volume_gb is None or duration_days is None:
+        await render(callback, "صفحه انتخاب‌شده معتبر نیست.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    plans = [
+        plan
+        for plan in await seller_context.list_plans()
+        if plan.data_limit_gb == volume_gb and plan.duration_days == duration_days
+    ]
+    await show_plans(callback, plans, page, volume_gb=volume_gb, duration_days=duration_days)
+
+
+async def show_plans(
+    target: Message | CallbackQuery,
+    plans: list[Plan],
+    page: int,
+    query: str | None = None,
+    volume_gb: int | None = None,
+    duration_days: int | None = None,
+) -> None:
     if query:
         normalized = query.casefold()
         plans = [plan for plan in plans if normalized in plan.name.casefold() or normalized in plan.id]
     if not plans:
-        await render(target, "فعلا پلنی برای نمایش وجود ندارد.", kb([[("خانه", "home")]]))
+        text = (
+            f"فعلا پلنی برای حجم {volume_gb} گیگ و مدت {duration_days} روز وجود ندارد."
+            if volume_gb is not None
+            else "فعلا پلنی برای نمایش وجود ندارد."
+        )
+        back_callback = f"plansgb:{volume_gb}" if volume_gb is not None else "plans:0"
+        await render(target, text, kb([[("بازگشت", back_callback), ("خانه", "home")]]))
         return
     page_items, safe_page, total_pages = paginate(plans, page)
-    lines = ["پلن مورد نظر را انتخاب کنید:"]
+    if volume_gb is not None and duration_days is not None:
+        lines = [f"پلن‌های {volume_gb} گیگ / {duration_days} روز:"]
+    else:
+        lines = ["پلن مورد نظر را انتخاب کنید:"]
     rows = []
     for plan in page_items:
         lines.append(f"{plan.name} | {money(plan.price)} | {plan.duration_days} روز | {traffic(plan)}")
@@ -413,7 +525,7 @@ async def show_plans(target: Message | CallbackQuery, plans: list[Plan], page: i
             rows=rows,
             page=safe_page,
             total_pages=total_pages,
-            page_prefix="plans",
+            page_prefix=f"plansgbpage:{volume_gb}:{duration_days}" if volume_gb is not None and duration_days is not None else "plans",
             search="plans" if len(plans) > SEARCH_THRESHOLD else None,
         ),
     )
@@ -431,26 +543,95 @@ async def plan_detail(callback: CallbackQuery, seller_context: SellerContextServ
         "\n".join(
             [
                 f"پلن: {plan.name}",
-                f"قیمت: {money(plan.price)}",
                 f"مدت: {plan.duration_days} روز",
                 f"حجم: {traffic(plan)}",
                 "",
-                "برای ثبت سفارش، یکی از گزینه‌ها را انتخاب کنید.",
+                "برای ادامه، نام کانفیگ را انتخاب کن.",
             ]
         ),
         kb(
             [
-                [("خرید با کیف پول", f"buy:{plan.id}")],
-                [("وارد کردن کد تخفیف", f"coupon:new:{plan.id}")],
+                [("انتخاب نام کانفیگ", f"config:start:{plan.id}")],
                 [("بازگشت", "plans:0"), ("خانه", "home")],
             ]
         ),
     )
 
 
-@router.callback_query(F.data.startswith("buy:"))
-async def buy_callback(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
-    await create_payment_request(callback, seller_context, state, plan_id=(callback.data or "").split(":", 1)[1])
+@router.callback_query(F.data.startswith("config:start:"))
+async def config_name_start(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
+    plan_id = (callback.data or "").split(":")[-1]
+    plan = next((item for item in await seller_context.list_plans() if item.id == plan_id), None)
+    if plan is None:
+        await render(callback, "این پلن پیدا نشد.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    await state.set_state(UiState.waiting_config_name)
+    await state.update_data(config_plan_id=plan.id)
+    await render(
+        callback,
+        "اسم کانفیگت رو با حروف انگلیسی بفرست.\nمثال: ali_home",
+        kb([[("بازگشت", f"plan:{plan.id}"), ("خانه", "home")]]),
+    )
+
+
+@router.message(UiState.waiting_config_name, F.text)
+async def config_name_text(message: Message, seller_context: SellerContextService, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+    requested_username = _normalize_service_username(message.text or "")
+    if requested_username is None:
+        await render(message, "اسم کانفیگ معتبر نیست. فقط حروف انگلیسی، عدد و _ استفاده کن.")
+        return
+    data = await state.get_data()
+    plan_id = str(data.get("config_plan_id", ""))
+    plan = next((item for item in await seller_context.list_plans() if item.id == plan_id), None)
+    if plan is None:
+        await state.clear()
+        await render(message, "این پلن پیدا نشد.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    tracking_code = randint(100000, 999999)
+    await state.update_data(
+        config_name=requested_username,
+        config_tracking_code=str(tracking_code),
+    )
+    support_contact = await seller_context.get_support_contact_for_buyer(buyer_telegram_id=message.from_user.id)
+    await render(
+        message,
+        "\n".join(
+            [
+                "جزئیات سرویس",
+                f"نام کانفیگ: {requested_username}",
+                f"تعداد روز: {plan.duration_days}",
+                f"میزان حجم: {traffic(plan)}",
+                "مبلغ قابل پرداخت: ",
+                f"کد پیگیری: {tracking_code}",
+            ]
+        ),
+        action_keyboard(
+            [
+                [("تایید و پرداخت با کیف پول", "config:pay")],
+                support_button_row(support_contact),
+                [("خرید اشتراک", "plans:0"), ("خانه", "home")],
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == "config:pay")
+async def config_pay_callback(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
+    data = await state.get_data()
+    plan_id = str(data.get("config_plan_id", ""))
+    requested_username = str(data.get("config_name", ""))
+    if not plan_id or not requested_username:
+        await render(callback, "ابتدا نام کانفیگ را وارد کن.", kb([[("خرید اشتراک", "plans:0"), ("خانه", "home")]]))
+        return
+    await create_payment_request(
+        callback,
+        seller_context,
+        state,
+        plan_id=plan_id,
+        requested_username=requested_username,
+    )
 
 
 @router.callback_query(F.data.startswith("coupon:"))
@@ -492,6 +673,7 @@ async def create_payment_request(
     plan_id: str,
     coupon_code: str | None = None,
     service_id: str | None = None,
+    requested_username: str | None = None,
 ) -> None:
     user = target.from_user
     if user is None:
@@ -506,10 +688,12 @@ async def create_payment_request(
             )
             title = "درخواست تمدید ثبت شد."
         else:
+            state_data = await state.get_data()
             purchase = await seller_context.purchase_with_wallet(
                 buyer_telegram_id=user.id,
                 plan_id=plan_id,
                 coupon_code=coupon_code,
+                requested_username=requested_username,
             )
             await notify_wallet_purchase_for_provisioning(
                 target,
@@ -525,8 +709,10 @@ async def create_payment_request(
                     [
                         "خرید با کیف پول ثبت شد.",
                         f"پلن: {purchase.plan.name}",
+                        f"نام کانفیگ: {requested_username or '-'}",
                         f"مبلغ کسر شده: {money(abs(float(purchase.transaction.amount)))}",
                         f"کد سفارش: {purchase.order.id}",
+                        f"کد پیگیری: {state_data.get('config_tracking_code', '-')}",
                         "",
                         "سرویس بعد از بررسی ادمین ساخته می‌شود.",
                     ]
@@ -872,6 +1058,35 @@ async def wallet_callback(callback: CallbackQuery, seller_context: SellerContext
             ]
         ),
     )
+
+
+@router.callback_query(F.data == "account")
+async def account_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    wallet_info = await seller_context.list_buyer_wallet(buyer_telegram_id=callback.from_user.id)
+    balance = float(wallet_info.buyer.wallet_balance) if wallet_info.buyer else 0
+    await render(
+        callback,
+        "\n".join(
+            [
+                "حساب کاربری",
+                f"آیدی تلگرام: {callback.from_user.id}",
+                f"موجودی کیف پول: {money(balance)}",
+            ]
+        ),
+        kb([[("افزایش موجودی", "wallet"), ("پرداختی‌های من", "orders")], [("خانه", "home")]]),
+    )
+
+
+@router.callback_query(F.data == "earn")
+async def earn_callback(callback: CallbackQuery) -> None:
+    await render(callback, "بخش کسب درآمد در حال آماده‌سازی است.", kb([[("خانه", "home")]]))
+
+
+@router.callback_query(F.data == "tutorial")
+async def tutorial_callback(callback: CallbackQuery) -> None:
+    await render(callback, "بخش آموزش در حال آماده‌سازی است.", kb([[("خانه", "home")]]))
 
 
 @router.callback_query(F.data.startswith("charge:"))
