@@ -103,10 +103,10 @@ class SellerRuntimeStatus:
 
 @dataclass(frozen=True)
 class SellerBotQuota:
-    limit_gb: int | None
+    limit_gb: int
     used_gb: int
     reserved_gb: int
-    remaining_gb: int | None
+    remaining_gb: int
 
 
 @dataclass(frozen=True)
@@ -194,7 +194,7 @@ class ResellerService:
         reseller_telegram_id: int,
         bot_name: str,
         bot_token: str,
-        volume_limit_gb: int | None = None,
+        volume_limit_gb: int | None = 0,
     ) -> SellerBot:
         async with session_scope() as session:
             reseller = await get_reseller_by_telegram_id(
@@ -231,7 +231,7 @@ class ResellerService:
         bot_token: str,
         panel_id: str,
         marzban_admin_username: str | None = None,
-        volume_limit_gb: int | None = None,
+        volume_limit_gb: int | None = 0,
         actor_telegram_id: int | None = None,
     ) -> tuple[SellerBot, ResellerPanelAssignment]:
         async with session_scope() as session:
@@ -395,7 +395,7 @@ class ResellerService:
         bot_name: str,
         bot_token: str,
         template_id_or_key: str,
-        volume_limit_gb: int | None = None,
+        volume_limit_gb: int | None = 0,
         actor_telegram_id: int | None = None,
     ) -> SellerBot:
         async with session_scope() as session:
@@ -447,7 +447,7 @@ class ResellerService:
         template_id_or_key: str,
         panel_id: str,
         marzban_admin_username: str | None = None,
-        volume_limit_gb: int | None = None,
+        volume_limit_gb: int | None = 0,
         actor_telegram_id: int | None = None,
     ) -> tuple[SellerBot, ResellerPanelAssignment]:
         async with session_scope() as session:
@@ -523,7 +523,7 @@ class ResellerService:
             await update_seller_bot_volume(
                 session,
                 seller_bot=seller_bot,
-                volume_limit_gb=volume_limit_gb,
+                volume_limit_gb=volume_limit_gb or 0,
             )
             await record_audit_log(
                 session,
@@ -533,19 +533,66 @@ class ResellerService:
                 reseller_id=seller_bot.reseller_id,
                 target_type="seller_bot",
                 target_id=seller_bot.id,
-                metadata={"volume_limit_gb": volume_limit_gb},
+                metadata={"volume_limit_gb": volume_limit_gb or 0},
             )
             await session.flush()
             return seller_bot
+
+    async def add_seller_bot_volume(
+        self,
+        *,
+        seller_bot_id: str,
+        added_gb: int,
+        actor_telegram_id: int | None = None,
+    ) -> SellerBotQuota:
+        if added_gb <= 0:
+            raise ValueError("invalid_volume")
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            before = await get_seller_bot_quota_usage(session, seller_bot_id=seller_bot.id)
+            old_limit_gb = before.limit_gb or 0
+            new_limit_gb = old_limit_gb + added_gb
+            await update_seller_bot_volume(
+                session,
+                seller_bot=seller_bot,
+                volume_limit_gb=new_limit_gb,
+            )
+            after = await get_seller_bot_quota_usage(session, seller_bot_id=seller_bot.id)
+            await record_audit_log(
+                session,
+                action="seller_bot.volume_add",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "old_limit_gb": old_limit_gb,
+                    "added_gb": added_gb,
+                    "new_limit_gb": new_limit_gb,
+                    "used_gb": after.used_gb,
+                    "reserved_gb": after.reserved_gb,
+                    "remaining_gb": after.remaining_gb,
+                },
+            )
+            await session.flush()
+            return SellerBotQuota(
+                limit_gb=after.limit_gb or 0,
+                used_gb=after.used_gb,
+                reserved_gb=after.reserved_gb,
+                remaining_gb=after.remaining_gb or 0,
+            )
 
     async def seller_bot_quota(self, *, seller_bot_id: str) -> SellerBotQuota:
         async with session_scope() as session:
             usage = await get_seller_bot_quota_usage(session, seller_bot_id=seller_bot_id)
             return SellerBotQuota(
-                limit_gb=usage.limit_gb,
+                limit_gb=usage.limit_gb or 0,
                 used_gb=usage.used_gb,
                 reserved_gb=usage.reserved_gb,
-                remaining_gb=usage.remaining_gb,
+                remaining_gb=usage.remaining_gb or 0,
             )
     async def rename_reseller(
         self,

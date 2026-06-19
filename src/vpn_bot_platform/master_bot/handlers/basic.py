@@ -71,6 +71,11 @@ class SellerBotVolumeEditStates(StatesGroup):
     volume = State()
 
 
+class SellerBotVolumeAddStates(StatesGroup):
+    amount = State()
+    confirm = State()
+
+
 class GlobalBroadcastCreateStates(StatesGroup):
     title = State()
     body = State()
@@ -518,11 +523,37 @@ async def master_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Edit Seller Bot Volume"),
+                    title("Set Seller Bot GB Limit"),
                     f"Bot: {seller_bot.name}",
-                    f"Current volume: {_seller_bot_volume_text(seller_bot)}",
+                    f"Current limit: {_seller_bot_volume_text(seller_bot)}",
                     "",
-                    "Send the new volume in GB, or - for unlimited / not set.",
+                    "Send the total GB limit for this seller bot.",
+                    "Use 0 to stop new sales.",
+                ]
+            ),
+            reply_markup=master_seller_bot_actions(seller_bot.id),
+        )
+    elif action.action == "seller_volume_add":
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
+        if seller_bot is None:
+            await callback.answer("Seller bot not found.", show_alert=True)
+            return
+        quota = await reseller_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        await state.clear()
+        await state.set_state(SellerBotVolumeAddStates.amount)
+        await state.update_data(seller_volume_bot_id=seller_bot.id)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Add Seller Bot GB"),
+                    f"Bot: {seller_bot.name}",
+                    f"Current limit: {_quota_value_text(quota.limit_gb)}",
+                    f"Used: {quota.used_gb} GB",
+                    f"Reserved: {quota.reserved_gb} GB",
+                    f"Remaining: {_quota_value_text(quota.remaining_gb)}",
+                    "",
+                    "Send the GB amount to add.",
+                    "Example: 100",
                 ]
             ),
             reply_markup=master_seller_bot_actions(seller_bot.id),
@@ -1773,6 +1804,46 @@ async def master_menu_callback(
             ),
             reply_markup=master_seller_bot_actions(seller_bot.id),
         )
+    elif action.action == "seller_volume_add_confirm":
+        data = await state.get_data()
+        seller_bot_id = str(data.get("seller_volume_bot_id") or "")
+        added_gb = data.get("seller_volume_add_gb")
+        if not seller_bot_id or not isinstance(added_gb, int):
+            await callback.answer("GB top-up draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            quota = await reseller_service.add_seller_bot_volume(
+                seller_bot_id=seller_bot_id,
+                added_gb=added_gb,
+                actor_telegram_id=callback.from_user.id,
+            )
+            seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+        except ValueError:
+            await callback.answer("Seller bot not found or GB amount is invalid.", show_alert=True)
+            await state.clear()
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Seller Bot GB Added"),
+                    f"Bot: {seller_bot.name if seller_bot else short_id(seller_bot_id)}",
+                    f"Added: {added_gb} GB",
+                    f"New limit: {_quota_value_text(quota.limit_gb)}",
+                    f"Used: {quota.used_gb} GB",
+                    f"Reserved: {quota.reserved_gb} GB",
+                    f"Remaining: {_quota_value_text(quota.remaining_gb)}",
+                ]
+            ),
+            reply_markup=master_seller_bot_actions(seller_bot_id),
+        )
+    elif action.action == "seller_volume_add_cancel":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("GB Add Canceled"), "No seller bot capacity was changed."]),
+            reply_markup=master_section_menu("seller_bots"),
+        )
     elif action.action == "sellerbot_cancel":
         await state.clear()
         await callback.message.edit_text(
@@ -2052,37 +2123,30 @@ async def sellerbot_create_panel_admin(message: Message, state: FSMContext) -> N
     await message.answer(
         "\n".join([
             title("Add Seller Bot"),
-            "Send the total volume for this seller bot in GB.",
-            "Send - for unlimited / not set.",
+            "Send the total GB limit for this seller bot.",
+            "Use 0 to start with no sellable capacity.",
             "",
             "Example: 500",
         ]),
-        reply_markup=confirm_keyboard(
-            scope="m",
-            confirm_action="sellerbot_create",
-            cancel_action="sellerbot_cancel",
-        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
     )
 
 
 @router.message(SellerBotCreateStates.volume)
 async def sellerbot_create_volume(message: Message, state: FSMContext) -> None:
     raw_value = (message.text or "").strip()
-    if raw_value == "-":
-        volume_limit_gb = None
-    else:
-        volume_limit_gb = _parse_positive_int(raw_value)
-        if volume_limit_gb is None:
-            await message.answer(
-                "\n".join(
-                    [
-                        title("Add Seller Bot"),
-                        "Volume must be a positive number in GB, or - for unlimited / not set.",
-                    ]
-                ),
-                reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
-            )
-            return
+    volume_limit_gb = _parse_non_negative_int(raw_value)
+    if volume_limit_gb is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("Add Seller Bot"),
+                    "Volume must be 0 or a positive number in GB.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
     await state.update_data(sellerbot_volume_limit_gb=volume_limit_gb)
     await state.set_state(SellerBotCreateStates.confirm)
     data = await state.get_data()
@@ -2111,20 +2175,17 @@ async def sellerbot_volume_edit_message(
     data = await state.get_data()
     seller_bot_id = str(data.get("seller_volume_bot_id") or "")
     raw_value = (message.text or "").strip()
-    if raw_value == "-":
-        volume_limit_gb = None
-    else:
-        volume_limit_gb = _parse_positive_int(raw_value)
-        if volume_limit_gb is None:
-            await message.answer(
-                "\n".join(
-                    [
-                        title("Edit Seller Bot Volume"),
-                        "Volume must be a positive number in GB, or - for unlimited / not set.",
-                    ]
-                )
+    volume_limit_gb = _parse_non_negative_int(raw_value)
+    if volume_limit_gb is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("Set Seller Bot GB Limit"),
+                    "Volume must be 0 or a positive number in GB.",
+                ]
             )
-            return
+        )
+        return
     try:
         seller_bot = await reseller_service.set_seller_bot_volume(
             seller_bot_id=seller_bot_id,
@@ -2141,11 +2202,70 @@ async def sellerbot_volume_edit_message(
             [
                 title("Seller Bot Volume Updated"),
                 f"Bot: {seller_bot.name}",
-                f"Volume: {_seller_bot_volume_text(seller_bot)}",
+                f"Limit: {_seller_bot_volume_text(seller_bot)}",
             ]
         ),
         reply_markup=master_seller_bot_actions(seller_bot.id),
     )
+
+
+@router.message(SellerBotVolumeAddStates.amount)
+async def sellerbot_volume_add_amount(
+    message: Message,
+    state: FSMContext,
+    reseller_service: ResellerService,
+) -> None:
+    added_gb = _parse_positive_int(message.text)
+    if added_gb is None:
+        await message.answer(
+            "\n".join(
+                [
+                    title("Add Seller Bot GB"),
+                    "Amount must be a positive number in GB.",
+                ]
+            )
+        )
+        return
+    data = await state.get_data()
+    seller_bot_id = str(data.get("seller_volume_bot_id") or "")
+    seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+    if seller_bot is None:
+        await state.clear()
+        await message.answer("Seller bot not found.", reply_markup=master_section_menu("seller_bots"))
+        return
+    quota = await reseller_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+    new_limit = quota.limit_gb + added_gb
+    new_remaining = quota.remaining_gb + added_gb
+    await state.update_data(seller_volume_add_gb=added_gb)
+    await state.set_state(SellerBotVolumeAddStates.confirm)
+    await message.answer(
+        "\n".join(
+            [
+                title("Confirm Seller Bot GB Add"),
+                f"Bot: {seller_bot.name}",
+                f"Current limit: {_quota_value_text(quota.limit_gb)}",
+                f"Used: {quota.used_gb} GB",
+                f"Reserved: {quota.reserved_gb} GB",
+                f"Current remaining: {_quota_value_text(quota.remaining_gb)}",
+                f"Added: {added_gb} GB",
+                f"New limit: {_quota_value_text(new_limit)}",
+                f"New remaining: {_quota_value_text(new_remaining)}",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="seller_volume_add_confirm",
+            cancel_action="seller_volume_add_cancel",
+        ),
+    )
+
+
+@router.message(SellerBotVolumeAddStates.confirm)
+async def sellerbot_volume_add_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Seller Bot GB Add"), "Use Confirm or Cancel below the preview."])
+    )
+
 
 @router.message(SellerBotSearchStates.query)
 async def sellerbot_search_query(
@@ -3665,11 +3785,12 @@ def _seller_bots_page_text(page) -> str:
 
 
 def _seller_bot_volume_text(seller_bot) -> str:
-    volume_limit_gb = getattr(seller_bot, "volume_limit_gb", None)
-    return "Unlimited / not set" if volume_limit_gb is None else f"{volume_limit_gb} GB"
+    volume_limit_gb = getattr(seller_bot, "volume_limit_gb", None) or 0
+    return f"{volume_limit_gb} GB"
+
 
 def _quota_value_text(value: int | None) -> str:
-    return "Unlimited / not set" if value is None else f"{value} GB"
+    return f"{value or 0} GB"
 
 
 async def _seller_bot_card_text(reseller_service: ResellerService, seller_bot) -> str:
@@ -3737,7 +3858,7 @@ def _sellerbot_confirm_text(data: dict) -> str:
             f"Bot name: {data.get('sellerbot_name')}",
             f"Panel ID: {data.get('sellerbot_panel_id')}",
             f"Marzban admin: {data.get('sellerbot_panel_admin') or '-'}",
-            f"Volume: {'Unlimited / not set' if data.get('sellerbot_volume_limit_gb') is None else str(data.get('sellerbot_volume_limit_gb')) + ' GB'}",
+            f"Volume: {data.get('sellerbot_volume_limit_gb') or 0} GB",
             "Token: valid and hidden",
         ]
     )
@@ -4252,6 +4373,16 @@ def _parse_positive_int(raw: str | None) -> int | None:
     except ValueError:
         return None
     if value <= 0:
+        return None
+    return value
+
+
+def _parse_non_negative_int(raw: str | None) -> int | None:
+    try:
+        value = int((raw or "").strip().replace(",", ""))
+    except ValueError:
+        return None
+    if value < 0:
         return None
     return value
 

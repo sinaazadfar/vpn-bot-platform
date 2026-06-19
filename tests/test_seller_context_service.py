@@ -116,6 +116,7 @@ async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
             reseller_telegram_id=111,
             bot_name="seller_a_bot",
             bot_token="123:secret",
+            volume_limit_gb=500,
         )
         seller_context = SellerContextService(seller_bot.id)
         await seller_context.register_buyer(telegram_id=222, username="buyer")
@@ -148,6 +149,7 @@ async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
             reseller_telegram_id=333,
             bot_name="seller_b_bot",
             bot_token="456:secret",
+            volume_limit_gb=500,
         )
         other_context = SellerContextService(other_seller_bot.id)
         await other_context.register_buyer(telegram_id=222, username="buyer")
@@ -240,6 +242,63 @@ async def test_seller_bot_volume_limit_blocks_payments_and_reserves_pending_orde
     assert quota_after_first.used_gb == 0
     assert quota_after_first.reserved_gb == 30
     assert quota_after_first.remaining_gb == 20
+
+
+@pytest.mark.asyncio
+async def test_seller_bot_default_zero_blocks_until_master_adds_gb() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="10gb",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=10,
+        )
+
+        quota_before = await master_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        seller_admin_quota_before = await seller_context.get_seller_bot_quota(admin_telegram_id=111)
+        with pytest.raises(ValueError, match="seller_bot_volume_limit_exceeded"):
+            await seller_context.request_card_to_card_payment(
+                buyer_telegram_id=222,
+                plan_id=plan.id,
+            )
+        quota_after_add = await master_service.add_seller_bot_volume(
+            seller_bot_id=seller_bot.id,
+            added_gb=25,
+            actor_telegram_id=999,
+        )
+        payment_request = await seller_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=plan.id,
+        )
+        quota_after_order = await master_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        audit_logs = await master_service.recent_audit_logs(limit=5)
+    finally:
+        await dispose_engine()
+
+    assert seller_bot.volume_limit_gb == 0
+    assert quota_before.limit_gb == 0
+    assert quota_before.remaining_gb == 0
+    assert seller_admin_quota_before.limit_gb == 0
+    assert seller_admin_quota_before.remaining_gb == 0
+    assert quota_after_add.limit_gb == 25
+    assert quota_after_add.remaining_gb == 25
+    assert payment_request.order.seller_bot_id == seller_bot.id
+    assert quota_after_order.reserved_gb == 10
+    assert quota_after_order.remaining_gb == 15
+    assert any(log.action == "seller_bot.volume_add" for log in audit_logs)
 
 
 @pytest.mark.asyncio
@@ -410,6 +469,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             reseller_telegram_id=111,
             bot_name="seller_a_bot",
             bot_token="123:secret",
+            volume_limit_gb=500,
         )
         seller_context = SellerContextService(seller_bot.id)
         crypto_settings = Settings(

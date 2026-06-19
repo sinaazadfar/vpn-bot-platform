@@ -56,15 +56,13 @@ from vpn_bot_platform.common.models import (
 
 @dataclass(frozen=True)
 class SellerBotQuotaUsage:
-    limit_gb: int | None
+    limit_gb: int
     used_gb: int
     reserved_gb: int
 
     @property
-    def remaining_gb(self) -> int | None:
-        if self.limit_gb is None:
-            return None
-        return self.limit_gb - self.used_gb - self.reserved_gb
+    def remaining_gb(self) -> int:
+        return max(0, self.limit_gb - self.used_gb - self.reserved_gb)
 
 
 async def upsert_telegram_user(
@@ -235,7 +233,7 @@ async def create_seller_bot(
     secret_box: SecretBox,
     runtime_type: SellerBotRuntimeType = SellerBotRuntimeType.NATIVE,
     external_template_id: str | None = None,
-    volume_limit_gb: int | None = None,
+    volume_limit_gb: int | None = 0,
 ) -> SellerBot:
     seller_bot = SellerBot(
         reseller_id=reseller_id,
@@ -244,7 +242,7 @@ async def create_seller_bot(
         token_encrypted=secret_box.encrypt(token) or "",
         token_hash=hash_secret(token),
         runtime_type=runtime_type.value,
-        volume_limit_gb=volume_limit_gb,
+        volume_limit_gb=volume_limit_gb or 0,
     )
     session.add(seller_bot)
     return seller_bot
@@ -417,7 +415,7 @@ async def get_seller_bot_quota_usage(
         .where(*reserved_clauses)
     )
     return SellerBotQuotaUsage(
-        limit_gb=seller_bot.volume_limit_gb,
+        limit_gb=seller_bot.volume_limit_gb or 0,
         used_gb=int(used_gb or 0),
         reserved_gb=int(reserved_gb or 0),
     )
@@ -428,7 +426,7 @@ async def get_seller_bot_remaining_gb(
     *,
     seller_bot: SellerBot,
     exclude_order_id: str | None = None,
-) -> int | None:
+) -> int:
     usage = await get_seller_bot_quota_usage(
         session,
         seller_bot_id=seller_bot.id,
@@ -449,8 +447,6 @@ async def ensure_seller_bot_volume_available(
         seller_bot_id=seller_bot.id,
         exclude_order_id=exclude_order_id,
     )
-    if usage.limit_gb is None:
-        return usage
     if requested_gb is None or requested_gb > usage.remaining_gb:
         raise ValueError("seller_bot_volume_limit_exceeded")
     return usage

@@ -55,6 +55,7 @@ from vpn_bot_platform.common.repositories import (
     get_plan,
     get_reseller_setting,
     get_seller_bot_with_reseller,
+    get_seller_bot_quota_usage,
     get_ticket_for_buyer,
     get_ticket_for_reseller,
     get_broadcast_for_reseller,
@@ -216,6 +217,14 @@ class SupportSettings:
     @property
     def telegram_id(self) -> int | None:
         return self.contact if isinstance(self.contact, int) else None
+
+
+@dataclass(frozen=True)
+class SellerBotQuota:
+    limit_gb: int
+    used_gb: int
+    reserved_gb: int
+    remaining_gb: int
 
 
 class SellerContextService:
@@ -813,6 +822,23 @@ class SellerContextService:
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
             self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+
+    async def get_seller_bot_quota(self, *, admin_telegram_id: int) -> SellerBotQuota:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            usage = await get_seller_bot_quota_usage(session, seller_bot_id=seller_bot.id)
+            return SellerBotQuota(
+                limit_gb=usage.limit_gb or 0,
+                used_gb=usage.used_gb,
+                reserved_gb=usage.reserved_gb,
+                remaining_gb=usage.remaining_gb or 0,
+            )
 
     async def get_support_settings(self, *, admin_telegram_id: int) -> SupportSettings:
         async with session_scope() as session:

@@ -1389,6 +1389,7 @@ async def admin_dashboard(target: Message | CallbackQuery, seller_context: Selle
         pending = await seller_context.list_pending_payments(admin_telegram_id=target.from_user.id)
         wallet = await seller_context.list_pending_wallet_charges(admin_telegram_id=target.from_user.id)
         tickets = await seller_context.list_open_tickets(admin_telegram_id=target.from_user.id)
+        quota = await seller_context.get_seller_bot_quota(admin_telegram_id=target.from_user.id)
     except PermissionError:
         await render(target, "شما دسترسی ادمین فروشنده ندارید.", kb([[("خانه", "home")]]))
         return
@@ -1400,16 +1401,49 @@ async def admin_dashboard(target: Message | CallbackQuery, seller_context: Selle
                 f"پرداخت‌های در انتظار: {len(pending)}",
                 f"شارژهای کیف پول: {len(wallet)}",
                 f"تیکت‌های باز: {len(tickets)}",
+                "",
+                "ظرفیت فروش ربات",
+                f"سقف کل: {quota.limit_gb} گیگ",
+                f"مصرف‌شده: {quota.used_gb} گیگ",
+                f"رزروشده: {quota.reserved_gb} گیگ",
+                f"باقی‌مانده: {quota.remaining_gb} گیگ",
             ]
         ),
         kb(
             [
                 [("پرداخت‌ها", "admin:payments:0"), ("شارژ کیف پول", "admin:wallet:0")],
                 [("تیکت‌ها", "admin:tickets:0"), ("گزارش فروش", "admin:report")],
-                [("پلن‌های فروش", "admin:plans:0"), ("پشتیبان", "admin:support")],
+                [("پلن‌های فروش", "admin:plans:0"), ("ظرفیت فروش", "admin:quota")],
+                [("پشتیبان", "admin:support")],
                 [("خانه", "home")],
             ]
         ),
+    )
+
+
+@router.callback_query(F.data == "admin:quota")
+async def admin_quota(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    try:
+        quota = await seller_context.get_seller_bot_quota(admin_telegram_id=callback.from_user.id)
+    except PermissionError:
+        await render(callback, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    await render(
+        callback,
+        "\n".join(
+            [
+                "ظرفیت فروش ربات",
+                f"سقف کل: {quota.limit_gb} گیگ",
+                f"مصرف‌شده: {quota.used_gb} گیگ",
+                f"رزروشده: {quota.reserved_gb} گیگ",
+                f"باقی‌مانده: {quota.remaining_gb} گیگ",
+                "",
+                "افزایش ظرفیت فقط از مستر بات انجام می‌شود.",
+            ]
+        ),
+        kb([[("پنل ادمین", "admin"), ("خانه", "home")]]),
     )
 
 

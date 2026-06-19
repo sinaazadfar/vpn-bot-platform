@@ -180,7 +180,7 @@ class SellerBot(Base):
     token_encrypted: Mapped[str] = mapped_column(Text)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     runtime_type: Mapped[str] = mapped_column(String(32), default=SellerBotRuntimeType.NATIVE.value)
-    volume_limit_gb: Mapped[int | None] = mapped_column(Integer)
+    volume_limit_gb: Mapped[int | None] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(24), default=SellerBotStatus.PENDING.value)
     container_name: Mapped[str | None] = mapped_column(String(128))
     container_id: Mapped[str | None] = mapped_column(String(128))

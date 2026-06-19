@@ -73,12 +73,25 @@ async def test_register_reseller_and_seller_bot() -> None:
             actor_telegram_id=999,
         )
         templates = await service.list_external_bot_templates()
+        default_quota = await service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        added_quota = await service.add_seller_bot_volume(
+            seller_bot_id=seller_bot.id,
+            added_gb=100,
+            actor_telegram_id=999,
+        )
+        second_added_quota = await service.add_seller_bot_volume(
+            seller_bot_id=seller_bot.id,
+            added_gb=50,
+            actor_telegram_id=999,
+        )
+        audit_logs = await service.recent_audit_logs(limit=10)
     finally:
         await dispose_engine()
 
     assert registered.existed is False
     assert registered.reseller.telegram_user_id == 12345
     assert seller_bot.reseller_id == registered.reseller.id
+    assert seller_bot.volume_limit_gb == 0
     assert seller_bot.token_encrypted != "123:secret"
     assert panel.base_url == "https://panel.example.com"
     assert panel.token_encrypted != "panel-token"
@@ -95,3 +108,10 @@ async def test_register_reseller_and_seller_bot() -> None:
     assert external_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
     assert external_assignment.panel_id == panel.id
     assert external_assignment.marzban_admin_username == "external_admin"
+    assert default_quota.limit_gb == 0
+    assert default_quota.remaining_gb == 0
+    assert added_quota.limit_gb == 100
+    assert added_quota.remaining_gb == 100
+    assert second_added_quota.limit_gb == 150
+    assert second_added_quota.remaining_gb == 150
+    assert any(log.action == "seller_bot.volume_add" for log in audit_logs)
