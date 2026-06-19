@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+import datetime as dt
 from math import ceil
 from random import randint
 import re
@@ -82,16 +83,22 @@ async def render(
     if isinstance(target, CallbackQuery):
         if target.message:
             try:
-                await target.message.edit_text(text, reply_markup=markup)
+                await target.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
                 await target.answer()
                 return
             except TelegramBadRequest:
                 pass
         await target.answer()
         if target.message:
-            await target.message.answer(text, reply_markup=markup)
+            try:
+                await target.message.answer(text, reply_markup=markup, parse_mode="Markdown")
+            except TelegramBadRequest:
+                await target.message.answer(text, reply_markup=markup)
         return
-    await target.answer(text, reply_markup=markup)
+    try:
+        await target.answer(text, reply_markup=markup, parse_mode="Markdown")
+    except TelegramBadRequest:
+        await target.answer(text, reply_markup=markup)
 
 
 async def notify_buyer(target: Message | CallbackQuery, buyer_telegram_id: int, text: str) -> None:
@@ -251,6 +258,15 @@ def money(value: float) -> str:
 
 def traffic(plan_or_service: Plan | VpnService) -> str:
     return "نامحدود" if plan_or_service.data_limit_gb is None else f"{plan_or_service.data_limit_gb} گیگ"
+
+
+def remaining_days(expire_at: dt.datetime | None) -> str:
+    if expire_at is None:
+        return "نامحدود"
+    now = dt.datetime.now(dt.UTC)
+    normalized_expire = expire_at if expire_at.tzinfo else expire_at.replace(tzinfo=dt.UTC)
+    remaining_seconds = (normalized_expire - now).total_seconds()
+    return f"{max(0, ceil(remaining_seconds / 86400))} روز"
 
 
 def order_status_label(status: str) -> str:
@@ -853,7 +869,10 @@ async def show_services(
         await render(target, "هنوز سرویسی ندارید.", kb([[("خرید سرویس", "plans:0"), ("خانه", "home")]]))
         return
     page_items, safe_page, total_pages = paginate(services, page)
-    rows = [Row(f"{service.marzban_username} - {traffic(service)}", f"svc:{service.id}") for service in page_items]
+    rows = [
+        Row(f"{service.marzban_username} - {traffic(service)} - {remaining_days(service.expire_at)}", f"svc:{service.id}")
+        for service in page_items
+    ]
     await render(
         target,
         "سرویس مورد نظر را انتخاب کنید:",
@@ -878,16 +897,15 @@ async def service_detail(callback: CallbackQuery, seller_context: SellerContextS
         await render(callback, "سرویس پیدا نشد.", kb([[("بازگشت", "services:0")]]))
         return
     await state.update_data(service_id=service.id)
-    expire = service.expire_at.strftime("%Y-%m-%d") if service.expire_at else "نامحدود"
     await render(
         callback,
         "\n".join(
             [
-                f"نام کاربری: {service.marzban_username}",
+                f"نام کاربری: `{service.marzban_username}`",
                 f"حجم: {traffic(service)}",
-                f"انقضا: {expire}",
+                f"زمان باقی‌مانده: {remaining_days(service.expire_at)}",
                 f"وضعیت: {'فعال' if service.is_active else 'غیرفعال'}",
-                f"لینک اشتراک: {service.subscription_url or '-'}",
+                f"لینک اشتراک: `{service.subscription_url or '-'}`",
             ]
         ),
         kb(
