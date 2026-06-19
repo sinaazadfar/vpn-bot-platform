@@ -4239,7 +4239,7 @@ async def send_global_broadcast(
         raise
 
     delivered: set[int] = set()
-    text = f"{draft.broadcast.title}\n\n{draft.broadcast.body}"
+    text = f"{draft.broadcast.title}\n➖➖➖\n{draft.broadcast.body}"
     for recipient in draft.recipients:
         try:
             await message.bot.send_message(recipient.telegram_user_id, text)

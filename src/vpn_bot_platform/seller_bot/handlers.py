@@ -78,7 +78,7 @@ async def render(
     text: str,
     markup: InlineKeyboardMarkup | None = None,
 ) -> None:
-    text = f"{text}\n\n\n "
+    text = f"{text}\n\n\n➖➖➖"
     if isinstance(target, CallbackQuery):
         if target.message:
             try:
