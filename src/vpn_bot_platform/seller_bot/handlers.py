@@ -901,11 +901,11 @@ async def service_detail(callback: CallbackQuery, seller_context: SellerContextS
         callback,
         "\n".join(
             [
-                f"نام کاربری: `{service.marzban_username}`",
+                "نام کاربری: ", f"`{service.marzban_username}`",
                 f"حجم: {traffic(service)}",
                 f"زمان باقی‌مانده: {remaining_days(service.expire_at)}",
                 f"وضعیت: {'فعال' if service.is_active else 'غیرفعال'}",
-                f"لینک اشتراک: `{service.subscription_url or '-'}`",
+                "لینک اشتراک: ",f"`{service.subscription_url or '-'}`",
             ]
         ),
         kb(
