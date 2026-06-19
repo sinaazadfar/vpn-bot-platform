@@ -66,7 +66,7 @@ def main_kb(*, is_admin: bool = False) -> InlineKeyboardMarkup:
         [("حساب کاربری", "account")],
         [("افزایش موجودی", "wallet")],
         [("کسب درآمد", "earn"), ("آموزش", "tutorial")],
-        [("پشتیبانی", "tickets:0")],
+        [("پشتیبانی", "support")],
     ]
     if is_admin:
         rows.append([("پنل ادمین", "admin")])
@@ -1087,6 +1087,26 @@ async def earn_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "tutorial")
 async def tutorial_callback(callback: CallbackQuery) -> None:
     await render(callback, "بخش آموزش در حال آماده‌سازی است.", kb([[("خانه", "home")]]))
+
+
+@router.callback_query(F.data == "support")
+async def support_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    support_contact = await seller_context.get_support_contact_for_buyer(buyer_telegram_id=callback.from_user.id)
+    support_url = contact_url(support_contact)
+    if support_url:
+        await render(
+            callback,
+            "برای ارتباط با پشتیبان روی دکمه زیر بزن.",
+            action_keyboard([support_button_row(support_contact), [("خانه", "home")]]),
+        )
+        return
+    await render(
+        callback,
+        "پشتیبان مستقیم هنوز تنظیم نشده. می‌تونی از تیکت استفاده کنی.",
+        kb([[("ثبت تیکت", "ticket:new"), ("تیکت‌های من", "tickets:0")], [("خانه", "home")]]),
+    )
 
 
 @router.callback_query(F.data.startswith("charge:"))
