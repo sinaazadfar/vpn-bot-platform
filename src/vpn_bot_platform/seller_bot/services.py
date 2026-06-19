@@ -44,6 +44,7 @@ from vpn_bot_platform.common.repositories import (
     create_plan,
     create_ticket,
     delete_reseller_setting,
+    ensure_seller_bot_volume_available,
     create_reseller_broadcast,
     get_active_plan_for_reseller,
     get_active_discount_code,
@@ -307,6 +308,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -320,6 +326,7 @@ class SellerContextService:
             order, payment = await create_order_with_pending_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 plan_id=plan.id,
                 amount=amount,
@@ -383,6 +390,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -396,6 +408,7 @@ class SellerContextService:
             result = await create_wallet_purchase_order(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 plan_id=plan.id,
                 amount=amount,
@@ -543,6 +556,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -556,6 +574,7 @@ class SellerContextService:
             order, payment = await create_order_with_pending_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=service.buyer_id,
                 plan_id=plan.id,
                 amount=amount,
@@ -618,6 +637,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -631,6 +655,7 @@ class SellerContextService:
             order, payment = await create_order_with_pending_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=service.buyer_id,
                 plan_id=plan.id,
                 amount=amount,
@@ -1143,6 +1168,13 @@ class SellerContextService:
             if approved is None:
                 raise ValueError("payment_not_found")
             payment, order = approved
+            plan = await session.get(Plan, order.plan_id) if order.plan_id else None
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb if plan else None,
+                exclude_order_id=order.id,
+            )
             buyer = await session.get(Buyer, order.buyer_id)
             if buyer is None:
                 raise ValueError("buyer_not_found")
@@ -1287,6 +1319,7 @@ class SellerContextService:
             transaction = await create_buyer_wallet_charge_request(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 amount=amount,
                 note="wallet charge payment request",

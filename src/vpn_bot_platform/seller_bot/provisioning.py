@@ -17,6 +17,7 @@ from vpn_bot_platform.common.models import Buyer, Order, Plan, SellerBot, VpnSer
 from vpn_bot_platform.common.repositories import (
     create_trial_grant,
     create_vpn_service,
+    ensure_seller_bot_volume_available,
     get_extra_volume_order_context,
     get_vpn_service_for_buyer,
     get_provisioning_order_context,
@@ -109,6 +110,12 @@ class ProvisioningService:
                 return ProvisionedService(order=order, vpn_service=existing_service)
             if order.status == "completed":
                 raise ValueError("order_already_completed_without_service_link")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+                exclude_order_id=order.id,
+            )
 
             routed_panel = await self.panel_router.choose_panel(
                 session,
@@ -140,6 +147,7 @@ class ProvisioningService:
             vpn_service = await create_vpn_service(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 panel_id=panel.id,
                 marzban_username=marzban_user.username,
@@ -198,6 +206,12 @@ class ProvisioningService:
                 return ProvisionedService(order=order, vpn_service=existing_service)
             if order.status == "completed":
                 raise ValueError("order_already_completed_without_service_link")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+                exclude_order_id=order.id,
+            )
 
             routed_panel = await self.panel_router.choose_panel(
                 session,
@@ -227,6 +241,7 @@ class ProvisioningService:
             vpn_service = await create_vpn_service(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 panel_id=panel.id,
                 marzban_username=marzban_user.username,
@@ -274,6 +289,12 @@ class ProvisioningService:
             if panel is None or not panel.is_active:
                 await mark_order_failed(session, order=order)
                 raise ValueError("panel_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+                exclude_order_id=order.id,
+            )
 
             new_expire = _renewed_expire_timestamp(vpn_service.expire_at, plan.duration_days)
             new_data_limit_gb = _increased_data_limit(vpn_service.data_limit_gb, plan.data_limit_gb)
@@ -330,6 +351,12 @@ class ProvisioningService:
             if panel is None or not panel.is_active:
                 await mark_order_failed(session, order=order)
                 raise ValueError("panel_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+                exclude_order_id=order.id,
+            )
 
             new_data_limit_gb = _increased_data_limit(vpn_service.data_limit_gb, plan.data_limit_gb)
             update = MarzbanUserUpdate(
@@ -400,6 +427,11 @@ class ProvisioningService:
             )
             if existing is not None:
                 raise ValueError("trial_already_used")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=self.settings.trial_data_limit_gb,
+            )
             routed_panel = await self.panel_router.choose_panel(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -425,6 +457,7 @@ class ProvisioningService:
             service = await create_vpn_service(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 panel_id=panel.id,
                 marzban_username=trial_user.username,

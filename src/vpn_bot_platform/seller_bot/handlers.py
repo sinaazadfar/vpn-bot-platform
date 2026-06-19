@@ -755,6 +755,9 @@ async def create_payment_request(
             "service_not_found": "سرویس انتخاب‌شده پیدا نشد.",
             "discount_not_found": "کد تخفیف معتبر نیست.",
             "seller_bot_not_found": "تنظیمات ربات فروشنده کامل نیست.",
+            "seller_bot_volume_limit_exceeded": (
+                "ظرفیت فروش این ربات تکمیل شده است. لطفا با پشتیبانی تماس بگیرید یا پلن کم‌حجم‌تری انتخاب کنید."
+            ),
         }
         await render(target, messages.get(str(exc), "در ثبت درخواست مشکلی پیش آمد."), kb([[("خانه", "home")]]))
         return
@@ -1253,6 +1256,9 @@ async def trial_callback(callback: CallbackQuery, provisioning_service: Provisio
             "trial_disabled": "تست رایگان فعلا فعال نیست.",
             "trial_already_used": "شما قبلا تست رایگان خود را دریافت کرده‌اید.",
             "panel_assignment_not_found": "برای این فروشنده پنل فعالی تنظیم نشده است.",
+            "seller_bot_volume_limit_exceeded": (
+                "ظرفیت فروش این ربات تکمیل شده است. لطفا با پشتیبانی تماس بگیرید."
+            ),
         }
         await render(callback, messages.get(str(exc), "ساخت تست رایگان انجام نشد."), kb([[("خانه", "home")]]))
         return

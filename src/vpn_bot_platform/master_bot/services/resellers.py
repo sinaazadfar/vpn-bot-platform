@@ -35,6 +35,7 @@ from vpn_bot_platform.common.repositories import (
     get_discount_code,
     get_panel_assignment,
     get_plan,
+    get_seller_bot_quota_usage,
     global_sales_report,
     get_reseller_by_telegram_id,
     get_seller_bot,
@@ -56,6 +57,7 @@ from vpn_bot_platform.common.repositories import (
     list_resellers,
     update_panel_assignment_routing,
     update_external_bot_template_sync_state,
+    update_seller_bot_volume,
     update_seller_runtime_state,
     update_reseller_profile,
     upsert_telegram_user,
@@ -97,6 +99,14 @@ class SellerRuntimeStatus:
     seller_bot: SellerBot
     health: str
     logs: str | None = None
+
+
+@dataclass(frozen=True)
+class SellerBotQuota:
+    limit_gb: int | None
+    used_gb: int
+    reserved_gb: int
+    remaining_gb: int | None
 
 
 @dataclass(frozen=True)
@@ -184,6 +194,7 @@ class ResellerService:
         reseller_telegram_id: int,
         bot_name: str,
         bot_token: str,
+        volume_limit_gb: int | None = None,
     ) -> SellerBot:
         async with session_scope() as session:
             reseller = await get_reseller_by_telegram_id(
@@ -198,6 +209,7 @@ class ResellerService:
                 name=bot_name,
                 token=bot_token,
                 secret_box=self.secret_box,
+                volume_limit_gb=volume_limit_gb,
             )
             await record_audit_log(
                 session,
@@ -206,7 +218,7 @@ class ResellerService:
                 reseller_id=reseller.id,
                 target_type="seller_bot",
                 target_id=seller_bot.id,
-                metadata={"reseller_telegram_id": reseller_telegram_id, "bot_name": bot_name},
+                metadata={"reseller_telegram_id": reseller_telegram_id, "bot_name": bot_name, "volume_limit_gb": volume_limit_gb},
             )
             await session.flush()
             return seller_bot
@@ -219,6 +231,7 @@ class ResellerService:
         bot_token: str,
         panel_id: str,
         marzban_admin_username: str | None = None,
+        volume_limit_gb: int | None = None,
         actor_telegram_id: int | None = None,
     ) -> tuple[SellerBot, ResellerPanelAssignment]:
         async with session_scope() as session:
@@ -237,6 +250,7 @@ class ResellerService:
                 name=bot_name,
                 token=bot_token,
                 secret_box=self.secret_box,
+                volume_limit_gb=volume_limit_gb,
             )
             assignment = await assign_panel_to_reseller(
                 session,
@@ -257,6 +271,7 @@ class ResellerService:
                     "bot_name": bot_name,
                     "panel_id": panel.id,
                     "marzban_admin_username": marzban_admin_username,
+                    "volume_limit_gb": volume_limit_gb,
                 },
             )
             await session.flush()
@@ -380,6 +395,7 @@ class ResellerService:
         bot_name: str,
         bot_token: str,
         template_id_or_key: str,
+        volume_limit_gb: int | None = None,
         actor_telegram_id: int | None = None,
     ) -> SellerBot:
         async with session_scope() as session:
@@ -402,6 +418,7 @@ class ResellerService:
                 secret_box=self.secret_box,
                 runtime_type=SellerBotRuntimeType.EXTERNAL_TEMPLATE,
                 external_template_id=template.id,
+                volume_limit_gb=volume_limit_gb,
             )
             await record_audit_log(
                 session,
@@ -415,6 +432,7 @@ class ResellerService:
                     "reseller_telegram_id": reseller_telegram_id,
                     "bot_name": bot_name,
                     "external_template_key": template.key,
+                    "volume_limit_gb": volume_limit_gb,
                 },
             )
             await session.flush()
@@ -429,6 +447,7 @@ class ResellerService:
         template_id_or_key: str,
         panel_id: str,
         marzban_admin_username: str | None = None,
+        volume_limit_gb: int | None = None,
         actor_telegram_id: int | None = None,
     ) -> tuple[SellerBot, ResellerPanelAssignment]:
         async with session_scope() as session:
@@ -454,6 +473,7 @@ class ResellerService:
                 secret_box=self.secret_box,
                 runtime_type=SellerBotRuntimeType.EXTERNAL_TEMPLATE,
                 external_template_id=template.id,
+                volume_limit_gb=volume_limit_gb,
             )
             assignment = await assign_panel_to_reseller(
                 session,
@@ -475,6 +495,7 @@ class ResellerService:
                     "external_template_key": template.key,
                     "panel_id": panel.id,
                     "marzban_admin_username": marzban_admin_username,
+                    "volume_limit_gb": volume_limit_gb,
                 },
             )
             await session.flush()
@@ -488,6 +509,44 @@ class ResellerService:
         async with session_scope() as session:
             return await list_seller_bots(session)
 
+    async def set_seller_bot_volume(
+        self,
+        *,
+        seller_bot_id: str,
+        volume_limit_gb: int | None,
+        actor_telegram_id: int | None = None,
+    ) -> SellerBot:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            await update_seller_bot_volume(
+                session,
+                seller_bot=seller_bot,
+                volume_limit_gb=volume_limit_gb,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.volume_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={"volume_limit_gb": volume_limit_gb},
+            )
+            await session.flush()
+            return seller_bot
+
+    async def seller_bot_quota(self, *, seller_bot_id: str) -> SellerBotQuota:
+        async with session_scope() as session:
+            usage = await get_seller_bot_quota_usage(session, seller_bot_id=seller_bot_id)
+            return SellerBotQuota(
+                limit_gb=usage.limit_gb,
+                used_gb=usage.used_gb,
+                reserved_gb=usage.reserved_gb,
+                remaining_gb=usage.remaining_gb,
+            )
     async def rename_reseller(
         self,
         *,

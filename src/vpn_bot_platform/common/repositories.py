@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 import json
 
 from sqlalchemy import or_, select
@@ -51,6 +52,19 @@ from vpn_bot_platform.common.models import (
     WalletTransactionStatus,
     WalletTransactionType,
 )
+
+
+@dataclass(frozen=True)
+class SellerBotQuotaUsage:
+    limit_gb: int | None
+    used_gb: int
+    reserved_gb: int
+
+    @property
+    def remaining_gb(self) -> int | None:
+        if self.limit_gb is None:
+            return None
+        return self.limit_gb - self.used_gb - self.reserved_gb
 
 
 async def upsert_telegram_user(
@@ -221,6 +235,7 @@ async def create_seller_bot(
     secret_box: SecretBox,
     runtime_type: SellerBotRuntimeType = SellerBotRuntimeType.NATIVE,
     external_template_id: str | None = None,
+    volume_limit_gb: int | None = None,
 ) -> SellerBot:
     seller_bot = SellerBot(
         reseller_id=reseller_id,
@@ -229,8 +244,19 @@ async def create_seller_bot(
         token_encrypted=secret_box.encrypt(token) or "",
         token_hash=hash_secret(token),
         runtime_type=runtime_type.value,
+        volume_limit_gb=volume_limit_gb,
     )
     session.add(seller_bot)
+    return seller_bot
+
+
+async def update_seller_bot_volume(
+    session: AsyncSession,
+    *,
+    seller_bot: SellerBot,
+    volume_limit_gb: int | None,
+) -> SellerBot:
+    seller_bot.volume_limit_gb = volume_limit_gb
     return seller_bot
 
 
@@ -357,6 +383,77 @@ async def update_seller_runtime_state(
     seller_bot.container_name = container_name
     seller_bot.last_error = last_error
     return seller_bot
+
+
+async def get_seller_bot_quota_usage(
+    session: AsyncSession,
+    *,
+    seller_bot_id: str,
+    exclude_order_id: str | None = None,
+) -> SellerBotQuotaUsage:
+    seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+    if seller_bot is None:
+        raise ValueError("seller_bot_not_found")
+    now = utcnow()
+    used_gb = await session.scalar(
+        select(func.coalesce(func.sum(VpnService.data_limit_gb), 0)).where(
+            VpnService.seller_bot_id == seller_bot_id,
+            VpnService.is_active.is_(True),
+            VpnService.data_limit_gb.is_not(None),
+            (VpnService.expire_at.is_(None)) | (VpnService.expire_at > now),
+        )
+    )
+    reserved_clauses = [
+        Order.seller_bot_id == seller_bot_id,
+        Order.status.in_([OrderStatus.WAITING_PAYMENT.value, OrderStatus.PROVISIONING.value]),
+        Plan.data_limit_gb.is_not(None),
+    ]
+    if exclude_order_id is not None:
+        reserved_clauses.append(Order.id != exclude_order_id)
+    reserved_gb = await session.scalar(
+        select(func.coalesce(func.sum(Plan.data_limit_gb), 0))
+        .select_from(Order)
+        .join(Plan, Order.plan_id == Plan.id)
+        .where(*reserved_clauses)
+    )
+    return SellerBotQuotaUsage(
+        limit_gb=seller_bot.volume_limit_gb,
+        used_gb=int(used_gb or 0),
+        reserved_gb=int(reserved_gb or 0),
+    )
+
+
+async def get_seller_bot_remaining_gb(
+    session: AsyncSession,
+    *,
+    seller_bot: SellerBot,
+    exclude_order_id: str | None = None,
+) -> int | None:
+    usage = await get_seller_bot_quota_usage(
+        session,
+        seller_bot_id=seller_bot.id,
+        exclude_order_id=exclude_order_id,
+    )
+    return usage.remaining_gb
+
+
+async def ensure_seller_bot_volume_available(
+    session: AsyncSession,
+    *,
+    seller_bot: SellerBot,
+    requested_gb: int | None,
+    exclude_order_id: str | None = None,
+) -> SellerBotQuotaUsage:
+    usage = await get_seller_bot_quota_usage(
+        session,
+        seller_bot_id=seller_bot.id,
+        exclude_order_id=exclude_order_id,
+    )
+    if usage.limit_gb is None:
+        return usage
+    if requested_gb is None or requested_gb > usage.remaining_gb:
+        raise ValueError("seller_bot_volume_limit_exceeded")
+    return usage
 
 
 async def get_buyer_by_telegram_id(
@@ -486,6 +583,7 @@ async def create_order_with_pending_payment(
     session: AsyncSession,
     *,
     reseller_id: str,
+    seller_bot_id: str | None = None,
     buyer_id: str,
     plan_id: str,
     amount: float,
@@ -496,6 +594,7 @@ async def create_order_with_pending_payment(
 ) -> tuple[Order, Payment]:
     order = Order(
         reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
         buyer_id=buyer_id,
         plan_id=plan_id,
         target_service_id=target_service_id,
@@ -508,6 +607,7 @@ async def create_order_with_pending_payment(
     await session.flush()
     payment = Payment(
         reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
         order_id=order.id,
         status=PaymentStatus.PENDING.value,
         method=payment_method,
@@ -521,6 +621,7 @@ async def create_wallet_purchase_order(
     session: AsyncSession,
     *,
     reseller_id: str,
+    seller_bot_id: str | None = None,
     buyer_id: str,
     plan_id: str,
     amount: float,
@@ -533,6 +634,7 @@ async def create_wallet_purchase_order(
         return None
     order = Order(
         reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
         buyer_id=buyer.id,
         plan_id=plan_id,
         requested_username=requested_username,
@@ -545,6 +647,7 @@ async def create_wallet_purchase_order(
     buyer.wallet_balance = float(buyer.wallet_balance) - float(amount)
     transaction = WalletTransaction(
         reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
         owner_type=WalletOwnerType.BUYER.value,
         owner_id=buyer.id,
         transaction_type=WalletTransactionType.PURCHASE_DEBIT.value,
@@ -951,6 +1054,7 @@ async def create_vpn_service(
     session: AsyncSession,
     *,
     reseller_id: str,
+    seller_bot_id: str | None = None,
     buyer_id: str,
     panel_id: str,
     marzban_username: str,
@@ -960,6 +1064,7 @@ async def create_vpn_service(
 ) -> VpnService:
     service = VpnService(
         reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
         buyer_id=buyer_id,
         panel_id=panel_id,
         marzban_username=marzban_username,
@@ -1093,12 +1198,14 @@ async def create_buyer_wallet_charge_request(
     session: AsyncSession,
     *,
     reseller_id: str,
+    seller_bot_id: str | None = None,
     buyer_id: str,
     amount: float,
     note: str | None = None,
 ) -> WalletTransaction:
     transaction = WalletTransaction(
         reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
         owner_type=WalletOwnerType.BUYER.value,
         owner_id=buyer_id,
         transaction_type=WalletTransactionType.CHARGE_REQUEST.value,
