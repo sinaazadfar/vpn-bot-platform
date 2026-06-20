@@ -158,6 +158,16 @@ def list_kb(
     return kb(buttons)
 
 
+def support_contact_url(contact: int | str | None) -> str | None:
+    if isinstance(contact, int):
+        return f"tg://user?id={contact}"
+    if isinstance(contact, str):
+        username = contact.strip().removeprefix("@")
+        if username:
+            return f"https://t.me/{username}"
+    return None
+
+
 async def show_home(
     target: Message | CallbackQuery,
     seller_context: SellerContextService,
@@ -845,7 +855,12 @@ async def show_tickets(
         page_prefix="tickets",
         search="buyer_tickets" if len(tickets) > SEARCH_THRESHOLD else None,
     ).inline_keyboard
-    buttons.insert(0, [InlineKeyboardButton(text="ثبت تیکت جدید", callback_data="ticket:new")])
+    support_url = support_contact_url(
+        await seller_context.get_support_contact_for_buyer(buyer_telegram_id=user_id)
+    )
+    if support_url:
+        buttons.insert(0, [InlineKeyboardButton(text="Support PV", url=support_url)])
+    buttons.insert(1 if support_url else 0, [InlineKeyboardButton(text="ثبت تیکت جدید", callback_data="ticket:new")])
     await render(target, "تیکت‌های شما:", InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
