@@ -180,6 +180,7 @@ class SellerBot(Base):
     token_encrypted: Mapped[str] = mapped_column(Text)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     runtime_type: Mapped[str] = mapped_column(String(32), default=SellerBotRuntimeType.NATIVE.value)
+    volume_limit_gb: Mapped[int | None] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(24), default=SellerBotStatus.PENDING.value)
     container_name: Mapped[str | None] = mapped_column(String(128))
     container_id: Mapped[str | None] = mapped_column(String(128))
@@ -275,6 +276,7 @@ class Order(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     reseller_id: Mapped[str] = mapped_column(ForeignKey("resellers.id"), index=True)
+    seller_bot_id: Mapped[str | None] = mapped_column(ForeignKey("seller_bots.id"), index=True)
     buyer_id: Mapped[str] = mapped_column(ForeignKey("buyers.id"), index=True)
     plan_id: Mapped[str | None] = mapped_column(ForeignKey("plans.id"))
     target_service_id: Mapped[str | None] = mapped_column(ForeignKey("vpn_services.id"))
@@ -295,6 +297,7 @@ class Payment(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     reseller_id: Mapped[str] = mapped_column(ForeignKey("resellers.id"), index=True)
+    seller_bot_id: Mapped[str | None] = mapped_column(ForeignKey("seller_bots.id"), index=True)
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
     status: Mapped[str] = mapped_column(String(24), default=PaymentStatus.PENDING.value)
     method: Mapped[str] = mapped_column(String(32), default="card_to_card")
@@ -310,6 +313,7 @@ class VpnService(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     reseller_id: Mapped[str] = mapped_column(ForeignKey("resellers.id"), index=True)
+    seller_bot_id: Mapped[str | None] = mapped_column(ForeignKey("seller_bots.id"), index=True)
     buyer_id: Mapped[str] = mapped_column(ForeignKey("buyers.id"), index=True)
     panel_id: Mapped[str] = mapped_column(ForeignKey("marzban_panels.id"), index=True)
     marzban_username: Mapped[str] = mapped_column(String(128), index=True)
@@ -326,6 +330,7 @@ class WalletTransaction(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     reseller_id: Mapped[str] = mapped_column(ForeignKey("resellers.id"), index=True)
+    seller_bot_id: Mapped[str | None] = mapped_column(ForeignKey("seller_bots.id"), index=True)
     owner_type: Mapped[str] = mapped_column(String(24))
     owner_id: Mapped[str] = mapped_column(String(36))
     transaction_type: Mapped[str] = mapped_column(String(32))

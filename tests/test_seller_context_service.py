@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.crypto import SecretBox
-from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
+from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine, session_scope
 from vpn_bot_platform.common.models import DiscountType, PlanPurpose
+from vpn_bot_platform.common.repositories import create_vpn_service
 from vpn_bot_platform.integrations.marzban import (
     MarzbanCredentials,
     MarzbanUserCreate,
@@ -85,10 +88,20 @@ def test_service_username_input_validation() -> None:
     assert _normalize_service_username("_bad") is None
 
 
-def test_buyer_main_menu_has_orders_button() -> None:
-    labels = [button.text for row in main_kb().inline_keyboard for button in row]
+def test_buyer_main_menu_has_subscription_layout() -> None:
+    labels_by_row = [[button.text for button in row] for row in main_kb().inline_keyboard]
+    labels = [label for row in labels_by_row for label in row]
 
-    assert "سفارش‌های من" in labels
+    assert labels_by_row[:6] == [
+        ["خرید اشتراک"],
+        ["اشتراک‌های من", "جستجو اشتراک"],
+        ["حساب کاربری"],
+        ["افزایش موجودی"],
+        ["کسب درآمد", "آموزش"],
+        ["پشتیبانی"],
+    ]
+    assert "پرداختی‌های من" not in labels
+    assert "تمدید سرویس" not in labels
 
 
 @pytest.mark.asyncio
@@ -103,6 +116,7 @@ async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
             reseller_telegram_id=111,
             bot_name="seller_a_bot",
             bot_token="123:secret",
+            volume_limit_gb=500,
         )
         seller_context = SellerContextService(seller_bot.id)
         await seller_context.register_buyer(telegram_id=222, username="buyer")
@@ -135,6 +149,7 @@ async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
             reseller_telegram_id=333,
             bot_name="seller_b_bot",
             bot_token="456:secret",
+            volume_limit_gb=500,
         )
         other_context = SellerContextService(other_seller_bot.id)
         await other_context.register_buyer(telegram_id=222, username="buyer")
@@ -166,6 +181,276 @@ async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_seller_bot_volume_limit_blocks_payments_and_reserves_pending_orders() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+            volume_limit_gb=50,
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan_30 = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="30gb",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=30,
+        )
+        plan_25 = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="25gb",
+            price=90000,
+            duration_days=30,
+            data_limit_gb=25,
+        )
+        unlimited_plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="unlimited",
+            price=200000,
+            duration_days=30,
+            data_limit_gb=None,
+        )
+
+        first_request = await seller_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=plan_30.id,
+        )
+        quota_after_first = await master_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        with pytest.raises(ValueError, match="seller_bot_volume_limit_exceeded"):
+            await seller_context.request_card_to_card_payment(
+                buyer_telegram_id=222,
+                plan_id=plan_25.id,
+            )
+        with pytest.raises(ValueError, match="seller_bot_volume_limit_exceeded"):
+            await seller_context.request_card_to_card_payment(
+                buyer_telegram_id=222,
+                plan_id=unlimited_plan.id,
+            )
+    finally:
+        await dispose_engine()
+
+    assert first_request.order.seller_bot_id == seller_bot.id
+    assert first_request.payment.seller_bot_id == seller_bot.id
+    assert quota_after_first.limit_gb == 50
+    assert quota_after_first.used_gb == 0
+    assert quota_after_first.reserved_gb == 30
+    assert quota_after_first.remaining_gb == 20
+
+
+@pytest.mark.asyncio
+async def test_seller_bot_default_zero_blocks_until_master_adds_gb() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="10gb",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=10,
+        )
+
+        quota_before = await master_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        seller_admin_quota_before = await seller_context.get_seller_bot_quota(admin_telegram_id=111)
+        with pytest.raises(ValueError, match="seller_bot_volume_limit_exceeded"):
+            await seller_context.request_card_to_card_payment(
+                buyer_telegram_id=222,
+                plan_id=plan.id,
+            )
+        quota_after_add = await master_service.add_seller_bot_volume(
+            seller_bot_id=seller_bot.id,
+            added_gb=25,
+            actor_telegram_id=999,
+        )
+        payment_request = await seller_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=plan.id,
+        )
+        quota_after_order = await master_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        audit_logs = await master_service.recent_audit_logs(limit=5)
+    finally:
+        await dispose_engine()
+
+    assert seller_bot.volume_limit_gb == 0
+    assert quota_before.limit_gb == 0
+    assert quota_before.remaining_gb == 0
+    assert seller_admin_quota_before.limit_gb == 0
+    assert seller_admin_quota_before.remaining_gb == 0
+    assert quota_after_add.limit_gb == 25
+    assert quota_after_add.remaining_gb == 25
+    assert payment_request.order.seller_bot_id == seller_bot.id
+    assert quota_after_order.reserved_gb == 10
+    assert quota_after_order.remaining_gb == 15
+    assert any(log.action == "seller_bot.volume_add" for log in audit_logs)
+
+
+@pytest.mark.asyncio
+async def test_seller_bot_volume_limit_blocks_wallet_purchase_before_debit() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+            volume_limit_gb=20,
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="30gb",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=30,
+        )
+        charge = await seller_context.request_wallet_charge(buyer_telegram_id=222, amount=150000)
+        await seller_context.approve_wallet_charge(admin_telegram_id=111, transaction_id=charge.transaction.id)
+
+        with pytest.raises(ValueError, match="seller_bot_volume_limit_exceeded"):
+            await seller_context.purchase_with_wallet(buyer_telegram_id=222, plan_id=plan.id)
+        buyer_wallet = await seller_context.list_buyer_wallet(buyer_telegram_id=222)
+    finally:
+        await dispose_engine()
+
+    assert buyer_wallet.buyer is not None
+    assert buyer_wallet.buyer.wallet_balance == 150000
+    assert all("wallet purchase order" not in (transaction.note or "") for transaction in buyer_wallet.transactions)
+
+
+@pytest.mark.asyncio
+async def test_seller_bot_volume_limit_rechecked_before_provisioning() -> None:
+    FakeMarzbanClient.created_users = []
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    fernet_key = Fernet.generate_key().decode("utf-8")
+    secret_box = SecretBox(fernet_key)
+    master_service = ResellerService(secret_box)
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+            volume_limit_gb=50,
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="40gb",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=40,
+        )
+        panel = await master_service.register_marzban_panel(
+            name="panel-a",
+            base_url="https://panel.example.com",
+            token="panel-token",
+        )
+        await master_service.assign_panel(reseller_telegram_id=111, panel_id=panel.id)
+        charge = await seller_context.request_wallet_charge(buyer_telegram_id=222, amount=150000)
+        await seller_context.approve_wallet_charge(admin_telegram_id=111, transaction_id=charge.transaction.id)
+        wallet_purchase = await seller_context.purchase_with_wallet(buyer_telegram_id=222, plan_id=plan.id)
+        await master_service.set_seller_bot_volume(seller_bot_id=seller_bot.id, volume_limit_gb=30)
+        provisioning = ProvisioningService(
+            seller_bot_id=seller_bot.id,
+            settings=Settings(
+                DATABASE_URL="sqlite+aiosqlite:///:memory:",
+                FERNET_KEY=fernet_key,
+                MARZBAN_DEFAULT_PROXIES_JSON='{"vless": {}}',
+            ),
+            secret_box=secret_box,
+            marzban_client_factory=FakeMarzbanClient,
+        )
+
+        with pytest.raises(ValueError, match="seller_bot_volume_limit_exceeded"):
+            await provisioning.provision_buyer_order(
+                buyer_telegram_id=222,
+                order_id=wallet_purchase.order.id,
+            )
+    finally:
+        await dispose_engine()
+
+    assert FakeMarzbanClient.created_users == []
+
+
+@pytest.mark.asyncio
+async def test_seller_bot_quota_ignores_expired_and_inactive_services() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+            volume_limit_gb=50,
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        profile = await seller_context.register_buyer(telegram_id=222, username="buyer")
+        panel = await master_service.register_marzban_panel(
+            name="panel-a",
+            base_url="https://panel.example.com",
+            token="panel-token",
+        )
+        async with session_scope() as session:
+            await create_vpn_service(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
+                buyer_id=profile.buyer.id,
+                panel_id=panel.id,
+                marzban_username="expired_user",
+                subscription_url=None,
+                data_limit_gb=40,
+                expire_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=1),
+            )
+            inactive = await create_vpn_service(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
+                buyer_id=profile.buyer.id,
+                panel_id=panel.id,
+                marzban_username="inactive_user",
+                subscription_url=None,
+                data_limit_gb=30,
+                expire_at=None,
+            )
+            inactive.is_active = False
+            await session.flush()
+        quota = await master_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+    finally:
+        await dispose_engine()
+
+    assert quota.used_gb == 0
+    assert quota.remaining_gb == 50
+
+
+@pytest.mark.asyncio
 async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     FakeMarzbanClient.created_users = []
     FakeMarzbanClient.revoked_users = []
@@ -184,6 +469,7 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             reseller_telegram_id=111,
             bot_name="seller_a_bot",
             bot_token="123:secret",
+            volume_limit_gb=500,
         )
         seller_context = SellerContextService(seller_bot.id)
         crypto_settings = Settings(

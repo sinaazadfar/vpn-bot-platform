@@ -306,6 +306,10 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
                 ("👥 ادمین های ربات", build_callback("m", "seller_config_admins", seller_bot_id)),
             ],
             [
+                ("➕ افزودن گیگ", build_callback("m", "seller_volume_add", seller_bot_id)),
+                ("📊 تنظیم سقف گیگ", build_callback("m", "seller_volume_edit", seller_bot_id)),
+            ],
+            [
                 ("شروع", build_callback("m", "seller_start", seller_bot_id)),
                 ("توقف", build_callback("m", "seller_stop", seller_bot_id)),
             ],

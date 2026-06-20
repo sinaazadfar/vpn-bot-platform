@@ -44,6 +44,7 @@ from vpn_bot_platform.common.repositories import (
     create_plan,
     create_ticket,
     delete_reseller_setting,
+    ensure_seller_bot_volume_available,
     create_reseller_broadcast,
     get_active_plan_for_reseller,
     get_active_discount_code,
@@ -54,6 +55,7 @@ from vpn_bot_platform.common.repositories import (
     get_plan,
     get_reseller_setting,
     get_seller_bot_with_reseller,
+    get_seller_bot_quota_usage,
     get_ticket_for_buyer,
     get_ticket_for_reseller,
     get_broadcast_for_reseller,
@@ -74,6 +76,7 @@ from vpn_bot_platform.common.repositories import (
     list_wallet_transactions_for_buyer,
     increment_discount_usage,
     reject_payment,
+    reject_buyer_wallet_charge,
     list_vpn_services_for_buyer,
     list_active_plans_for_reseller,
     search_customers_for_reseller,
@@ -216,6 +219,14 @@ class SupportSettings:
         return self.contact if isinstance(self.contact, int) else None
 
 
+@dataclass(frozen=True)
+class SellerBotQuota:
+    limit_gb: int
+    used_gb: int
+    reserved_gb: int
+    remaining_gb: int
+
+
 class SellerContextService:
     def __init__(
         self,
@@ -306,6 +317,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -319,6 +335,7 @@ class SellerContextService:
             order, payment = await create_order_with_pending_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 plan_id=plan.id,
                 amount=amount,
@@ -382,6 +399,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -395,6 +417,7 @@ class SellerContextService:
             result = await create_wallet_purchase_order(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 plan_id=plan.id,
                 amount=amount,
@@ -542,6 +565,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -555,6 +583,7 @@ class SellerContextService:
             order, payment = await create_order_with_pending_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=service.buyer_id,
                 plan_id=plan.id,
                 amount=amount,
@@ -617,6 +646,11 @@ class SellerContextService:
             )
             if plan is None:
                 raise ValueError("plan_not_found")
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb,
+            )
             discount = None
             if coupon_code:
                 discount = await get_active_discount_code(
@@ -630,6 +664,7 @@ class SellerContextService:
             order, payment = await create_order_with_pending_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=service.buyer_id,
                 plan_id=plan.id,
                 amount=amount,
@@ -787,6 +822,23 @@ class SellerContextService:
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
             self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+
+    async def get_seller_bot_quota(self, *, admin_telegram_id: int) -> SellerBotQuota:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            usage = await get_seller_bot_quota_usage(session, seller_bot_id=seller_bot.id)
+            return SellerBotQuota(
+                limit_gb=usage.limit_gb or 0,
+                used_gb=usage.used_gb,
+                reserved_gb=usage.reserved_gb,
+                remaining_gb=usage.remaining_gb or 0,
+            )
 
     async def get_support_settings(self, *, admin_telegram_id: int) -> SupportSettings:
         async with session_scope() as session:
@@ -1128,7 +1180,11 @@ class SellerContextService:
             )
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
-            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
             approved = await approve_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -1138,6 +1194,13 @@ class SellerContextService:
             if approved is None:
                 raise ValueError("payment_not_found")
             payment, order = approved
+            plan = await session.get(Plan, order.plan_id) if order.plan_id else None
+            await ensure_seller_bot_volume_available(
+                session,
+                seller_bot=seller_bot,
+                requested_gb=plan.data_limit_gb if plan else None,
+                exclude_order_id=order.id,
+            )
             buyer = await session.get(Buyer, order.buyer_id)
             if buyer is None:
                 raise ValueError("buyer_not_found")
@@ -1171,7 +1234,11 @@ class SellerContextService:
             )
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
-            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
             rejected = await reject_payment(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -1278,6 +1345,7 @@ class SellerContextService:
             transaction = await create_buyer_wallet_charge_request(
                 session,
                 reseller_id=seller_bot.reseller_id,
+                seller_bot_id=seller_bot.id,
                 buyer_id=buyer.id,
                 amount=amount,
                 note="wallet charge payment request",
@@ -1363,7 +1431,11 @@ class SellerContextService:
             )
             if seller_bot is None:
                 raise ValueError("seller_bot_not_found")
-            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
             approved = await approve_buyer_wallet_charge(
                 session,
                 reseller_id=seller_bot.reseller_id,
@@ -1376,6 +1448,46 @@ class SellerContextService:
             await record_audit_log(
                 session,
                 action="wallet_charge.approve",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="wallet_transaction",
+                target_id=transaction.id,
+                metadata={"amount": float(transaction.amount)},
+            )
+            await session.flush()
+            return WalletChargeRequest(transaction=transaction, instructions="")
+
+    async def reject_wallet_charge(
+        self,
+        *,
+        admin_telegram_id: int,
+        transaction_id: str,
+    ) -> WalletChargeRequest:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            await self._ensure_reseller_payment_approver(
+                session,
+                seller_bot=seller_bot,
+                telegram_id=admin_telegram_id,
+            )
+            rejected = await reject_buyer_wallet_charge(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                transaction_id=transaction_id,
+                rejected_by_telegram_id=admin_telegram_id,
+            )
+            if rejected is None:
+                raise ValueError("wallet_charge_not_found")
+            transaction, _buyer = rejected
+            await record_audit_log(
+                session,
+                action="wallet_charge.reject",
                 actor_type=AuditActorType.RESELLER_ADMIN,
                 actor_telegram_id=admin_telegram_id,
                 reseller_id=seller_bot.reseller_id,
@@ -1429,6 +1541,19 @@ class SellerContextService:
         if seller_bot.reseller.telegram_user_id != telegram_id:
             raise PermissionError("not_reseller_admin")
 
+    async def _ensure_reseller_payment_approver(self, session, *, seller_bot: SellerBot, telegram_id: int) -> None:
+        if seller_bot.reseller.telegram_user_id == telegram_id:
+            return
+        setting = await get_reseller_setting(
+            session,
+            reseller_id=seller_bot.reseller_id,
+            key=SUPPORT_TELEGRAM_ID_SETTING,
+        )
+        support_contact = self._parse_support_contact(setting.value if setting else None)
+        if isinstance(support_contact, int) and support_contact == telegram_id:
+            return
+        raise PermissionError("not_reseller_payment_approver")
+
     @staticmethod
     def _parse_support_contact(value: str | None) -> int | str | None:
         return SellerContextService._normalize_support_contact(value)
@@ -1441,6 +1566,9 @@ class SellerContextService:
         if normalized.isdigit():
             support_telegram_id = int(normalized)
             return support_telegram_id if support_telegram_id > 0 else None
+        phone = normalized.replace(" ", "").replace("-", "")
+        if phone.startswith("+") and phone[1:].isdigit() and 8 <= len(phone[1:]) <= 15:
+            return phone
         username = normalized[1:] if normalized.startswith("@") else normalized
         if len(username) < 5 or len(username) > 32:
             return None
