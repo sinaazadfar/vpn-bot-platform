@@ -1062,6 +1062,88 @@ class SellerContextService:
             await session.flush()
             return plan
 
+    async def replace_admin_price_per_gb_plans(
+        self,
+        *,
+        admin_telegram_id: int,
+        volumes_gb: list[int],
+        monthly_price_per_gb: float,
+        three_month_price_per_gb: float,
+        discount_price_per_gb: float,
+    ) -> list[Plan]:
+        if (
+            not volumes_gb
+            or monthly_price_per_gb <= 0
+            or three_month_price_per_gb <= 0
+            or discount_price_per_gb <= 0
+        ):
+            raise ValueError("invalid_plan_pricing")
+        from sqlalchemy import select
+
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+
+            result = await session.execute(
+                select(Plan).where(
+                    Plan.reseller_id == seller_bot.reseller_id,
+                    Plan.purpose == PlanPurpose.PURCHASE.value,
+                    Plan.is_active.is_(True),
+                )
+            )
+            for plan in result.scalars().all():
+                plan.is_active = False
+
+            created: list[Plan] = []
+            for volume_gb in volumes_gb:
+                if volume_gb <= 0:
+                    raise ValueError("invalid_plan_volume")
+                plan_specs = [
+                    (f"{volume_gb}GB 1 Month", 30, monthly_price_per_gb * volume_gb),
+                    (f"{volume_gb}GB 3 Months", 90, three_month_price_per_gb * volume_gb),
+                    (
+                        f"{volume_gb}GB 3 Months Discount",
+                        90,
+                        discount_price_per_gb * volume_gb,
+                    ),
+                ]
+                for name, duration_days, price in plan_specs:
+                    created.append(
+                        await create_plan(
+                            session,
+                            reseller_id=seller_bot.reseller_id,
+                            name=name,
+                            price=price,
+                            duration_days=duration_days,
+                            data_limit_gb=volume_gb,
+                            purpose=PlanPurpose.PURCHASE,
+                        )
+                    )
+
+            await record_audit_log(
+                session,
+                action="seller_plan.price_per_gb.replace",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="plan",
+                target_id="price_per_gb",
+                metadata={
+                    "volumes_gb": volumes_gb,
+                    "monthly_price_per_gb": monthly_price_per_gb,
+                    "three_month_price_per_gb": three_month_price_per_gb,
+                    "discount_price_per_gb": discount_price_per_gb,
+                    "created_count": len(created),
+                },
+            )
+            await session.flush()
+            return created
+
     async def get_admin_plan(
         self,
         *,

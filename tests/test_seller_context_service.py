@@ -105,6 +105,53 @@ def test_buyer_main_menu_has_subscription_layout() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admin_price_per_gb_plans_replace_custom_purchase_plans() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="seller_a_bot",
+            bot_token="123:secret",
+            volume_limit_gb=500,
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        old_plan = await seller_context.create_admin_plan(
+            admin_telegram_id=111,
+            name="old custom",
+            price=100000,
+            duration_days=45,
+            data_limit_gb=25,
+        )
+
+        created = await seller_context.replace_admin_price_per_gb_plans(
+            admin_telegram_id=111,
+            volumes_gb=[10, 20],
+            monthly_price_per_gb=1000,
+            three_month_price_per_gb=2500,
+            discount_price_per_gb=2000,
+        )
+        plans = await seller_context.list_admin_plans(admin_telegram_id=111)
+    finally:
+        await dispose_engine()
+
+    seller_plans = [plan for plan in plans if plan.reseller_id == seller_bot.reseller_id]
+    assert len(created) == 6
+    assert old_plan.id not in {plan.id for plan in seller_plans}
+    assert {(plan.name, plan.duration_days, plan.data_limit_gb, float(plan.price)) for plan in seller_plans} == {
+        ("10GB 1 Month", 30, 10, 10000.0),
+        ("10GB 3 Months", 90, 10, 25000.0),
+        ("10GB 3 Months Discount", 90, 10, 20000.0),
+        ("20GB 1 Month", 30, 20, 20000.0),
+        ("20GB 3 Months", 90, 20, 50000.0),
+        ("20GB 3 Months Discount", 90, 20, 40000.0),
+    }
+
+
+@pytest.mark.asyncio
 async def test_rejected_payment_is_visible_in_buyer_order_status() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
