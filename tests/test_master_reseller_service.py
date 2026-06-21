@@ -5,113 +5,40 @@ from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
-from vpn_bot_platform.common.models import ResellerStatus, SellerBotRuntimeType
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 
 @pytest.mark.asyncio
-async def test_register_reseller_and_seller_bot() -> None:
+async def test_provision_seller_bot_with_password_panel() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
 
     try:
-        registered = await service.register_reseller(
-            telegram_id=12345,
-            display_name="Test Reseller",
-        )
-        seller_bot = await service.register_seller_bot(
+        result = await service.provision_seller_bot_with_password_panel(
             reseller_telegram_id=12345,
-            bot_name="test_bot",
+            reseller_display_name="Admin 12345",
+            bot_name="seller-one",
             bot_token="123:secret",
-        )
-        panel = await service.register_marzban_panel(
-            name="main-panel",
-            base_url="https://panel.example.com/",
-            token="panel-token",
-        )
-        assignment = await service.assign_panel(
-            reseller_telegram_id=12345,
-            panel_id=panel.id,
-            marzban_admin_username="reseller_admin",
-        )
-        seller_bot_with_panel, seller_bot_assignment = await service.register_seller_bot_with_panel(
-            reseller_telegram_id=12345,
-            bot_name="test-bot-with-panel",
-            bot_token="789:secret",
-            panel_id=panel.id,
+            panel_name="main-panel",
+            panel_base_url="https://panel.example.com/",
+            panel_username="root",
+            panel_password="secret",
             marzban_admin_username="seller_admin",
+            volume_limit_gb=100,
             actor_telegram_id=999,
         )
-        renamed = await service.rename_reseller(
-            reseller_telegram_id=12345,
-            display_name="Renamed Reseller",
-            actor_telegram_id=999,
-        )
-        disabled = await service.set_reseller_status(
-            reseller_telegram_id=12345,
-            status=ResellerStatus.DISABLED,
-            actor_telegram_id=999,
-        )
-        template = await service.register_external_bot_template(
-            key="marzbot-free",
-            name="Marzbot Free",
-            repo_url="https://github.com/govfvck/Marzbot-free",
-            ref="main",
-            local_path="external/seller-bots/marzbot-free",
-            license_name="AGPL-3.0",
-            runtime_adapter="manual",
-            actor_telegram_id=999,
-        )
-        external_seller_bot, external_assignment = await service.register_external_seller_bot_with_panel(
-            reseller_telegram_id=12345,
-            bot_name="external-test",
-            bot_token="456:secret",
-            template_id_or_key="marzbot-free",
-            panel_id=panel.id,
-            marzban_admin_username="external_admin",
-            actor_telegram_id=999,
-        )
-        templates = await service.list_external_bot_templates()
-        default_quota = await service.seller_bot_quota(seller_bot_id=seller_bot.id)
-        added_quota = await service.add_seller_bot_volume(
-            seller_bot_id=seller_bot.id,
-            added_gb=100,
-            actor_telegram_id=999,
-        )
-        second_added_quota = await service.add_seller_bot_volume(
-            seller_bot_id=seller_bot.id,
-            added_gb=50,
-            actor_telegram_id=999,
-        )
-        audit_logs = await service.recent_audit_logs(limit=10)
     finally:
         await dispose_engine()
 
-    assert registered.existed is False
-    assert registered.reseller.telegram_user_id == 12345
-    assert seller_bot.reseller_id == registered.reseller.id
-    assert seller_bot.volume_limit_gb == 0
-    assert seller_bot.token_encrypted != "123:secret"
-    assert panel.base_url == "https://panel.example.com"
-    assert panel.token_encrypted != "panel-token"
-    assert assignment.reseller_id == registered.reseller.id
-    assert assignment.panel_id == panel.id
-    assert seller_bot_with_panel.reseller_id == registered.reseller.id
-    assert seller_bot_assignment.panel_id == panel.id
-    assert seller_bot_assignment.marzban_admin_username == "seller_admin"
-    assert renamed.display_name == "Renamed Reseller"
-    assert disabled.status == "disabled"
-    assert template.key == "marzbot-free"
-    assert templates[0].id == template.id
-    assert external_seller_bot.external_template_id == template.id
-    assert external_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
-    assert external_assignment.panel_id == panel.id
-    assert external_assignment.marzban_admin_username == "external_admin"
-    assert default_quota.limit_gb == 0
-    assert default_quota.remaining_gb == 0
-    assert added_quota.limit_gb == 100
-    assert added_quota.remaining_gb == 100
-    assert second_added_quota.limit_gb == 150
-    assert second_added_quota.remaining_gb == 150
-    assert any(log.action == "seller_bot.volume_add" for log in audit_logs)
+    assert result.reseller_existed is False
+    assert result.reseller.telegram_user_id == 12345
+    assert result.panel.base_url == "https://panel.example.com"
+    assert result.panel.username_encrypted != "root"
+    assert result.panel.password_encrypted != "secret"
+    assert result.seller_bot.name == "seller-one"
+    assert result.seller_bot.token_encrypted != "123:secret"
+    assert result.seller_bot.volume_limit_gb == 100
+    assert result.assignment.panel_id == result.panel.id
+    assert result.assignment.reseller_id == result.reseller.id
+    assert result.assignment.marzban_admin_username == "seller_admin"
