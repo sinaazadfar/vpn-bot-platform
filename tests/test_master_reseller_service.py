@@ -182,6 +182,58 @@ async def test_master_confirm_creates_simple_seller_as_native_platform_bot() -> 
     assert assignments[0].assignment.marzban_admin_username == "simple_admin"
 
 
+@pytest.mark.asyncio
+async def test_master_confirm_shows_error_when_seller_bot_create_fails() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+    state = _FakeState(
+        {
+            "sellerbot_runtime_type": "native",
+            "sellerbot_ui_profile": SellerBotUiProfile.SIMPLE_SELLER.value,
+            "sellerbot_template_key": None,
+            "sellerbot_reseller_telegram_id": 22222,
+            "sellerbot_name": "Duplicate Simple Seller Bot",
+            "sellerbot_token": "222:secret",
+            "sellerbot_panel_id": "",
+            "sellerbot_panel_admin": "simple_admin",
+            "sellerbot_volume_limit_gb": 25,
+        }
+    )
+
+    try:
+        await service.register_reseller(
+            telegram_id=22222,
+            display_name="Simple Seller Admin",
+        )
+        await service.register_seller_bot(
+            reseller_telegram_id=22222,
+            bot_name="Existing Bot",
+            bot_token="222:secret",
+        )
+        panel = await service.register_marzban_panel(
+            name="simple-panel",
+            base_url="https://simple-panel.example.com/",
+            token="panel-token",
+        )
+        state.data["sellerbot_panel_id"] = panel.id
+        callback = _FakeCallback("m:sellerbot_create", user_id=999)
+
+        await master_menu_callback(callback, state, service)  # type: ignore[arg-type]
+
+        seller_bots = await service.list_seller_bots()
+    finally:
+        await dispose_engine()
+
+    assert state.cleared is False
+    assert callback.alerts == ["seller_bot_token_already_registered"]
+    assert callback.message.edited_text is not None
+    assert "Confirm Seller Bot" in callback.message.edited_text
+    assert "Stock: 25 GB" in callback.message.edited_text
+    assert "Could not create seller bot: seller_bot_token_already_registered" in callback.message.edited_text
+    assert len(seller_bots) == 1
+
+
 class _FakeState:
     def __init__(self, data: dict) -> None:
         self.data = data

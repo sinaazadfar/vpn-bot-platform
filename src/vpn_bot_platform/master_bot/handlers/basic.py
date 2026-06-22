@@ -1814,6 +1814,14 @@ async def master_menu_callback(
                 )
         except ValueError as exc:
             await callback.answer(str(exc), show_alert=True)
+            await callback.message.edit_text(
+                _sellerbot_confirm_text(data, error=str(exc)),
+                reply_markup=confirm_keyboard(
+                    scope="m",
+                    confirm_action="sellerbot_create",
+                    cancel_action="sellerbot_cancel",
+                ),
+            )
             return
         await state.clear()
         await callback.message.edit_text(
@@ -1824,7 +1832,7 @@ async def master_menu_callback(
                     f"Name: {seller_bot.name}",
                     f"Status: {status_label(seller_bot.status)}",
                     f"Panel assignment: {assignment.id}",
-                    f"Volume: {_seller_bot_volume_text(seller_bot)}",
+                    f"Stock: {_seller_bot_volume_text(seller_bot)}",
                 ]
             ),
             reply_markup=master_seller_bot_actions(seller_bot.id),
@@ -3930,21 +3938,22 @@ def _seller_bots_search_text(query: str, seller_bots) -> str:
     return "\n".join([title("Search Seller Bots"), f"Query: {query}", "", section("Matches", rows)])
 
 
-def _sellerbot_confirm_text(data: dict) -> str:
-    return "\n".join(
-        [
-            title("Confirm Seller Bot"),
-            f"Type: {data.get('sellerbot_runtime_type') or 'native'}",
-            f"UI profile: {data.get('sellerbot_ui_profile') or 'platform'}",
-            f"Template: {data.get('sellerbot_template_key') or '-'}",
-            f"Reseller Telegram: {data.get('sellerbot_reseller_telegram_id')}",
-            f"Bot name: {data.get('sellerbot_name')}",
-            f"Panel ID: {data.get('sellerbot_panel_id')}",
-            f"Marzban admin: {data.get('sellerbot_panel_admin') or '-'}",
-            f"Volume: {data.get('sellerbot_volume_limit_gb') or 0} GB",
-            "Token: valid and hidden",
-        ]
-    )
+def _sellerbot_confirm_text(data: dict, *, error: str | None = None) -> str:
+    lines = [
+        title("Confirm Seller Bot"),
+        f"Type: {data.get('sellerbot_runtime_type') or 'native'}",
+        f"UI profile: {data.get('sellerbot_ui_profile') or 'platform'}",
+        f"Template: {data.get('sellerbot_template_key') or '-'}",
+        f"Reseller Telegram: {data.get('sellerbot_reseller_telegram_id')}",
+        f"Bot name: {data.get('sellerbot_name')}",
+        f"Panel ID: {data.get('sellerbot_panel_id')}",
+        f"Marzban admin: {data.get('sellerbot_panel_admin') or '-'}",
+        f"Stock: {data.get('sellerbot_volume_limit_gb') or 0} GB",
+        "Token: valid and hidden",
+    ]
+    if error:
+        lines.extend(["", f"Could not create seller bot: {error}"])
+    return "\n".join(lines)
 
 
 async def _external_bots_text(reseller_service: ResellerService) -> str:

@@ -237,18 +237,31 @@ async def create_seller_bot(
     ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
     volume_limit_gb: int | None = 0,
 ) -> SellerBot:
+    token_hash = hash_secret(token)
+    existing = await get_seller_bot_by_token_hash(session, token_hash=token_hash)
+    if existing is not None:
+        raise ValueError("seller_bot_token_already_registered")
     seller_bot = SellerBot(
         reseller_id=reseller_id,
         external_template_id=external_template_id,
         name=name,
         token_encrypted=secret_box.encrypt(token) or "",
-        token_hash=hash_secret(token),
+        token_hash=token_hash,
         runtime_type=runtime_type.value,
         ui_profile=ui_profile.value,
         volume_limit_gb=volume_limit_gb or 0,
     )
     session.add(seller_bot)
     return seller_bot
+
+
+async def get_seller_bot_by_token_hash(
+    session: AsyncSession,
+    *,
+    token_hash: str,
+) -> SellerBot | None:
+    result = await session.execute(select(SellerBot).where(SellerBot.token_hash == token_hash))
+    return result.scalar_one_or_none()
 
 
 async def update_seller_bot_volume(
