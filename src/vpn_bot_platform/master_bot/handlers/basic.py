@@ -574,6 +574,53 @@ async def master_menu_callback(
         else:
             text = _seller_bot_admins_text(seller_bot, reseller)
         await callback.message.edit_text(text, reply_markup=master_seller_bot_actions(seller_bot.id))
+    elif action.action == "seller_delete_confirm":
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
+        if seller_bot is None:
+            await callback.answer("Seller bot not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Delete Seller Bot"),
+                    f"Name: {seller_bot.name}",
+                    f"ID: {seller_bot.id}",
+                    "",
+                    "This disables the seller bot and removes it from the active seller-bot list.",
+                    "Platform buyers, orders, payments, wallet transactions, and VPN services stay in Postgres.",
+                ]
+            ),
+            reply_markup=confirm_keyboard(
+                scope="m",
+                confirm_action="seller_delete_apply",
+                cancel_action="seller_detail",
+                value=seller_bot.id,
+            ),
+        )
+    elif action.action == "seller_delete_apply":
+        if not action.value:
+            await callback.answer("Seller bot is missing.", show_alert=True)
+            return
+        try:
+            seller_bot = await reseller_service.delete_seller_bot(
+                seller_bot_id=action.value,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError:
+            await callback.answer("Seller bot not found.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Seller Bot Deleted"),
+                    f"Name: {seller_bot.name}",
+                    f"ID: {seller_bot.id}",
+                    f"Status: {status_label(seller_bot.status)}",
+                    f"Last error: {seller_bot.last_error or '-'}",
+                ]
+            ),
+            reply_markup=master_section_menu("seller_bots"),
+        )
     elif action.action == "external_bots":
         await callback.message.edit_text(
             await _external_bots_text(reseller_service),

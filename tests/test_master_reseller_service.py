@@ -234,6 +234,79 @@ async def test_master_confirm_shows_error_when_seller_bot_create_fails() -> None
     assert len(seller_bots) == 1
 
 
+@pytest.mark.asyncio
+async def test_delete_seller_bot_soft_deletes_and_audits() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await service.register_reseller(telegram_id=22222, display_name="Seller Admin")
+        seller_bot = await service.register_seller_bot(
+            reseller_telegram_id=22222,
+            bot_name="Delete Me",
+            bot_token="333:secret",
+            volume_limit_gb=10,
+        )
+
+        deleted = await service.delete_seller_bot(
+            seller_bot_id=seller_bot.id,
+            actor_telegram_id=999,
+        )
+        seller_bots = await service.list_seller_bots()
+        audit_logs = await service.recent_audit_logs(limit=5)
+    finally:
+        await dispose_engine()
+
+    assert deleted.id == seller_bot.id
+    assert deleted.status == "disabled"
+    assert deleted.container_id is None
+    assert deleted.container_name is None
+    assert deleted.last_error == "deleted by super user"
+    assert [item.id for item in seller_bots] == [seller_bot.id]
+    assert seller_bots[0].status == "disabled"
+    assert any(log.action == "seller_bot.delete" and log.target_id == seller_bot.id for log in audit_logs)
+
+
+@pytest.mark.asyncio
+async def test_master_delete_seller_bot_callback_disables_bot() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await service.register_reseller(telegram_id=22222, display_name="Seller Admin")
+        seller_bot = await service.register_seller_bot(
+            reseller_telegram_id=22222,
+            bot_name="Delete From UI",
+            bot_token="444:secret",
+            volume_limit_gb=10,
+        )
+        state = _FakeState({})
+        confirm_callback = _FakeCallback(f"m:seller_delete_confirm:{seller_bot.id}", user_id=999)
+
+        await master_menu_callback(confirm_callback, state, service)  # type: ignore[arg-type]
+
+        apply_callback = _FakeCallback(f"m:seller_delete_apply:{seller_bot.id}", user_id=999)
+        await master_menu_callback(apply_callback, state, service)  # type: ignore[arg-type]
+
+        seller_bots = await service.list_seller_bots()
+    finally:
+        await dispose_engine()
+
+    assert confirm_callback.message.edited_text is not None
+    assert "Delete Seller Bot" in confirm_callback.message.edited_text
+    confirm_callbacks = [
+        button.callback_data
+        for row in confirm_callback.message.reply_markup.inline_keyboard
+        for button in row
+    ]
+    assert f"m:seller_delete_apply:{seller_bot.id}" in confirm_callbacks
+    assert apply_callback.message.edited_text is not None
+    assert "Seller Bot Deleted" in apply_callback.message.edited_text
+    assert seller_bots[0].status == "disabled"
+
+
 class _FakeState:
     def __init__(self, data: dict) -> None:
         self.data = data

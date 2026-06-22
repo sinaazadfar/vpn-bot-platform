@@ -1136,6 +1136,46 @@ class ResellerService:
             await session.flush()
             return seller_bot
 
+    async def delete_seller_bot(
+        self,
+        *,
+        seller_bot_id: str,
+        actor_telegram_id: int | None = None,
+    ) -> SellerBot:
+        runtime_error: str | None = None
+        runtime = self.runtime_controller
+        if runtime is None and self.settings is not None:
+            runtime = DockerSellerRuntimeController.from_settings(self.settings)
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            if runtime is not None:
+                try:
+                    runtime.stop_seller(container_id=seller_bot.container_id)
+                except Exception as exc:
+                    runtime_error = str(exc)[:300]
+            await update_seller_runtime_state(
+                session,
+                seller_bot=seller_bot,
+                status=SellerBotStatus.DISABLED,
+                container_id=None,
+                container_name=None,
+                last_error=runtime_error or "deleted by super user",
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.delete",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={"runtime_stop_error": runtime_error},
+            )
+            await session.flush()
+            return seller_bot
+
     async def seller_health(self, *, seller_bot_id: str) -> SellerRuntimeStatus:
         runtime = self._runtime_controller()
         async with session_scope() as session:

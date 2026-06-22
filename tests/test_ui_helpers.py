@@ -232,6 +232,14 @@ def test_seller_bot_type_menu_has_simple_seller_button() -> None:
     assert "m:sellerbot_type:simple_seller" in callbacks
 
 
+def test_seller_bot_actions_has_delete_button() -> None:
+    uuid = "12345678-1234-1234-1234-123456789abc"
+    keyboard = master_seller_bot_actions(uuid)
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert f"m:seller_delete_confirm:{uuid}" in callbacks
+
+
 def test_pagination_helper_clamps_pages() -> None:
     page = paginate(list(range(25)), page=9, per_page=10)
 

@@ -317,7 +317,10 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
                 ("سلامت", build_callback("m", "seller_health", seller_bot_id)),
                 ("لاگ ها", build_callback("m", "seller_logs", seller_bot_id)),
             ],
-            [("غیرفعال", build_callback("m", "seller_disable", seller_bot_id))],
+            [
+                ("غیرفعال", build_callback("m", "seller_disable", seller_bot_id)),
+                ("حذف", build_callback("m", "seller_delete_confirm", seller_bot_id)),
+            ],
             [("بازگشت", build_callback("m", "seller_bots")), ("خانه", build_callback("m", "home"))],
         ]
     )
