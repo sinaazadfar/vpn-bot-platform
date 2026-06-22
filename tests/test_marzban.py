@@ -76,6 +76,12 @@ def test_marzban_username_cleans_requested_name():
     assert username.startswith("alireza123_")
 
 
+def test_marzban_default_proxies_accepts_valid_object_with_trailing_data():
+    client = MarzbanClient("https://panel.example", token="token", default_proxies_json='{"vless": {}} extra')
+
+    assert client._load_default_proxies() == {"vless": {}}
+
+
 @pytest.mark.asyncio
 async def test_marzban_revoke_returns_new_subscription_url(monkeypatch):
     async_client = httpx.AsyncClient

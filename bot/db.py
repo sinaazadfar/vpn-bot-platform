@@ -520,6 +520,10 @@ class Repository:
         row = await self._fetchone("SELECT COUNT(*) AS count FROM subscriptions WHERE user_id = ?", (user_id,))
         return int(row["count"])
 
+    async def active_subscription_traffic_gb(self) -> int:
+        row = await self._fetchone("SELECT COALESCE(SUM(traffic_gb), 0) AS total FROM subscriptions WHERE status = 'active'")
+        return int(row["total"] or 0)
+
     async def list_user_subscriptions_page(self, user_id: int, page: int, per_page: int = 10) -> list[Subscription]:
         offset = max(page - 1, 0) * per_page
         rows = await self._fetchall(

@@ -176,10 +176,7 @@ class MarzbanClient:
         return parsed if parsed > now else now
 
     async def _resolve_protocol_config(self, access_token: str) -> tuple[dict[str, Any], dict[str, list[str]] | None]:
-        try:
-            default_proxies = json.loads(self.default_proxies_json)
-        except json.JSONDecodeError as exc:
-            raise MarzbanError(f"MARZBAN_DEFAULT_PROXIES_JSON is invalid JSON: {exc}") from exc
+        default_proxies = self._load_default_proxies()
         if not isinstance(default_proxies, dict) or not default_proxies:
             raise MarzbanError("MARZBAN_DEFAULT_PROXIES_JSON must be a non-empty JSON object")
 
@@ -200,6 +197,19 @@ class MarzbanClient:
             return default_proxies, None
         proxies = {protocol: default_proxies.get(protocol, {}) for protocol in inbounds}
         return proxies, inbounds
+
+    def _load_default_proxies(self) -> dict[str, Any]:
+        raw = (self.default_proxies_json or "").strip()
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            try:
+                value, _index = json.JSONDecoder().raw_decode(raw)
+            except json.JSONDecodeError:
+                raise MarzbanError(f"MARZBAN_DEFAULT_PROXIES_JSON is invalid JSON: {exc}") from exc
+        if not isinstance(value, dict):
+            raise MarzbanError("MARZBAN_DEFAULT_PROXIES_JSON must be a non-empty JSON object")
+        return value
 
     def _extract_inbounds_by_protocol(self, response: dict[str, Any]) -> dict[str, list[str]]:
         source = response.get("inbounds") if isinstance(response.get("inbounds"), dict) else response

@@ -55,6 +55,30 @@ async def admin_panel_callback(callback: CallbackQuery, ctx: AppContext) -> None
     await callback.answer()
 
 
+@router.callback_query(F.data == "admin:quota")
+async def admin_quota(callback: CallbackQuery, ctx: AppContext) -> None:
+    if callback.from_user.id not in ctx.settings.admin_ids:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    async with ctx.database.session() as db:
+        quota = await ctx.quota.status(Repository(db))
+    if quota is None:
+        text = "ظرفیت فروش از مستر بات متصل نشده است."
+    else:
+        text = "\n".join(
+            [
+                "ظرفیت فروش ربات",
+                f"سقف کل: {quota.limit_gb} گیگ",
+                f"مصرف‌شده: {quota.used_gb} گیگ",
+                f"باقی‌مانده: {quota.remaining_gb} گیگ",
+                "",
+                "افزایش ظرفیت فقط از ربات مستر انجام می‌شود.",
+            ]
+        )
+    await _edit_callback_message(callback, with_footer(text), reply_markup=admin_back_keyboard())
+    await callback.answer()
+
+
 @router.callback_query(F.data == "admin:support")
 async def support_setting_start(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
     if callback.from_user.id not in ctx.settings.admin_ids:

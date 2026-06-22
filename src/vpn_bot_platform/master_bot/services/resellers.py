@@ -121,6 +121,12 @@ class SellerBotQuota:
 
 
 @dataclass(frozen=True)
+class SellerBotAdminContact:
+    seller_bot: SellerBot
+    admin_telegram_id: int
+
+
+@dataclass(frozen=True)
 class SellerRuntimeSpec:
     environment: dict[str, str]
     command: list[str]
@@ -718,6 +724,19 @@ class ResellerService:
                 used_gb=usage.used_gb,
                 reserved_gb=usage.reserved_gb,
                 remaining_gb=usage.remaining_gb or 0,
+            )
+
+    async def seller_bot_admin_contact(self, *, seller_bot_id: str) -> SellerBotAdminContact:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            reseller = await session.get(Reseller, seller_bot.reseller_id)
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            return SellerBotAdminContact(
+                seller_bot=seller_bot,
+                admin_telegram_id=reseller.telegram_user_id,
             )
     async def rename_reseller(
         self,
@@ -1491,6 +1510,7 @@ class ResellerService:
             "BOT_TOKEN": token,
             "DATABASE_PATH": f"/app/data/sellers/{seller_bot.id}/bot.sqlite3",
             "SELLER_DATABASE_PATH": f"/app/data/sellers/{seller_bot.id}/bot.sqlite3",
+            "PLATFORM_DATABASE_URL": self.settings.database_url,
             "ADMIN_IDS": str(reseller.telegram_user_id),
             "MARZBAN_BASE_URL": panel.base_url,
             "MARZBAN_USERNAME": self.secret_box.decrypt(panel.username_encrypted) or "",

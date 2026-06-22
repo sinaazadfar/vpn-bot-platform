@@ -351,6 +351,7 @@ async def test_start_simple_seller_uses_standalone_runtime_and_database_path() -
     assert env["SELLER_BOT_ID"] == seller_bot.id
     assert env["DATABASE_PATH"] == f"/app/data/sellers/{seller_bot.id}/bot.sqlite3"
     assert env["SELLER_DATABASE_PATH"] == f"/app/data/sellers/{seller_bot.id}/bot.sqlite3"
+    assert env["PLATFORM_DATABASE_URL"] == "sqlite+aiosqlite:///:memory:"
     assert env["ADMIN_IDS"] == "22222"
     assert env["MARZBAN_BASE_URL"] == "https://panel.example.com"
     assert env["MARZBAN_USERNAME"] == "panel-user"
@@ -392,6 +393,28 @@ async def test_start_platform_seller_keeps_platform_runtime() -> None:
     assert env["SELLER_BOT_ID"] == seller_bot.id
     assert env["DATABASE_URL"] == "sqlite+aiosqlite:///:memory:"
     assert "DATABASE_PATH" not in env
+
+
+@pytest.mark.asyncio
+async def test_seller_bot_admin_contact_returns_owner_telegram_id() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await service.register_reseller(telegram_id=44444, display_name="Seller Admin")
+        seller_bot = await service.register_seller_bot(
+            reseller_telegram_id=44444,
+            bot_name="seller",
+            bot_token="123456:" + ("B" * 35),
+        )
+
+        contact = await service.seller_bot_admin_contact(seller_bot_id=seller_bot.id)
+    finally:
+        await dispose_engine()
+
+    assert contact.seller_bot.id == seller_bot.id
+    assert contact.admin_telegram_id == 44444
 
 
 class _FakeState:

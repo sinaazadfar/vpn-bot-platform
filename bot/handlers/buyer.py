@@ -14,6 +14,7 @@ from bot.db import User, Repository, normalize_referral_code
 from bot.formatting import html_code, html_link, html_pre, with_footer
 from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
+from bot.quota import VolumeQuotaError
 from bot.qr import make_qr_png
 from bot.states import PurchaseUsername, WalletTopUp
 
@@ -440,6 +441,11 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
             )
             await callback.answer()
             return
+        try:
+            await ctx.quota.ensure_available(repository, requested_gb=offer.traffic_gb)
+        except VolumeQuotaError:
+            await callback.answer("ظرفیت فروش این ربات کافی نیست.", show_alert=True)
+            return
     await _edit_callback_message(callback, "در حال تمدید اشتراک...", reply_markup=subscription_back_keyboard(subscription.id))
     try:
         marzban_sub = await ctx.marzban.extend_subscription(
@@ -500,6 +506,11 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext, ctx: AppC
             )
             await callback.answer()
             return
+        try:
+            await ctx.quota.ensure_available(repository, requested_gb=offer.traffic_gb)
+        except VolumeQuotaError:
+            await callback.answer("ظرفیت فروش این ربات کافی نیست.", show_alert=True)
+            return
 
     await state.update_data(
         traffic_gb=traffic_gb,
@@ -541,6 +552,12 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
             return
         if user.wallet_balance < offer.final_price:
             await message.answer(with_footer(_insufficient_wallet_text(user.wallet_balance, offer.final_price)), reply_markup=back_to_main_keyboard())
+            await state.clear()
+            return
+        try:
+            await ctx.quota.ensure_available(repository, requested_gb=offer.traffic_gb)
+        except VolumeQuotaError:
+            await message.answer("ظرفیت فروش این ربات کافی نیست.", reply_markup=back_to_main_keyboard())
             await state.clear()
             return
 

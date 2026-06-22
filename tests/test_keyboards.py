@@ -1,5 +1,5 @@
 from bot import constants as c
-from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, WALLET_TOP_UP_AMOUNTS, admin_back_keyboard, admin_earning_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, WALLET_TOP_UP_AMOUNTS, admin_back_keyboard, admin_earning_keyboard, admin_menu, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 
 
 def test_wallet_top_up_keyboard_has_two_column_presets():
@@ -97,6 +97,15 @@ def test_admin_earning_keyboard_has_toggle_percent_and_back():
     assert keyboard.inline_keyboard[1][0].text == "پورسانت: 12٪"
     assert keyboard.inline_keyboard[1][0].callback_data == "earning:set_percent"
     assert keyboard.inline_keyboard[2][0].callback_data == "admin:panel"
+
+
+def test_admin_menu_has_quota_button():
+    keyboard = admin_menu()
+    labels = [button.text for row in keyboard.inline_keyboard for button in row]
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert c.ADMIN_QUOTA in labels
+    assert "admin:quota" in callbacks
 
 
 def test_admin_back_keyboard_returns_to_admin_panel():

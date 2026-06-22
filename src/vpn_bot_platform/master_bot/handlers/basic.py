@@ -1904,6 +1904,27 @@ async def master_menu_callback(
             await state.clear()
             return
         await state.clear()
+        notification_status = ""
+        try:
+            contact = await reseller_service.seller_bot_admin_contact(seller_bot_id=seller_bot_id)
+            await callback.bot.send_message(
+                contact.admin_telegram_id,
+                "\n".join(
+                    [
+                        "ظرفیت فروش ربات شما افزایش یافت.",
+                        f"ربات: {contact.seller_bot.name}",
+                        f"حجم اضافه‌شده: {added_gb} گیگ",
+                        f"سقف جدید: {_quota_value_text(quota.limit_gb)}",
+                        f"مصرف‌شده: {quota.used_gb} گیگ",
+                        f"باقی‌مانده: {_quota_value_text(quota.remaining_gb)}",
+                        "",
+                        "از پنل ادمین ربات فروشنده بخش ظرفیت فروش می‌توانید وضعیت را ببینید.",
+                    ]
+                ),
+            )
+            notification_status = "Admin notification: sent"
+        except Exception:
+            notification_status = "Admin notification: failed"
         await callback.message.edit_text(
             "\n".join(
                 [
@@ -1914,6 +1935,7 @@ async def master_menu_callback(
                     f"Used: {quota.used_gb} GB",
                     f"Reserved: {quota.reserved_gb} GB",
                     f"Remaining: {_quota_value_text(quota.remaining_gb)}",
+                    notification_status,
                 ]
             ),
             reply_markup=master_seller_bot_actions(seller_bot_id),

@@ -39,6 +39,7 @@ def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=c.ADMIN_PLANS, callback_data="admin:plans")],
+            [InlineKeyboardButton(text=c.ADMIN_QUOTA, callback_data="admin:quota")],
             [
                 InlineKeyboardButton(text=c.ADMIN_USERS, callback_data="admin:users"),
                 InlineKeyboardButton(text=c.ADMIN_PAYMENTS, callback_data="admin:payments"),

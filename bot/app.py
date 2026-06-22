@@ -7,6 +7,7 @@ from bot.db import Database
 from bot.formatting import MESSAGE_FOOTER
 from bot.handlers import setup_routers
 from bot.marzban import MarzbanClient
+from bot.quota import MasterVolumeQuota
 
 def add_message_footer(bot: Bot) -> None:
     original_send_message = bot.send_message
@@ -45,6 +46,10 @@ async def main() -> None:
             settings.marzban_password,
             settings.marzban_token,
             settings.marzban_default_proxies_json,
+        ),
+        quota=MasterVolumeQuota(
+            platform_database_url=settings.platform_database_url,
+            seller_bot_id=settings.seller_bot_id,
         ),
     )
     dp.include_router(setup_routers())

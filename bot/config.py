@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     bot_token: str = Field(alias="BOT_TOKEN")
     admin_ids_raw: str = Field(default="", alias="ADMIN_IDS")
     database_path: Path = Field(default=Path("data/bot.sqlite3"), alias="DATABASE_PATH")
+    seller_bot_id: str = Field(default="", alias="SELLER_BOT_ID")
+    platform_database_url: str = Field(default="", alias="PLATFORM_DATABASE_URL")
 
     marzban_base_url: str = Field(default="", alias="MARZBAN_BASE_URL")
     marzban_username: str = Field(default="", alias="MARZBAN_USERNAME")
