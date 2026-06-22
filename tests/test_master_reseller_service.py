@@ -5,6 +5,7 @@ from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
+from vpn_bot_platform.common.models import ResellerStatus, SellerBotRuntimeType
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 
@@ -27,6 +28,10 @@ async def test_provision_seller_bot_with_password_panel() -> None:
             marzban_admin_username="seller_admin",
             actor_telegram_id=999,
         )
+        reseller = result.reseller
+        panel = result.panel
+        seller_bot = result.seller_bot
+        assignment = result.assignment
         renamed = await service.rename_reseller(
             reseller_telegram_id=12345,
             display_name="Renamed Reseller",
@@ -79,21 +84,20 @@ async def test_provision_seller_bot_with_password_panel() -> None:
             added_gb=50,
             actor_telegram_id=999,
         )
+        audit_logs = await service.recent_audit_logs(limit=10)
     finally:
         await dispose_engine()
 
-    assert registered.existed is False
-    assert registered.reseller.telegram_user_id == 12345
-    assert seller_bot.reseller_id == registered.reseller.id
+    assert result.reseller_existed is False
+    assert reseller.telegram_user_id == 12345
+    assert seller_bot.reseller_id == reseller.id
     assert seller_bot.volume_limit_gb == 0
     assert seller_bot.token_encrypted != "123:secret"
     assert panel.base_url == "https://panel.example.com"
-    assert panel.token_encrypted != "panel-token"
-    assert assignment.reseller_id == registered.reseller.id
+    assert panel.password_encrypted != "secret"
+    assert assignment.reseller_id == reseller.id
     assert assignment.panel_id == panel.id
-    assert seller_bot_with_panel.reseller_id == registered.reseller.id
-    assert seller_bot_assignment.panel_id == panel.id
-    assert seller_bot_assignment.marzban_admin_username == "seller_admin"
+    assert assignment.marzban_admin_username == "seller_admin"
     assert renamed.display_name == "Renamed Reseller"
     assert disabled.status == "disabled"
     assert template.key == "marzbot-free"
