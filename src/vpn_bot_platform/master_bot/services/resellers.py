@@ -34,6 +34,7 @@ from vpn_bot_platform.common.repositories import (
     get_global_setting,
     get_discount_code,
     get_panel_assignment,
+    get_primary_panel_assignment,
     get_plan,
     get_seller_bot_quota_usage,
     global_sales_report,
@@ -117,6 +118,12 @@ class SellerBotQuota:
     used_gb: int
     reserved_gb: int
     remaining_gb: int
+
+
+@dataclass(frozen=True)
+class SellerRuntimeSpec:
+    environment: dict[str, str]
+    command: list[str]
 
 
 @dataclass(frozen=True)
@@ -979,12 +986,13 @@ class ResellerService:
                     last_error=f"invalid seller token: {exc}",
                 )
                 raise ValueError("seller_token_invalid") from exc
-            env = self._seller_environment(seller_bot_id=seller_bot.id, token=token)
+            spec = await self._seller_runtime_spec(session, seller_bot=seller_bot, token=token)
             try:
                 container_id = runtime.start_seller(
                     seller_bot_id=seller_bot.id,
-                    environment=env,
+                    environment=spec.environment,
                     container_id=seller_bot.container_id,
+                    command=spec.command,
                 )
             except Exception as exc:
                 await update_seller_runtime_state(
@@ -1073,12 +1081,13 @@ class ResellerService:
                     last_error=f"invalid seller token: {exc}",
                 )
                 raise ValueError("seller_token_invalid") from exc
-            env = self._seller_environment(seller_bot_id=seller_bot.id, token=token)
+            spec = await self._seller_runtime_spec(session, seller_bot=seller_bot, token=token)
             try:
                 container_id = runtime.start_seller(
                     seller_bot_id=seller_bot.id,
-                    environment=env,
+                    environment=spec.environment,
                     container_id=seller_bot.container_id,
+                    command=spec.command,
                 )
             except Exception as exc:
                 await update_seller_runtime_state(
@@ -1458,7 +1467,44 @@ class ResellerService:
             return self.runtime_controller
         return DockerSellerRuntimeController.from_settings(self.settings)
 
-    def _seller_environment(self, *, seller_bot_id: str, token: str) -> dict[str, str]:
+    async def _seller_runtime_spec(self, session, *, seller_bot: SellerBot, token: str) -> SellerRuntimeSpec:
+        if seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value:
+            return await self._simple_seller_runtime_spec(session, seller_bot=seller_bot, token=token)
+        return SellerRuntimeSpec(
+            environment=self._platform_seller_environment(seller_bot_id=seller_bot.id, token=token),
+            command=["python", "-m", "vpn_bot_platform.seller_bot.main"],
+        )
+
+    async def _simple_seller_runtime_spec(self, session, *, seller_bot: SellerBot, token: str) -> SellerRuntimeSpec:
+        if self.settings is None:
+            raise RuntimeError("settings_required")
+        primary_assignment = await get_primary_panel_assignment(session, reseller_id=seller_bot.reseller_id)
+        if primary_assignment is None:
+            raise ValueError("seller_panel_assignment_not_found")
+        assignment, panel = primary_assignment
+        reseller = await session.get(Reseller, seller_bot.reseller_id)
+        if reseller is None:
+            raise ValueError("reseller_not_found")
+        env = {
+            "APP_ROLE": "simple_seller_bot",
+            "SELLER_BOT_ID": seller_bot.id,
+            "BOT_TOKEN": token,
+            "DATABASE_PATH": f"/app/data/sellers/{seller_bot.id}/bot.sqlite3",
+            "SELLER_DATABASE_PATH": f"/app/data/sellers/{seller_bot.id}/bot.sqlite3",
+            "ADMIN_IDS": str(reseller.telegram_user_id),
+            "MARZBAN_BASE_URL": panel.base_url,
+            "MARZBAN_USERNAME": self.secret_box.decrypt(panel.username_encrypted) or "",
+            "MARZBAN_PASSWORD": self.secret_box.decrypt(panel.password_encrypted) or "",
+            "MARZBAN_TOKEN": self.secret_box.decrypt(panel.token_encrypted) or "",
+            "MARZBAN_DEFAULT_PROXIES_JSON": self.settings.marzban_default_proxies_json,
+            "API_TIMEOUT_SECONDS": str(self.settings.api_timeout_seconds),
+        }
+        if assignment.marzban_admin_username:
+            env["MARZBAN_ADMIN_USERNAME"] = assignment.marzban_admin_username
+        self._copy_proxy_env(env)
+        return SellerRuntimeSpec(environment=env, command=["python", "-m", "bot"])
+
+    def _platform_seller_environment(self, *, seller_bot_id: str, token: str) -> dict[str, str]:
         if self.settings is None:
             raise RuntimeError("settings_required")
         env = {
@@ -1470,8 +1516,12 @@ class ResellerService:
             "MARZBAN_TOKEN_PATH": self.settings.marzban_token_path,
             "API_TIMEOUT_SECONDS": str(self.settings.api_timeout_seconds),
         }
+        self._copy_proxy_env(env)
+        return env
+
+    @staticmethod
+    def _copy_proxy_env(env: dict[str, str]) -> None:
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
             value = os.getenv(key)
             if value:
                 env[key] = value
-        return env

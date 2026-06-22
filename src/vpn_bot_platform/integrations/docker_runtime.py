@@ -4,11 +4,20 @@ import os
 from dataclasses import dataclass
 
 
+class _FallbackImageNotFound(Exception):
+    pass
+
+
+class _FallbackNotFound(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class SellerRuntimeConfig:
     image: str
     network: str | None
     label_prefix: str
+    data_host_path: str | None = None
 
 
 class DockerRuntime:
@@ -38,8 +47,9 @@ class DockerRuntime:
         seller_bot_id: str,
         environment: dict[str, str],
         container_id: str | None = None,
+        command: list[str] | None = None,
     ) -> str:
-        from docker.errors import ImageNotFound, NotFound
+        ImageNotFound, NotFound = _docker_error_classes()
 
         try:
             self.client.images.get(self.config.image)
@@ -60,14 +70,24 @@ class DockerRuntime:
         except NotFound:
             pass
 
+        volumes = None
+        if self.config.data_host_path:
+            volumes = {
+                self.config.data_host_path: {
+                    "bind": "/app/data/sellers",
+                    "mode": "rw",
+                }
+            }
+
         container = self.client.containers.run(
             self.config.image,
-            command=["python", "-m", "vpn_bot_platform.seller_bot.main"],
+            command=command or ["python", "-m", "vpn_bot_platform.seller_bot.main"],
             detach=True,
             name=name,
             environment=environment,
             labels=self._labels(seller_bot_id),
             network=self.config.network,
+            volumes=volumes,
             restart_policy={"Name": "unless-stopped"},
         )
         return container.id
@@ -75,7 +95,7 @@ class DockerRuntime:
     def stop_seller(self, *, container_id: str | None) -> None:
         if not container_id:
             return
-        from docker.errors import NotFound
+        _ImageNotFound, NotFound = _docker_error_classes()
 
         try:
             container = self.client.containers.get(container_id)
@@ -86,7 +106,7 @@ class DockerRuntime:
     def seller_logs(self, *, container_id: str | None, tail: int = 120) -> str:
         if not container_id:
             return ""
-        from docker.errors import NotFound
+        _ImageNotFound, NotFound = _docker_error_classes()
 
         try:
             container = self.client.containers.get(container_id)
@@ -97,7 +117,7 @@ class DockerRuntime:
     def seller_health(self, *, container_id: str | None) -> str:
         if not container_id:
             return "missing"
-        from docker.errors import NotFound
+        _ImageNotFound, NotFound = _docker_error_classes()
 
         try:
             container = self.client.containers.get(container_id)
@@ -112,3 +132,13 @@ class DockerRuntime:
 
 def seller_container_name(seller_bot_id: str) -> str:
     return f"seller-{seller_bot_id}"
+
+
+def _docker_error_classes():
+    try:
+        from docker.errors import ImageNotFound, NotFound
+    except ModuleNotFoundError:
+        ImageNotFound = _FallbackImageNotFound
+        NotFound = _FallbackNotFound
+
+    return ImageNotFound, NotFound

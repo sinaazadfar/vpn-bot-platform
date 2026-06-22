@@ -46,7 +46,7 @@ Master bot support:
 Simple Seller note:
 
 - Simple Seller is not registered as an external template for production.
-- Use `Add Seller Bot` > `Simple Seller` in the master bot. It creates a native platform seller bot with `ui_profile=simple_seller`, so it uses the shared Postgres database.
+- Use `Add Seller Bot` > `Simple Seller` in the master bot. It creates a native seller bot with `ui_profile=simple_seller`; the master keeps runtime metadata in Postgres, while the seller bot stores buyer data, payments, subscriptions, and pricing in its own SQLite database under `/app/data/sellers/<seller_bot_id>/bot.sqlite3`.
 
 Runtime boundary:
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from vpn_bot_platform.integrations.docker_runtime import (
     DockerRuntime,
     SellerRuntimeConfig,
+    _docker_error_classes,
     seller_container_name,
 )
 
@@ -17,8 +18,7 @@ class FakeContainers:
         self.run_kwargs: dict[str, object] | None = None
 
     def get(self, name: str) -> object:
-        from docker.errors import NotFound
-
+        _ImageNotFound, NotFound = _docker_error_classes()
         raise NotFound(name)
 
     def run(self, image: str, **kwargs: object) -> object:
@@ -58,3 +58,32 @@ def test_runtime_starts_seller_bot_entrypoint() -> None:
         "-m",
         "vpn_bot_platform.seller_bot.main",
     ]
+    assert fake_client.containers.run_kwargs["volumes"] is None
+
+
+def test_runtime_accepts_custom_command_and_data_volume() -> None:
+    runtime = object.__new__(DockerRuntime)
+    runtime.config = SellerRuntimeConfig(
+        image="vpn-bot-platform-seller:latest",
+        network="vpn-bot-platform_default",
+        label_prefix="vpn-bot-platform",
+        data_host_path="/opt/vpn-bot-platform/data/sellers",
+    )
+    fake_client = FakeDockerClient()
+    runtime.client = fake_client
+
+    container_id = runtime.start_seller(
+        seller_bot_id="simple-123",
+        environment={"BOT_TOKEN": "123:secret"},
+        command=["python", "-m", "bot"],
+    )
+
+    assert container_id == "container-123"
+    assert fake_client.containers.run_kwargs is not None
+    assert fake_client.containers.run_kwargs["command"] == ["python", "-m", "bot"]
+    assert fake_client.containers.run_kwargs["volumes"] == {
+        "/opt/vpn-bot-platform/data/sellers": {
+            "bind": "/app/data/sellers",
+            "mode": "rw",
+        }
+    }

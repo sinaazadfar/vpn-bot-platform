@@ -7,6 +7,7 @@ from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
 from types import SimpleNamespace
 
+from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.models import (
     ResellerStatus,
     SellerBotRuntimeType,
@@ -307,6 +308,92 @@ async def test_master_delete_seller_bot_callback_disables_bot() -> None:
     assert seller_bots[0].status == "disabled"
 
 
+@pytest.mark.asyncio
+async def test_start_simple_seller_uses_standalone_runtime_and_database_path() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    key = Fernet.generate_key().decode("utf-8")
+    runtime = _FakeRuntimeController()
+    service = ResellerService(
+        SecretBox(key),
+        settings=_settings(key),
+        runtime_controller=runtime,
+    )
+    token = _valid_bot_token()
+
+    try:
+        registered = await service.register_reseller(telegram_id=22222, display_name="Simple Admin")
+        panel = await service.register_marzban_panel(
+            name="panel",
+            base_url="https://panel.example.com",
+            username="panel-user",
+            password="panel-pass",
+            token="panel-token",
+        )
+        seller_bot, _assignment = await service.register_seller_bot_with_panel(
+            reseller_telegram_id=registered.reseller.telegram_user_id,
+            bot_name="simple",
+            bot_token=token,
+            panel_id=panel.id,
+            marzban_admin_username="marzban-admin",
+            ui_profile=SellerBotUiProfile.SIMPLE_SELLER,
+        )
+
+        started = await service.start_seller_bot(seller_bot_id=seller_bot.id)
+    finally:
+        await dispose_engine()
+
+    assert started.status == "running"
+    assert runtime.started is not None
+    assert runtime.started["command"] == ["python", "-m", "bot"]
+    env = runtime.started["environment"]
+    assert env["BOT_TOKEN"] == token
+    assert env["SELLER_BOT_ID"] == seller_bot.id
+    assert env["DATABASE_PATH"] == f"/app/data/sellers/{seller_bot.id}/bot.sqlite3"
+    assert env["SELLER_DATABASE_PATH"] == f"/app/data/sellers/{seller_bot.id}/bot.sqlite3"
+    assert env["ADMIN_IDS"] == "22222"
+    assert env["MARZBAN_BASE_URL"] == "https://panel.example.com"
+    assert env["MARZBAN_USERNAME"] == "panel-user"
+    assert env["MARZBAN_PASSWORD"] == "panel-pass"
+    assert env["MARZBAN_TOKEN"] == "panel-token"
+    assert "DATABASE_URL" not in env
+
+
+@pytest.mark.asyncio
+async def test_start_platform_seller_keeps_platform_runtime() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    key = Fernet.generate_key().decode("utf-8")
+    runtime = _FakeRuntimeController()
+    service = ResellerService(
+        SecretBox(key),
+        settings=_settings(key),
+        runtime_controller=runtime,
+    )
+    token = _valid_bot_token()
+
+    try:
+        await service.register_reseller(telegram_id=33333, display_name="Platform Admin")
+        seller_bot = await service.register_seller_bot(
+            reseller_telegram_id=33333,
+            bot_name="platform",
+            bot_token=token,
+            ui_profile=SellerBotUiProfile.PLATFORM,
+        )
+
+        await service.start_seller_bot(seller_bot_id=seller_bot.id)
+    finally:
+        await dispose_engine()
+
+    assert runtime.started is not None
+    assert runtime.started["command"] == ["python", "-m", "vpn_bot_platform.seller_bot.main"]
+    env = runtime.started["environment"]
+    assert env["SELLER_BOT_TOKEN"] == token
+    assert env["SELLER_BOT_ID"] == seller_bot.id
+    assert env["DATABASE_URL"] == "sqlite+aiosqlite:///:memory:"
+    assert "DATABASE_PATH" not in env
+
+
 class _FakeState:
     def __init__(self, data: dict) -> None:
         self.data = data
@@ -346,3 +433,45 @@ class _FakeCallback:
     async def answer(self, text: str | None = None, **kwargs) -> None:
         if text:
             self.alerts.append(text)
+
+
+class _FakeRuntimeController:
+    def __init__(self) -> None:
+        self.started: dict | None = None
+
+    def start_seller(
+        self,
+        *,
+        seller_bot_id: str,
+        environment: dict[str, str],
+        container_id: str | None = None,
+        command: list[str] | None = None,
+    ) -> str:
+        self.started = {
+            "seller_bot_id": seller_bot_id,
+            "environment": environment,
+            "container_id": container_id,
+            "command": command,
+        }
+        return "container-123"
+
+    def stop_seller(self, *, container_id: str | None) -> None:
+        return None
+
+    def seller_logs(self, *, container_id: str | None, tail: int = 120) -> str:
+        return ""
+
+    def seller_health(self, *, container_id: str | None) -> str:
+        return "running"
+
+
+def _settings(fernet_key: str) -> Settings:
+    return Settings(
+        DATABASE_URL="sqlite+aiosqlite:///:memory:",
+        FERNET_KEY=fernet_key,
+        SELLER_DATA_HOST_PATH="/tmp/sellers",
+    )
+
+
+def _valid_bot_token() -> str:
+    return "123456:" + ("A" * 35)
