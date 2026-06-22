@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.token import TokenValidationError, validate_token
 
-from vpn_bot_platform.common.models import DiscountType, PlanPurpose, ResellerStatus
+from vpn_bot_platform.common.models import DiscountType, PlanPurpose, ResellerStatus, SellerBotUiProfile
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
 from vpn_bot_platform.common.ui.callbacks import parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
@@ -584,22 +584,6 @@ async def master_menu_callback(
                 _external_template_text(template),
                 reply_markup=external_template_actions(template.id),
             )
-    elif action.action == "ext_simple_seller":
-        result = await reseller_service.ensure_simple_seller_template(
-            actor_telegram_id=callback.from_user.id,
-        )
-        await callback.message.edit_text(
-            "\n".join(
-                [
-                    "Simple Seller template is ready."
-                    if not result.existed
-                    else "Simple Seller template already exists.",
-                    "",
-                    _external_template_text(result.template),
-                ]
-            ),
-            reply_markup=external_template_actions(result.template.id),
-        )
     elif action.action == "ext_sync":
         if not action.value:
             await callback.answer("Template is missing.", show_alert=True)
@@ -1679,12 +1663,10 @@ async def master_menu_callback(
             await callback.answer("Invalid bot type.", show_alert=True)
             return
         if action.value == "simple_seller":
-            result = await reseller_service.ensure_simple_seller_template(
-                actor_telegram_id=callback.from_user.id,
-            )
             await state.update_data(
-                sellerbot_runtime_type="external",
-                sellerbot_template_key=result.template.key,
+                sellerbot_runtime_type="native",
+                sellerbot_template_key=None,
+                sellerbot_ui_profile=SellerBotUiProfile.SIMPLE_SELLER.value,
             )
             await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
             return
@@ -1696,20 +1678,31 @@ async def master_menu_callback(
                     reply_markup=master_section_menu("seller_bots"),
                 )
                 return
-            await state.update_data(sellerbot_runtime_type="external")
+            await state.update_data(
+                sellerbot_runtime_type="external",
+                sellerbot_ui_profile=SellerBotUiProfile.PLATFORM.value,
+            )
             await state.set_state(SellerBotCreateStates.bot_type)
             await callback.message.edit_text(
                 "\n".join([title("Add Seller Bot"), "Choose which external bot template to use."]),
                 reply_markup=_external_template_select_keyboard(templates[:10]),
             )
             return
-        await state.update_data(sellerbot_runtime_type="native", sellerbot_template_key=None)
+        await state.update_data(
+            sellerbot_runtime_type="native",
+            sellerbot_template_key=None,
+            sellerbot_ui_profile=SellerBotUiProfile.PLATFORM.value,
+        )
         await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
     elif action.action == "sellerbot_template":
         if not action.value:
             await callback.answer("Template is missing.", show_alert=True)
             return
-        await state.update_data(sellerbot_runtime_type="external", sellerbot_template_key=action.value)
+        await state.update_data(
+            sellerbot_runtime_type="external",
+            sellerbot_template_key=action.value,
+            sellerbot_ui_profile=SellerBotUiProfile.PLATFORM.value,
+        )
         await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
     elif action.action == "add_seller_bot_legacy":
         await state.clear()
@@ -1781,6 +1774,7 @@ async def master_menu_callback(
         bot_token = str(data.get("sellerbot_token") or "").strip()
         runtime_type = str(data.get("sellerbot_runtime_type") or "native")
         template_key = str(data.get("sellerbot_template_key") or "").strip()
+        ui_profile = str(data.get("sellerbot_ui_profile") or SellerBotUiProfile.PLATFORM.value)
         panel_id = str(data.get("sellerbot_panel_id") or "").strip()
         panel_admin = str(data.get("sellerbot_panel_admin") or "").strip() or None
         volume_limit_gb = data.get("sellerbot_volume_limit_gb")
@@ -1804,6 +1798,10 @@ async def master_menu_callback(
                     actor_telegram_id=callback.from_user.id,
                 )
             else:
+                try:
+                    seller_bot_ui_profile = SellerBotUiProfile(ui_profile)
+                except ValueError:
+                    seller_bot_ui_profile = SellerBotUiProfile.PLATFORM
                 seller_bot, assignment = await reseller_service.register_seller_bot_with_panel(
                     reseller_telegram_id=int(reseller_telegram_id),
                     bot_name=bot_name,
@@ -1811,6 +1809,7 @@ async def master_menu_callback(
                     panel_id=panel_id,
                     marzban_admin_username=panel_admin,
                     volume_limit_gb=volume_limit_gb,
+                    ui_profile=seller_bot_ui_profile,
                     actor_telegram_id=callback.from_user.id,
                 )
         except ValueError as exc:
@@ -3302,28 +3301,6 @@ async def add_external_template(
     await message.answer(_external_template_text(template), reply_markup=external_template_actions(template.id))
 
 
-@router.message(Command("add_simple_seller_template"))
-async def add_simple_seller_template(
-    message: Message,
-    reseller_service: ResellerService,
-) -> None:
-    result = await reseller_service.ensure_simple_seller_template(
-        actor_telegram_id=message.from_user.id if message.from_user else None,
-    )
-    await message.answer(
-        "\n".join(
-            [
-                "Simple Seller template registered."
-                if not result.existed
-                else "Simple Seller template already exists.",
-                "",
-                _external_template_text(result.template),
-            ]
-        ),
-        reply_markup=external_template_actions(result.template.id),
-    )
-
-
 @router.message(Command("list_external_templates"))
 async def list_external_templates(message: Message, reseller_service: ResellerService) -> None:
     await message.answer(
@@ -3958,6 +3935,7 @@ def _sellerbot_confirm_text(data: dict) -> str:
         [
             title("Confirm Seller Bot"),
             f"Type: {data.get('sellerbot_runtime_type') or 'native'}",
+            f"UI profile: {data.get('sellerbot_ui_profile') or 'platform'}",
             f"Template: {data.get('sellerbot_template_key') or '-'}",
             f"Reseller Telegram: {data.get('sellerbot_reseller_telegram_id')}",
             f"Bot name: {data.get('sellerbot_name')}",
@@ -4260,7 +4238,6 @@ def _master_action_guide_text(action: str) -> str:
             "Add External Template",
             "Register a GitHub seller bot as a managed template. This does not run it yet.",
             [
-                "/add_simple_seller_template",
                 '/add_external_template marzbot-free "Marzbot Free" '
                 "https://github.com/govfvck/Marzbot-free main "
                 "external/seller-bots/marzbot-free AGPL-3.0 manual"

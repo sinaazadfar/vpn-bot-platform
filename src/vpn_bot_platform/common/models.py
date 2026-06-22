@@ -43,6 +43,11 @@ class SellerBotRuntimeType(StrEnum):
     EXTERNAL_TEMPLATE = "external_template"
 
 
+class SellerBotUiProfile(StrEnum):
+    PLATFORM = "platform"
+    SIMPLE_SELLER = "simple_seller"
+
+
 class PlanScope(StrEnum):
     GLOBAL = "global"
     RESELLER = "reseller"
@@ -180,6 +185,7 @@ class SellerBot(Base):
     token_encrypted: Mapped[str] = mapped_column(Text)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     runtime_type: Mapped[str] = mapped_column(String(32), default=SellerBotRuntimeType.NATIVE.value)
+    ui_profile: Mapped[str] = mapped_column(String(32), default=SellerBotUiProfile.PLATFORM.value)
     volume_limit_gb: Mapped[int | None] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(24), default=SellerBotStatus.PENDING.value)
     container_name: Mapped[str | None] = mapped_column(String(128))

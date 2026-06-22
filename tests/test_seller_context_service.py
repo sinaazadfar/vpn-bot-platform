@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from vpn_bot_platform.common.config import Settings
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine, session_scope
-from vpn_bot_platform.common.models import DiscountType, PlanPurpose
+from vpn_bot_platform.common.models import Buyer, DiscountType, Order, Payment, PlanPurpose, SellerBotUiProfile
 from vpn_bot_platform.common.repositories import create_vpn_service
 from vpn_bot_platform.integrations.marzban import (
     MarzbanCredentials,
@@ -289,6 +289,54 @@ async def test_seller_bot_volume_limit_blocks_payments_and_reserves_pending_orde
     assert quota_after_first.used_gb == 0
     assert quota_after_first.reserved_gb == 30
     assert quota_after_first.remaining_gb == 20
+
+
+@pytest.mark.asyncio
+async def test_simple_seller_profile_uses_platform_tables() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    master_service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await master_service.register_reseller(telegram_id=111, display_name="Seller A")
+        seller_bot = await master_service.register_seller_bot(
+            reseller_telegram_id=111,
+            bot_name="simple_seller_bot",
+            bot_token="123:secret",
+            volume_limit_gb=500,
+            ui_profile=SellerBotUiProfile.SIMPLE_SELLER,
+        )
+        seller_context = SellerContextService(seller_bot.id)
+        profile = await seller_context.register_buyer(telegram_id=222, username="buyer")
+        plan = await master_service.create_reseller_plan(
+            reseller_telegram_id=111,
+            name="simple30",
+            price=100000,
+            duration_days=30,
+            data_limit_gb=30,
+        )
+        payment_request = await seller_context.request_card_to_card_payment(
+            buyer_telegram_id=222,
+            plan_id=plan.id,
+        )
+
+        async with session_scope() as session:
+            stored_buyer = await session.get(Buyer, profile.buyer.id)
+            stored_order = await session.get(Order, payment_request.order.id)
+            stored_payment = await session.get(Payment, payment_request.payment.id)
+    finally:
+        await dispose_engine()
+
+    assert seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value
+    assert seller_bot.external_template_id is None
+    assert stored_buyer is not None
+    assert stored_buyer.reseller_id == seller_bot.reseller_id
+    assert stored_order is not None
+    assert stored_order.seller_bot_id == seller_bot.id
+    assert stored_order.reseller_id == seller_bot.reseller_id
+    assert stored_payment is not None
+    assert stored_payment.seller_bot_id == seller_bot.id
+    assert stored_payment.reseller_id == seller_bot.reseller_id
 
 
 @pytest.mark.asyncio

@@ -36,7 +36,6 @@ Master bot support:
 
 - External seller bots can now be registered as templates from the master bot.
 - Supported commands:
-  - `/add_simple_seller_template`
   - `/add_external_template <key> <name> <repo_url> <ref> [local_path] [license] [runtime_adapter]`
   - `/list_external_templates`
   - `/sync_external_template <template_id_or_key>`
@@ -44,15 +43,10 @@ Master bot support:
 - The master bot also exposes `External Bots` buttons for listing and syncing templates.
 - External seller bot records use `runtime_type=external_template`.
 
-Simple Seller template:
+Simple Seller note:
 
-- `simple-seller` can be added as a built-in external template with `/add_simple_seller_template`.
-- The template points to the sibling project path `../simple-seller` when a local checkout is available.
-- To create a platform seller bot record from it:
-
-```text
-/add_external_seller_bot <reseller_telegram_id> "Seller Bot Name" <bot_token> simple-seller
-```
+- Simple Seller is not registered as an external template for production.
+- Use `Add Seller Bot` > `Simple Seller` in the master bot. It creates a native platform seller bot with `ui_profile=simple_seller`, so it uses the shared Postgres database.
 
 Runtime boundary:
 

@@ -39,6 +39,7 @@ from vpn_bot_platform.common.models import (
     SellerBot,
     SellerBotRuntimeType,
     SellerBotStatus,
+    SellerBotUiProfile,
     TelegramUser,
     Ticket,
     TicketMessage,
@@ -233,6 +234,7 @@ async def create_seller_bot(
     secret_box: SecretBox,
     runtime_type: SellerBotRuntimeType = SellerBotRuntimeType.NATIVE,
     external_template_id: str | None = None,
+    ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
     volume_limit_gb: int | None = 0,
 ) -> SellerBot:
     seller_bot = SellerBot(
@@ -242,6 +244,7 @@ async def create_seller_bot(
         token_encrypted=secret_box.encrypt(token) or "",
         token_hash=hash_secret(token),
         runtime_type=runtime_type.value,
+        ui_profile=ui_profile.value,
         volume_limit_gb=volume_limit_gb or 0,
     )
     session.add(seller_bot)

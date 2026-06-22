@@ -70,6 +70,7 @@ from vpn_bot_platform.common.models import (
     ResellerPanelAssignment,
     SellerBot,
     SellerBotStatus,
+    SellerBotUiProfile,
     Plan,
     PlanPurpose,
     DiscountCode,
@@ -126,12 +127,6 @@ class ExternalTemplateSyncResult:
 
 
 @dataclass(frozen=True)
-class BuiltInExternalTemplate:
-    template: ExternalBotTemplate
-    existed: bool
-
-
-@dataclass(frozen=True)
 class BroadcastDraft:
     broadcast: Broadcast
     recipients: list[BroadcastRecipient]
@@ -158,8 +153,6 @@ class PanelTestResult:
 
 
 class ResellerService:
-    SIMPLE_SELLER_TEMPLATE_KEY = "simple-seller"
-
     def __init__(
         self,
         secret_box: SecretBox,
@@ -212,6 +205,7 @@ class ResellerService:
         bot_name: str,
         bot_token: str,
         volume_limit_gb: int | None = 0,
+        ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
     ) -> SellerBot:
         async with session_scope() as session:
             reseller = await get_reseller_by_telegram_id(
@@ -227,6 +221,7 @@ class ResellerService:
                 token=bot_token,
                 secret_box=self.secret_box,
                 volume_limit_gb=volume_limit_gb,
+                ui_profile=ui_profile,
             )
             await record_audit_log(
                 session,
@@ -235,7 +230,12 @@ class ResellerService:
                 reseller_id=reseller.id,
                 target_type="seller_bot",
                 target_id=seller_bot.id,
-                metadata={"reseller_telegram_id": reseller_telegram_id, "bot_name": bot_name, "volume_limit_gb": volume_limit_gb},
+                metadata={
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "bot_name": bot_name,
+                    "volume_limit_gb": volume_limit_gb,
+                    "ui_profile": ui_profile.value,
+                },
             )
             await session.flush()
             return seller_bot
@@ -249,6 +249,7 @@ class ResellerService:
         panel_id: str,
         marzban_admin_username: str | None = None,
         volume_limit_gb: int | None = 0,
+        ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
         actor_telegram_id: int | None = None,
     ) -> tuple[SellerBot, ResellerPanelAssignment]:
         async with session_scope() as session:
@@ -268,6 +269,7 @@ class ResellerService:
                 token=bot_token,
                 secret_box=self.secret_box,
                 volume_limit_gb=volume_limit_gb,
+                ui_profile=ui_profile,
             )
             assignment = await assign_panel_to_reseller(
                 session,
@@ -289,6 +291,7 @@ class ResellerService:
                     "panel_id": panel.id,
                     "marzban_admin_username": marzban_admin_username,
                     "volume_limit_gb": volume_limit_gb,
+                    "ui_profile": ui_profile.value,
                 },
             )
             await session.flush()
@@ -439,48 +442,6 @@ class ResellerService:
             )
             await session.flush()
             return template
-
-    async def ensure_simple_seller_template(
-        self,
-        *,
-        actor_telegram_id: int | None = None,
-    ) -> BuiltInExternalTemplate:
-        local_path = self._default_simple_seller_path()
-        async with session_scope() as session:
-            existing = await get_external_bot_template_by_key(
-                session,
-                key=self.SIMPLE_SELLER_TEMPLATE_KEY,
-            )
-            if existing is not None:
-                return BuiltInExternalTemplate(template=existing, existed=True)
-            template = await create_external_bot_template(
-                session,
-                key=self.SIMPLE_SELLER_TEMPLATE_KEY,
-                name="Simple Seller",
-                repo_url="local://simple-seller",
-                ref="local",
-                local_path=local_path,
-                license_name="internal",
-                runtime_adapter="simple-seller-manual",
-            )
-            await record_audit_log(
-                session,
-                action="external_bot_template.register_builtin",
-                actor_type=AuditActorType.SUPER_USER,
-                actor_telegram_id=actor_telegram_id,
-                target_type="external_bot_template",
-                target_id=template.id,
-                metadata={
-                    "key": template.key,
-                    "name": template.name,
-                    "repo_url": template.repo_url,
-                    "ref": template.ref,
-                    "local_path": template.local_path,
-                    "runtime_adapter": template.runtime_adapter,
-                },
-            )
-            await session.flush()
-            return BuiltInExternalTemplate(template=template, existed=False)
 
     async def list_external_bot_templates(self) -> list[ExternalBotTemplate]:
         async with session_scope() as session:
@@ -665,13 +626,6 @@ class ResellerService:
     async def list_seller_bots(self) -> list[SellerBot]:
         async with session_scope() as session:
             return await list_seller_bots(session)
-
-    @staticmethod
-    def _default_simple_seller_path() -> str:
-        sibling_path = Path.cwd().parent / "simple-seller"
-        if sibling_path.exists():
-            return str(sibling_path)
-        return "../simple-seller"
 
     async def set_seller_bot_volume(
         self,

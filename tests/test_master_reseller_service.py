@@ -5,7 +5,14 @@ from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
-from vpn_bot_platform.common.models import ResellerStatus, SellerBotRuntimeType
+from types import SimpleNamespace
+
+from vpn_bot_platform.common.models import (
+    ResellerStatus,
+    SellerBotRuntimeType,
+    SellerBotUiProfile,
+)
+from vpn_bot_platform.master_bot.handlers.basic import master_menu_callback
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 
@@ -52,10 +59,6 @@ async def test_provision_seller_bot_with_password_panel() -> None:
             runtime_adapter="manual",
             actor_telegram_id=999,
         )
-        simple_seller_template = await service.ensure_simple_seller_template(actor_telegram_id=999)
-        existing_simple_seller_template = await service.ensure_simple_seller_template(
-            actor_telegram_id=999,
-        )
         external_seller_bot, external_assignment = await service.register_external_seller_bot_with_panel(
             reseller_telegram_id=12345,
             bot_name="external-test",
@@ -65,11 +68,13 @@ async def test_provision_seller_bot_with_password_panel() -> None:
             marzban_admin_username="external_admin",
             actor_telegram_id=999,
         )
-        simple_seller_bot = await service.register_external_seller_bot(
+        simple_seller_bot, simple_seller_assignment = await service.register_seller_bot_with_panel(
             reseller_telegram_id=12345,
             bot_name="simple-seller-test",
             bot_token="654:secret",
-            template_id_or_key="simple-seller",
+            panel_id=panel.id,
+            marzban_admin_username="simple_admin",
+            ui_profile=SellerBotUiProfile.SIMPLE_SELLER,
             actor_telegram_id=999,
         )
         templates = await service.list_external_bot_templates()
@@ -101,18 +106,14 @@ async def test_provision_seller_bot_with_password_panel() -> None:
     assert renamed.display_name == "Renamed Reseller"
     assert disabled.status == "disabled"
     assert template.key == "marzbot-free"
-    assert simple_seller_template.existed is False
-    assert simple_seller_template.template.key == "simple-seller"
-    assert simple_seller_template.template.name == "Simple Seller"
-    assert simple_seller_template.template.repo_url == "local://simple-seller"
-    assert simple_seller_template.template.runtime_adapter == "simple-seller-manual"
-    assert existing_simple_seller_template.existed is True
-    assert existing_simple_seller_template.template.id == simple_seller_template.template.id
-    assert {template.key for template in templates} == {"marzbot-free", "simple-seller"}
+    assert {template.key for template in templates} == {"marzbot-free"}
     assert external_seller_bot.external_template_id == template.id
     assert external_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
-    assert simple_seller_bot.external_template_id == simple_seller_template.template.id
-    assert simple_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
+    assert simple_seller_bot.external_template_id is None
+    assert simple_seller_bot.runtime_type == SellerBotRuntimeType.NATIVE.value
+    assert simple_seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value
+    assert simple_seller_assignment.panel_id == panel.id
+    assert simple_seller_assignment.marzban_admin_username == "simple_admin"
     assert external_assignment.panel_id == panel.id
     assert external_assignment.marzban_admin_username == "external_admin"
     assert default_quota.limit_gb == 0
@@ -122,3 +123,101 @@ async def test_provision_seller_bot_with_password_panel() -> None:
     assert second_added_quota.limit_gb == 150
     assert second_added_quota.remaining_gb == 150
     assert any(log.action == "seller_bot.volume_add" for log in audit_logs)
+
+
+@pytest.mark.asyncio
+async def test_master_confirm_creates_simple_seller_as_native_platform_bot() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+    state = _FakeState(
+        {
+            "sellerbot_runtime_type": "native",
+            "sellerbot_ui_profile": SellerBotUiProfile.SIMPLE_SELLER.value,
+            "sellerbot_template_key": None,
+            "sellerbot_reseller_telegram_id": 22222,
+            "sellerbot_name": "Simple Seller Bot",
+            "sellerbot_token": "222:secret",
+            "sellerbot_panel_id": "",
+            "sellerbot_panel_admin": "simple_admin",
+            "sellerbot_volume_limit_gb": 25,
+        }
+    )
+
+    try:
+        registered = await service.register_reseller(
+            telegram_id=22222,
+            display_name="Simple Seller Admin",
+        )
+        panel = await service.register_marzban_panel(
+            name="simple-panel",
+            base_url="https://simple-panel.example.com/",
+            token="panel-token",
+        )
+        state.data["sellerbot_panel_id"] = panel.id
+        callback = _FakeCallback("m:sellerbot_create", user_id=999)
+
+        await master_menu_callback(callback, state, service)  # type: ignore[arg-type]
+
+        seller_bots = await service.list_seller_bots()
+        assignments = await service.list_panel_assignments_for_reseller(
+            reseller_id=registered.reseller.id,
+        )
+    finally:
+        await dispose_engine()
+
+    assert state.cleared is True
+    assert callback.alerts == []
+    assert callback.message.edited_text is not None
+    assert "Seller Bot Registered" in callback.message.edited_text
+    assert len(seller_bots) == 1
+    seller_bot = seller_bots[0]
+    assert seller_bot.runtime_type == SellerBotRuntimeType.NATIVE.value
+    assert seller_bot.external_template_id is None
+    assert seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value
+    assert seller_bot.reseller_id == registered.reseller.id
+    assert seller_bot.volume_limit_gb == 25
+    assert len(assignments) == 1
+    assert assignments[0].assignment.panel_id == panel.id
+    assert assignments[0].assignment.marzban_admin_username == "simple_admin"
+
+
+class _FakeState:
+    def __init__(self, data: dict) -> None:
+        self.data = data
+        self.cleared = False
+
+    async def get_data(self) -> dict:
+        return dict(self.data)
+
+    async def update_data(self, **kwargs) -> None:
+        self.data.update(kwargs)
+
+    async def set_state(self, state) -> None:
+        self.state = state
+
+    async def clear(self) -> None:
+        self.cleared = True
+        self.data.clear()
+
+
+class _FakeMessage:
+    def __init__(self) -> None:
+        self.edited_text: str | None = None
+        self.reply_markup = None
+
+    async def edit_text(self, text: str, **kwargs) -> None:
+        self.edited_text = text
+        self.reply_markup = kwargs.get("reply_markup")
+
+
+class _FakeCallback:
+    def __init__(self, data: str, *, user_id: int) -> None:
+        self.data = data
+        self.from_user = SimpleNamespace(id=user_id)
+        self.message = _FakeMessage()
+        self.alerts: list[str] = []
+
+    async def answer(self, text: str | None = None, **kwargs) -> None:
+        if text:
+            self.alerts.append(text)

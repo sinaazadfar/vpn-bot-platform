@@ -174,7 +174,6 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
                 ("افزودن ربات خارجی", build_callback("m", "guide_add_external_seller_bot")),
             ]
         )
-        rows.append([("Simple Seller", build_callback("m", "ext_simple_seller"))])
     elif section == "panels":
         rows.append(
             [
