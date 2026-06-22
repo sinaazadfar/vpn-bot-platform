@@ -117,6 +117,12 @@ class ExternalTemplateSyncResult:
 
 
 @dataclass(frozen=True)
+class BuiltInExternalTemplate:
+    template: ExternalBotTemplate
+    existed: bool
+
+
+@dataclass(frozen=True)
 class BroadcastDraft:
     broadcast: Broadcast
     recipients: list[BroadcastRecipient]
@@ -143,6 +149,8 @@ class PanelTestResult:
 
 
 class ResellerService:
+    SIMPLE_SELLER_TEMPLATE_KEY = "simple-seller"
+
     def __init__(
         self,
         secret_box: SecretBox,
@@ -324,6 +332,48 @@ class ResellerService:
             )
             await session.flush()
             return template
+
+    async def ensure_simple_seller_template(
+        self,
+        *,
+        actor_telegram_id: int | None = None,
+    ) -> BuiltInExternalTemplate:
+        local_path = self._default_simple_seller_path()
+        async with session_scope() as session:
+            existing = await get_external_bot_template_by_key(
+                session,
+                key=self.SIMPLE_SELLER_TEMPLATE_KEY,
+            )
+            if existing is not None:
+                return BuiltInExternalTemplate(template=existing, existed=True)
+            template = await create_external_bot_template(
+                session,
+                key=self.SIMPLE_SELLER_TEMPLATE_KEY,
+                name="Simple Seller",
+                repo_url="local://simple-seller",
+                ref="local",
+                local_path=local_path,
+                license_name="internal",
+                runtime_adapter="simple-seller-manual",
+            )
+            await record_audit_log(
+                session,
+                action="external_bot_template.register_builtin",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="external_bot_template",
+                target_id=template.id,
+                metadata={
+                    "key": template.key,
+                    "name": template.name,
+                    "repo_url": template.repo_url,
+                    "ref": template.ref,
+                    "local_path": template.local_path,
+                    "runtime_adapter": template.runtime_adapter,
+                },
+            )
+            await session.flush()
+            return BuiltInExternalTemplate(template=template, existed=False)
 
     async def list_external_bot_templates(self) -> list[ExternalBotTemplate]:
         async with session_scope() as session:
@@ -508,6 +558,13 @@ class ResellerService:
     async def list_seller_bots(self) -> list[SellerBot]:
         async with session_scope() as session:
             return await list_seller_bots(session)
+
+    @staticmethod
+    def _default_simple_seller_path() -> str:
+        sibling_path = Path.cwd().parent / "simple-seller"
+        if sibling_path.exists():
+            return str(sibling_path)
+        return "../simple-seller"
 
     async def set_seller_bot_volume(
         self,

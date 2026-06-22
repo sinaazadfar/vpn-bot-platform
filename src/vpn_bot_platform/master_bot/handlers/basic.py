@@ -584,6 +584,22 @@ async def master_menu_callback(
                 _external_template_text(template),
                 reply_markup=external_template_actions(template.id),
             )
+    elif action.action == "ext_simple_seller":
+        result = await reseller_service.ensure_simple_seller_template(
+            actor_telegram_id=callback.from_user.id,
+        )
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    "Simple Seller template is ready."
+                    if not result.existed
+                    else "Simple Seller template already exists.",
+                    "",
+                    _external_template_text(result.template),
+                ]
+            ),
+            reply_markup=external_template_actions(result.template.id),
+        )
     elif action.action == "ext_sync":
         if not action.value:
             await callback.answer("Template is missing.", show_alert=True)
@@ -1659,8 +1675,18 @@ async def master_menu_callback(
     elif action.action == "guide_add_seller_bot":
         await _edit_add_seller_bot_start(callback, state, reseller_service)
     elif action.action == "sellerbot_type":
-        if action.value not in {"native", "external"}:
+        if action.value not in {"native", "external", "simple_seller"}:
             await callback.answer("Invalid bot type.", show_alert=True)
+            return
+        if action.value == "simple_seller":
+            result = await reseller_service.ensure_simple_seller_template(
+                actor_telegram_id=callback.from_user.id,
+            )
+            await state.update_data(
+                sellerbot_runtime_type="external",
+                sellerbot_template_key=result.template.key,
+            )
+            await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
             return
         if action.value == "external":
             templates = await reseller_service.list_external_bot_templates()
@@ -3219,6 +3245,28 @@ async def add_external_template(
     await message.answer(_external_template_text(template), reply_markup=external_template_actions(template.id))
 
 
+@router.message(Command("add_simple_seller_template"))
+async def add_simple_seller_template(
+    message: Message,
+    reseller_service: ResellerService,
+) -> None:
+    result = await reseller_service.ensure_simple_seller_template(
+        actor_telegram_id=message.from_user.id if message.from_user else None,
+    )
+    await message.answer(
+        "\n".join(
+            [
+                "Simple Seller template registered."
+                if not result.existed
+                else "Simple Seller template already exists.",
+                "",
+                _external_template_text(result.template),
+            ]
+        ),
+        reply_markup=external_template_actions(result.template.id),
+    )
+
+
 @router.message(Command("list_external_templates"))
 async def list_external_templates(message: Message, reseller_service: ResellerService) -> None:
     await message.answer(
@@ -4155,6 +4203,7 @@ def _master_action_guide_text(action: str) -> str:
             "Add External Template",
             "Register a GitHub seller bot as a managed template. This does not run it yet.",
             [
+                "/add_simple_seller_template",
                 '/add_external_template marzbot-free "Marzbot Free" '
                 "https://github.com/govfvck/Marzbot-free main "
                 "external/seller-bots/marzbot-free AGPL-3.0 manual"

@@ -174,6 +174,7 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
                 ("افزودن ربات خارجی", build_callback("m", "guide_add_external_seller_bot")),
             ]
         )
+        rows.append([("Simple Seller", build_callback("m", "ext_simple_seller"))])
     elif section == "panels":
         rows.append(
             [
@@ -325,6 +326,7 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
 
 def seller_bot_type_menu(*, has_external_templates: bool) -> InlineKeyboardMarkup:
     rows = [[("ربات فروشنده داخلی", build_callback("m", "sellerbot_type", "native"))]]
+    rows.append([("Simple Seller", build_callback("m", "sellerbot_type", "simple_seller"))])
     if has_external_templates:
         rows.append([("ربات با قالب خارجی", build_callback("m", "sellerbot_type", "external"))])
     rows.append([("انصراف", build_callback("m", "sellerbot_cancel")), ("خانه", build_callback("m", "home"))])

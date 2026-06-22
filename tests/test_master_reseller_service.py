@@ -63,6 +63,10 @@ async def test_register_reseller_and_seller_bot() -> None:
             runtime_adapter="manual",
             actor_telegram_id=999,
         )
+        simple_seller_template = await service.ensure_simple_seller_template(actor_telegram_id=999)
+        existing_simple_seller_template = await service.ensure_simple_seller_template(
+            actor_telegram_id=999,
+        )
         external_seller_bot, external_assignment = await service.register_external_seller_bot_with_panel(
             reseller_telegram_id=12345,
             bot_name="external-test",
@@ -70,6 +74,13 @@ async def test_register_reseller_and_seller_bot() -> None:
             template_id_or_key="marzbot-free",
             panel_id=panel.id,
             marzban_admin_username="external_admin",
+            actor_telegram_id=999,
+        )
+        simple_seller_bot = await service.register_external_seller_bot(
+            reseller_telegram_id=12345,
+            bot_name="simple-seller-test",
+            bot_token="654:secret",
+            template_id_or_key="simple-seller",
             actor_telegram_id=999,
         )
         templates = await service.list_external_bot_templates()
@@ -103,9 +114,18 @@ async def test_register_reseller_and_seller_bot() -> None:
     assert renamed.display_name == "Renamed Reseller"
     assert disabled.status == "disabled"
     assert template.key == "marzbot-free"
-    assert templates[0].id == template.id
+    assert simple_seller_template.existed is False
+    assert simple_seller_template.template.key == "simple-seller"
+    assert simple_seller_template.template.name == "Simple Seller"
+    assert simple_seller_template.template.repo_url == "local://simple-seller"
+    assert simple_seller_template.template.runtime_adapter == "simple-seller-manual"
+    assert existing_simple_seller_template.existed is True
+    assert existing_simple_seller_template.template.id == simple_seller_template.template.id
+    assert {template.key for template in templates} == {"marzbot-free", "simple-seller"}
     assert external_seller_bot.external_template_id == template.id
     assert external_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
+    assert simple_seller_bot.external_template_id == simple_seller_template.template.id
+    assert simple_seller_bot.runtime_type == SellerBotRuntimeType.EXTERNAL_TEMPLATE.value
     assert external_assignment.panel_id == panel.id
     assert external_assignment.marzban_admin_username == "external_admin"
     assert default_quota.limit_gb == 0

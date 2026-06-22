@@ -225,6 +225,13 @@ def test_confirm_keyboard_has_confirm_and_cancel() -> None:
     assert callbacks == ["m:ok:123", "m:cancel:123"]
 
 
+def test_seller_bot_type_menu_has_simple_seller_button() -> None:
+    keyboard = seller_bot_type_menu(has_external_templates=False)
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert "m:sellerbot_type:simple_seller" in callbacks
+
+
 def test_pagination_helper_clamps_pages() -> None:
     page = paginate(list(range(25)), page=9, per_page=10)
 

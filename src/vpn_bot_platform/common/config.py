@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     trial_duration_days: int = Field(default=1, alias="TRIAL_DURATION_DAYS")
     trial_data_limit_gb: int = Field(default=1, alias="TRIAL_DATA_LIMIT_GB")
     bot_rate_limit_per_minute: int = Field(default=20, alias="BOT_RATE_LIMIT_PER_MINUTE")
+    admin_rate_limit_per_minute: int = Field(default=10, alias="ADMIN_RATE_LIMIT_PER_MINUTE")
+    admin_sensitive_rate_limit_per_minute: int = Field(
+        default=5,
+        alias="ADMIN_SENSITIVE_RATE_LIMIT_PER_MINUTE",
+    )
 
 
 @lru_cache

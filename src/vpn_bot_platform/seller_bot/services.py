@@ -823,6 +823,13 @@ class SellerContextService:
                 raise ValueError("seller_bot_not_found")
             self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
 
+    async def is_reseller_admin(self, *, telegram_id: int) -> bool:
+        try:
+            await self.ensure_reseller_admin(admin_telegram_id=telegram_id)
+        except (PermissionError, ValueError):
+            return False
+        return True
+
     async def get_seller_bot_quota(self, *, admin_telegram_id: int) -> SellerBotQuota:
         async with session_scope() as session:
             seller_bot = await get_seller_bot_with_reseller(
