@@ -1,74 +1,51 @@
-# VPN Bot Platform
+# VPN Seller Bot
 
-New Python Telegram bot platform for a VPN reseller business with three access levels:
+Python Telegram seller bot for VPN subscriptions backed by Marzban.
 
-- Super user: owns the platform and all infrastructure.
-- Admin/reseller: sells through a dedicated bot and can manage only their own customers.
-- Buyer: buys, renews, upgrades, and receives VPN subscriptions from a reseller bot.
-
-The target architecture uses two bot runtimes:
-
-- `master_bot`: one central bot for the super user.
-- `seller_bot`: one reusable runtime that can be launched many times, once per reseller token.
-
-## Source Reuse
-
-Existing folders reviewed:
-
-- `panel_configs`: current two-bot prototype. Reuse its manager/seller separation, Docker seller spawning, encrypted credentials, Postgres recommendation, migrations, and Marzban client ideas.
-- `my-servers`: server inventory and Marzban/admin-controller deployment notes. Reuse only non-secret deployment topology and Marzban endpoint patterns.
-
-Do not copy real tokens, SSH keys, passwords, or production `.env` values into this project.
-
-## First Milestone
-
-Build a deployable foundation:
-
-- Fast async Telegram bots using `aiogram`.
-- Postgres shared database.
-- Docker Compose for master bot, worker services, and seller bot containers.
-- Master bot can register resellers and launch seller bot containers.
-- Seller bot can show plans and create Marzban users after manual payment approval.
-- GitHub Actions deploys to the selected server after push.
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the staged work plan.
-
-## Local Verification
+## Setup
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check src tests
-.\.venv\Scripts\python.exe -m pytest tests
-.\.venv\Scripts\python.exe -m alembic heads
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-Docker image builds require Docker Desktop or a Docker daemon:
+Edit `.env`, then run:
 
 ```powershell
-docker build -f deploy\Dockerfile -t vpn-bot-platform:local .
+python -m bot
 ```
 
-## Production Target
-
-Production deployment target is `server-04`.
-
-SSH alias:
+## Tests
 
 ```powershell
-ssh server-04
+pytest
 ```
 
-Default app path:
+## Master Bot
+
+The master bot from `vpn-bot-platform` is included under `src/vpn_bot_platform`.
+
+```powershell
+pip install -e ".[dev]"
+python -m vpn_bot_platform.master_bot.main
+```
+
+For the platform database, set `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
+`DATABASE_URL`, `FERNET_KEY`, `MASTER_BOT_TOKEN`, and `SUPER_USER_TELEGRAM_ID` in
+`.env`. For local Docker Compose, start Postgres and run migrations with:
+
+```powershell
+docker compose up -d postgres
+alembic upgrade head
+```
+
+Create a seller bot, reseller/admin record, and Marzban panel from the master bot:
 
 ```text
-/opt/vpn-bot-platform
+/create_seller_bot <admin_telegram_id> <seller_bot_name> <seller_bot_token> <panel_name> <panel_base_url> <marzban_username> <marzban_password> [marzban_admin_username] [volume_limit_gb]
 ```
 
-GitHub Actions deployment expects these secrets:
-
-- `DEPLOY_HOST`
-- `DEPLOY_USER`
-- `DEPLOY_SSH_KEY`
-- `DEPLOY_APP_DIR`
-- `DEPLOY_PORT` (optional, defaults to `22`)
-
-See [docs/DEPLOY_SERVER_04.md](docs/DEPLOY_SERVER_04.md) for first-time setup, manual deploy, rolling seller restarts, and Postgres backups.
+Docker/CI deploy assets are in `deploy/`, `docker-compose.yml`, and
+`.github/workflows/ci-cd.yml`.

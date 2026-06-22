@@ -33,9 +33,10 @@ class UiState(StatesGroup):
     waiting_wallet_amount = State()
     waiting_rejection_reason = State()
     waiting_admin_support_contact = State()
-    waiting_admin_plan_monthly_price = State()
-    waiting_admin_plan_three_month_price = State()
-    waiting_admin_plan_discount_price = State()
+    waiting_admin_plan_name = State()
+    waiting_admin_plan_gb = State()
+    waiting_admin_plan_days = State()
+    waiting_admin_plan_price = State()
     waiting_config_name = State()
     waiting_ticket_subject = State()
     waiting_ticket_body = State()
@@ -110,9 +111,15 @@ async def notify_buyer(target: Message | CallbackQuery, buyer_telegram_id: int, 
 def contact_url(contact: int | str | None) -> str | None:
     if isinstance(contact, int):
         return f"tg://user?id={contact}"
-    if isinstance(contact, str) and contact.startswith("@"):
-        return f"https://t.me/{contact.removeprefix('@')}"
+    if isinstance(contact, str):
+        username = contact.strip().removeprefix("@")
+        if username:
+            return f"https://t.me/{username}"
     return None
+
+
+def support_contact_url(contact: int | str | None) -> str | None:
+    return contact_url(contact)
 
 
 def wallet_charge_user_actions(contacts: object | None = None) -> InlineKeyboardMarkup:
@@ -347,16 +354,6 @@ def list_kb(
     tools.append(("خانه", "home"))
     buttons.append(tools)
     return kb(buttons)
-
-
-def support_contact_url(contact: int | str | None) -> str | None:
-    if isinstance(contact, int):
-        return f"tg://user?id={contact}"
-    if isinstance(contact, str):
-        username = contact.strip().removeprefix("@")
-        if username:
-            return f"https://t.me/{username}"
-    return None
 
 
 async def show_home(
@@ -1318,12 +1315,7 @@ async def show_tickets(
         page_prefix="tickets",
         search="buyer_tickets" if len(tickets) > SEARCH_THRESHOLD else None,
     ).inline_keyboard
-    support_url = support_contact_url(
-        await seller_context.get_support_contact_for_buyer(buyer_telegram_id=user_id)
-    )
-    if support_url:
-        buttons.insert(0, [InlineKeyboardButton(text="Support PV", url=support_url)])
-    buttons.insert(1 if support_url else 0, [InlineKeyboardButton(text="ثبت تیکت جدید", callback_data="ticket:new")])
+    buttons.insert(0, [InlineKeyboardButton(text="ثبت تیکت جدید", callback_data="ticket:new")])
     await render(target, "تیکت‌های شما:", InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
@@ -1633,7 +1625,7 @@ async def admin_plan_detail(callback: CallbackQuery, seller_context: SellerConte
         return
     rows = [[("بازگشت", "admin:plans:0"), ("پنل ادمین", "admin")]]
     if plan.reseller_id:
-        rows.insert(0, [("Regenerate Pricing", "admin:plan:add"), ("حذف", f"admin:plan:delete:confirm:{plan.id}")])
+        rows.insert(0, [("ویرایش", f"admin:plan:edit:{plan.id}"), ("حذف", f"admin:plan:delete:confirm:{plan.id}")])
     else:
         rows.insert(0, [("افزودن پلن اختصاصی", "admin:plan:add")])
     await render(
@@ -1653,18 +1645,9 @@ async def admin_plan_detail(callback: CallbackQuery, seller_context: SellerConte
 
 @router.callback_query(F.data == "admin:plan:add")
 async def admin_plan_add(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(UiState.waiting_admin_plan_monthly_price)
-    await render(
-        callback,
-        "\n".join(
-            [
-                "Send the regular price per GB for 1 month.",
-                "Example: 12000",
-                "This will replace current custom seller plans with generated GB plans.",
-                "For cancel, send /cancel.",
-            ]
-        ),
-    )
+    await state.set_state(UiState.waiting_admin_plan_name)
+    await state.update_data(admin_plan_mode="create")
+    await render(callback, "نام پلن را ارسال کنید.\nبرای لغو، /cancel را بزنید.")
 
 
 @router.callback_query(F.data.startswith("admin:plan:edit:"))
@@ -1677,100 +1660,86 @@ async def admin_plan_edit(callback: CallbackQuery, seller_context: SellerContext
     except (PermissionError, ValueError):
         await render(callback, "این پلن قابل ویرایش نیست.", kb([[("بازگشت", "admin:plans:0")]]))
         return
-    await state.clear()
-    await render(
-        callback,
-        "\n".join(
-            [
-                "Plan editing is now managed by price per GB.",
-                f"Current plan: {plan.name}",
-                "Use Add Plan to regenerate the 1-month, 3-month, and discounted 3-month plans.",
-            ]
-        ),
-        kb([[("Add Plan Pricing", "admin:plan:add"), ("Back", f"adminplan:{plan.id}")]]),
-    )
+    await state.set_state(UiState.waiting_admin_plan_name)
+    await state.update_data(admin_plan_mode="edit", admin_plan_id=plan.id)
+    await render(callback, f"نام جدید پلن را ارسال کنید.\nنام فعلی: {plan.name}\nبرای لغو، /cancel را بزنید.")
 
 
-@router.message(UiState.waiting_admin_plan_discount_price, F.text)
-async def admin_plan_discount_price_text(
+@router.message(UiState.waiting_admin_plan_name, F.text)
+async def admin_plan_name_text(message: Message, state: FSMContext) -> None:
+    name = (message.text or "").strip()
+    if len(name) < 2:
+        await render(message, "نام پلن باید حداقل ۲ کاراکتر باشد.")
+        return
+    await state.update_data(admin_plan_name=name)
+    await state.set_state(UiState.waiting_admin_plan_gb)
+    await render(message, "حجم پلن را به گیگابایت ارسال کنید. فقط عدد مثبت.")
+
+
+@router.message(UiState.waiting_admin_plan_gb, F.text)
+async def admin_plan_gb_text(message: Message, state: FSMContext) -> None:
+    data_limit_gb = parse_positive_int(message.text or "")
+    if data_limit_gb is None:
+        await render(message, "حجم معتبر نیست. فقط عدد مثبت ارسال کنید.")
+        return
+    await state.update_data(admin_plan_gb=data_limit_gb)
+    await state.set_state(UiState.waiting_admin_plan_days)
+    await render(message, "مدت پلن را به روز ارسال کنید. فقط عدد مثبت.")
+
+
+@router.message(UiState.waiting_admin_plan_days, F.text)
+async def admin_plan_days_text(message: Message, state: FSMContext) -> None:
+    duration_days = parse_positive_int(message.text or "")
+    if duration_days is None:
+        await render(message, "مدت معتبر نیست. فقط عدد مثبت ارسال کنید.")
+        return
+    await state.update_data(admin_plan_days=duration_days)
+    await state.set_state(UiState.waiting_admin_plan_price)
+    await render(message, "قیمت پلن را به تومان ارسال کنید. فقط عدد مثبت.")
+
+
+@router.message(UiState.waiting_admin_plan_price, F.text)
+async def admin_plan_price_text(
     message: Message,
     seller_context: SellerContextService,
     state: FSMContext,
 ) -> None:
     if message.from_user is None:
         return
-    discount_price_per_gb = parse_positive_float(message.text or "")
-    if discount_price_per_gb is None:
-        await render(message, "Discount price per GB is invalid. Send a positive number.")
+    price = parse_positive_float(message.text or "")
+    if price is None:
+        await render(message, "قیمت معتبر نیست. فقط عدد مثبت ارسال کنید.")
         return
     data = await state.get_data()
     try:
-        plans = await seller_context.replace_admin_price_per_gb_plans(
-            admin_telegram_id=message.from_user.id,
-            volumes_gb=POPULAR_VOLUME_GB,
-            monthly_price_per_gb=float(data["admin_monthly_price_per_gb"]),
-            three_month_price_per_gb=float(data["admin_three_month_price_per_gb"]),
-            discount_price_per_gb=discount_price_per_gb,
-        )
+        if data.get("admin_plan_mode") == "edit":
+            plan = await seller_context.update_admin_plan(
+                admin_telegram_id=message.from_user.id,
+                plan_id=str(data["admin_plan_id"]),
+                name=str(data["admin_plan_name"]),
+                data_limit_gb=int(data["admin_plan_gb"]),
+                duration_days=int(data["admin_plan_days"]),
+                price=price,
+            )
+            action_text = "ویرایش شد"
+        else:
+            plan = await seller_context.create_admin_plan(
+                admin_telegram_id=message.from_user.id,
+                name=str(data["admin_plan_name"]),
+                data_limit_gb=int(data["admin_plan_gb"]),
+                duration_days=int(data["admin_plan_days"]),
+                price=price,
+            )
+            action_text = "ساخته شد"
     except (PermissionError, ValueError):
         await state.clear()
-        await render(message, "Plan pricing was not saved.", kb([[("Plans", "admin:plans:0"), ("Admin", "admin")]]))
+        await render(message, "ثبت پلن انجام نشد.", kb([[("پلن‌های فروش", "admin:plans:0"), ("پنل ادمین", "admin")]]))
         return
     await state.clear()
     await render(
         message,
-        "\n".join(
-            [
-                "Plan pricing saved.",
-                f"Created plans: {len(plans)}",
-                f"Volumes: {', '.join(str(volume) for volume in POPULAR_VOLUME_GB)} GB",
-                f"1-month price/GB: {money(float(data['admin_monthly_price_per_gb']))}",
-                f"3-month price/GB: {money(float(data['admin_three_month_price_per_gb']))}",
-                f"Discount 3-month price/GB: {money(discount_price_per_gb)}",
-            ]
-        ),
-        kb([[("Plans", "admin:plans:0"), ("Admin", "admin")]]),
-    )
-
-
-@router.message(UiState.waiting_admin_plan_three_month_price, F.text)
-async def admin_plan_three_month_price_text(message: Message, state: FSMContext) -> None:
-    three_month_price_per_gb = parse_positive_float(message.text or "")
-    if three_month_price_per_gb is None:
-        await render(message, "3-month price per GB is invalid. Send a positive number.")
-        return
-    await state.update_data(admin_three_month_price_per_gb=three_month_price_per_gb)
-    await state.set_state(UiState.waiting_admin_plan_discount_price)
-    await render(
-        message,
-        "\n".join(
-            [
-                "Send the discounted price per GB for 3-month plans.",
-                "Example: 9000",
-            ]
-        ),
-    )
-
-
-@router.message(UiState.waiting_admin_plan_monthly_price, F.text)
-async def admin_plan_monthly_price_text(
-    message: Message,
-    state: FSMContext,
-) -> None:
-    monthly_price_per_gb = parse_positive_float(message.text or "")
-    if monthly_price_per_gb is None:
-        await render(message, "Regular price per GB is invalid. Send a positive number.")
-        return
-    await state.update_data(admin_monthly_price_per_gb=monthly_price_per_gb)
-    await state.set_state(UiState.waiting_admin_plan_three_month_price)
-    await render(
-        message,
-        "\n".join(
-            [
-                "Send the regular price per GB for 3-month plans.",
-                "Example: 10000",
-            ]
-        ),
+        f"پلن {action_text}.\n{plan.name} | {money(plan.price)} | {plan.duration_days} روز | {traffic(plan)}",
+        kb([[("پلن‌های فروش", "admin:plans:0"), ("پنل ادمین", "admin")]]),
     )
 
 

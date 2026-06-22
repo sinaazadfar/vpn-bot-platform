@@ -5,41 +5,25 @@ from cryptography.fernet import Fernet
 
 from vpn_bot_platform.common.crypto import SecretBox
 from vpn_bot_platform.common.db import create_all, dispose_engine, init_engine
-from vpn_bot_platform.common.models import ResellerStatus, SellerBotRuntimeType
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
 
 
 @pytest.mark.asyncio
-async def test_register_reseller_and_seller_bot() -> None:
+async def test_provision_seller_bot_with_password_panel() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
 
     try:
-        registered = await service.register_reseller(
-            telegram_id=12345,
-            display_name="Test Reseller",
-        )
-        seller_bot = await service.register_seller_bot(
+        result = await service.provision_seller_bot_with_password_panel(
             reseller_telegram_id=12345,
-            bot_name="test_bot",
+            reseller_display_name="Admin 12345",
+            bot_name="seller-one",
             bot_token="123:secret",
-        )
-        panel = await service.register_marzban_panel(
-            name="main-panel",
-            base_url="https://panel.example.com/",
-            token="panel-token",
-        )
-        assignment = await service.assign_panel(
-            reseller_telegram_id=12345,
-            panel_id=panel.id,
-            marzban_admin_username="reseller_admin",
-        )
-        seller_bot_with_panel, seller_bot_assignment = await service.register_seller_bot_with_panel(
-            reseller_telegram_id=12345,
-            bot_name="test-bot-with-panel",
-            bot_token="789:secret",
-            panel_id=panel.id,
+            panel_name="main-panel",
+            panel_base_url="https://panel.example.com/",
+            panel_username="root",
+            panel_password="secret",
             marzban_admin_username="seller_admin",
             actor_telegram_id=999,
         )
@@ -95,7 +79,6 @@ async def test_register_reseller_and_seller_bot() -> None:
             added_gb=50,
             actor_telegram_id=999,
         )
-        audit_logs = await service.recent_audit_logs(limit=10)
     finally:
         await dispose_engine()
 

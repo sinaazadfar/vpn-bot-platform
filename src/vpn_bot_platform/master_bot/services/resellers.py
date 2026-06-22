@@ -95,6 +95,15 @@ class RegisteredReseller:
 
 
 @dataclass(frozen=True)
+class SellerBotProvisionResult:
+    reseller: Reseller
+    reseller_existed: bool
+    panel: MarzbanPanel
+    seller_bot: SellerBot
+    assignment: ResellerPanelAssignment
+
+
+@dataclass(frozen=True)
 class SellerRuntimeStatus:
     seller_bot: SellerBot
     health: str
@@ -284,6 +293,104 @@ class ResellerService:
             )
             await session.flush()
             return seller_bot, assignment
+
+    async def provision_seller_bot_with_password_panel(
+        self,
+        *,
+        reseller_telegram_id: int,
+        reseller_display_name: str,
+        bot_name: str,
+        bot_token: str,
+        panel_name: str,
+        panel_base_url: str,
+        panel_username: str,
+        panel_password: str,
+        marzban_admin_username: str | None = None,
+        volume_limit_gb: int | None = 0,
+        actor_telegram_id: int | None = None,
+    ) -> SellerBotProvisionResult:
+        if not panel_username or not panel_password:
+            raise ValueError("panel_credentials_required")
+        async with session_scope() as session:
+            await upsert_telegram_user(
+                session,
+                telegram_id=reseller_telegram_id,
+                first_name=reseller_display_name,
+            )
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            reseller_existed = reseller is not None
+            if reseller is None:
+                reseller = await create_reseller(
+                    session,
+                    telegram_user_id=reseller_telegram_id,
+                    display_name=reseller_display_name,
+                )
+                await record_audit_log(
+                    session,
+                    action="reseller.create",
+                    actor_type=AuditActorType.SUPER_USER,
+                    actor_telegram_id=actor_telegram_id,
+                    reseller_id=reseller.id,
+                    target_type="reseller",
+                    target_id=reseller.id,
+                    metadata={
+                        "telegram_user_id": reseller_telegram_id,
+                        "display_name": reseller_display_name,
+                    },
+                )
+                await session.flush()
+            panel = await create_marzban_panel(
+                session,
+                name=panel_name,
+                base_url=panel_base_url,
+                username=panel_username,
+                password=panel_password,
+                secret_box=self.secret_box,
+            )
+            await session.flush()
+            seller_bot = await create_seller_bot(
+                session,
+                reseller_id=reseller.id,
+                name=bot_name,
+                token=bot_token,
+                secret_box=self.secret_box,
+                volume_limit_gb=volume_limit_gb,
+            )
+            await session.flush()
+            assignment = await assign_panel_to_reseller(
+                session,
+                reseller_id=reseller.id,
+                panel_id=panel.id,
+                marzban_admin_username=marzban_admin_username or panel_username,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.provision_with_panel",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "bot_name": bot_name,
+                    "panel_id": panel.id,
+                    "panel_name": panel_name,
+                    "marzban_admin_username": assignment.marzban_admin_username,
+                    "volume_limit_gb": volume_limit_gb,
+                },
+            )
+            await session.flush()
+            return SellerBotProvisionResult(
+                reseller=reseller,
+                reseller_existed=reseller_existed,
+                panel=panel,
+                seller_bot=seller_bot,
+                assignment=assignment,
+            )
 
     async def register_external_bot_template(
         self,

@@ -3210,6 +3210,63 @@ async def add_seller_bot(
     )
 
 
+@router.message(Command("create_seller_bot"))
+async def create_seller_bot(
+    message: Message,
+    command: CommandObject,
+    reseller_service: ResellerService,
+) -> None:
+    args = _parse_args(command.args)
+    if len(args) not in {7, 8, 9} or not args[0].isdigit():
+        await message.answer(
+            "Usage: /create_seller_bot <admin_telegram_id> <seller_bot_name> "
+            "<seller_bot_token> <panel_name> <panel_base_url> <marzban_username> "
+            "<marzban_password> [marzban_admin_username] [volume_limit_gb]"
+        )
+        return
+    volume_limit_gb = 0
+    if len(args) == 9:
+        volume_limit_gb = _parse_non_negative_int(args[8])
+        if volume_limit_gb is None:
+            await message.answer("volume_limit_gb must be 0 or a positive whole number.")
+            return
+    try:
+        result = await reseller_service.provision_seller_bot_with_password_panel(
+            reseller_telegram_id=int(args[0]),
+            reseller_display_name=f"Admin {args[0]}",
+            bot_name=args[1].strip(),
+            bot_token=args[2].strip(),
+            panel_name=args[3].strip(),
+            panel_base_url=args[4].strip(),
+            panel_username=args[5].strip(),
+            panel_password=args[6].strip(),
+            marzban_admin_username=args[7].strip() if len(args) >= 8 else None,
+            volume_limit_gb=volume_limit_gb,
+            actor_telegram_id=message.from_user.id if message.from_user else None,
+        )
+    except ValueError as exc:
+        if str(exc) == "panel_credentials_required":
+            await message.answer("Marzban username and password are required.")
+            return
+        raise
+
+    await message.answer(
+        "\n".join(
+            [
+                "Seller bot created.",
+                f"Admin Telegram ID: {result.reseller.telegram_user_id}",
+                f"Admin record: {'existing' if result.reseller_existed else 'created'}",
+                f"Seller Bot ID: {result.seller_bot.id}",
+                f"Seller Bot Name: {result.seller_bot.name}",
+                f"Panel ID: {result.panel.id}",
+                f"Panel Name: {result.panel.name}",
+                f"Marzban admin: {result.assignment.marzban_admin_username or '-'}",
+                f"Volume limit GB: {result.seller_bot.volume_limit_gb}",
+            ]
+        )
+    )
+
+
 @router.message(Command("add_external_template"))
 async def add_external_template(
     message: Message,

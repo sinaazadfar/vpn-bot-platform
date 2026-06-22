@@ -9,8 +9,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install
@@ -18,7 +18,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Lint
-        run: ruff check src tests
+        run: ruff check bot src tests
       - name: Test
         run: pytest tests
       - name: Alembic heads
@@ -28,7 +28,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - name: Build app image
         run: docker build -f deploy/Dockerfile -t vpn-bot-platform:${{ github.sha }} .
 
@@ -44,11 +44,32 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+          APP_ENV: ${{ secrets.APP_ENV }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          FERNET_KEY: ${{ secrets.FERNET_KEY }}
+          MASTER_BOT_TOKEN: ${{ secrets.MASTER_BOT_TOKEN }}
+          SUPER_USER_TELEGRAM_ID: ${{ secrets.SUPER_USER_TELEGRAM_ID }}
+          SELLER_RUNTIME_IMAGE: ${{ secrets.SELLER_RUNTIME_IMAGE }}
+          SELLER_DOCKER_NETWORK: ${{ secrets.SELLER_DOCKER_NETWORK }}
+          SELLER_CONTAINER_LABEL_PREFIX: ${{ secrets.SELLER_CONTAINER_LABEL_PREFIX }}
+          AUTO_START_SELLER_ON_CREATE: ${{ secrets.AUTO_START_SELLER_ON_CREATE }}
+          MARZBAN_TOKEN_PATH: ${{ secrets.MARZBAN_TOKEN_PATH }}
+          API_TIMEOUT_SECONDS: ${{ secrets.API_TIMEOUT_SECONDS }}
+          TELEGRAM_API_IP: ${{ secrets.TELEGRAM_API_IP }}
+          CARD_TO_CARD_INSTRUCTIONS: ${{ secrets.CARD_TO_CARD_INSTRUCTIONS }}
+          MARZBAN_DEFAULT_PROXIES_JSON: ${{ secrets.MARZBAN_DEFAULT_PROXIES_JSON }}
+          TRIAL_ENABLED: ${{ secrets.TRIAL_ENABLED }}
+          TRIAL_DURATION_DAYS: ${{ secrets.TRIAL_DURATION_DAYS }}
+          TRIAL_DATA_LIMIT_GB: ${{ secrets.TRIAL_DATA_LIMIT_GB }}
+          BOT_RATE_LIMIT_PER_MINUTE: ${{ secrets.BOT_RATE_LIMIT_PER_MINUTE }}
         run: |
           set -eu
           DEPLOY_PORT="${DEPLOY_PORT:-22}"
           missing=""
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_APP_DIR; do
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_APP_DIR POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB FERNET_KEY MASTER_BOT_TOKEN SUPER_USER_TELEGRAM_ID; do
             eval "value=\${$name:-}"
             if [ -z "$value" ]; then
               missing="$missing $name"
@@ -62,5 +83,51 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+          APP_ENV="${APP_ENV:-production}"
+          LOG_LEVEL="${LOG_LEVEL:-INFO}"
+          SELLER_RUNTIME_IMAGE="${SELLER_RUNTIME_IMAGE:-vpn-bot-platform-seller:latest}"
+          SELLER_DOCKER_NETWORK="${SELLER_DOCKER_NETWORK:-vpn-bot-platform_default}"
+          SELLER_CONTAINER_LABEL_PREFIX="${SELLER_CONTAINER_LABEL_PREFIX:-vpn-bot-platform}"
+          AUTO_START_SELLER_ON_CREATE="${AUTO_START_SELLER_ON_CREATE:-true}"
+          MARZBAN_TOKEN_PATH="${MARZBAN_TOKEN_PATH:-/api/admin/token}"
+          API_TIMEOUT_SECONDS="${API_TIMEOUT_SECONDS:-20}"
+          TELEGRAM_API_IP="${TELEGRAM_API_IP:-149.154.167.220}"
+          CARD_TO_CARD_INSTRUCTIONS="${CARD_TO_CARD_INSTRUCTIONS:-Send payment receipt to reseller support for approval.}"
+          MARZBAN_DEFAULT_PROXIES_JSON="${MARZBAN_DEFAULT_PROXIES_JSON:-{\"vless\": {}}}"
+          TRIAL_ENABLED="${TRIAL_ENABLED:-true}"
+          TRIAL_DURATION_DAYS="${TRIAL_DURATION_DAYS:-1}"
+          TRIAL_DATA_LIMIT_GB="${TRIAL_DATA_LIMIT_GB:-1}"
+          BOT_RATE_LIMIT_PER_MINUTE="${BOT_RATE_LIMIT_PER_MINUTE:-20}"
+
+          cat > production.env <<EOF
+          APP_ENV=${APP_ENV}
+          LOG_LEVEL=${LOG_LEVEL}
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+          DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+          FERNET_KEY=${FERNET_KEY}
+          MASTER_BOT_TOKEN=${MASTER_BOT_TOKEN}
+          SUPER_USER_TELEGRAM_ID=${SUPER_USER_TELEGRAM_ID}
+          SELLER_RUNTIME_IMAGE=${SELLER_RUNTIME_IMAGE}
+          SELLER_DOCKER_NETWORK=${SELLER_DOCKER_NETWORK}
+          SELLER_CONTAINER_LABEL_PREFIX=${SELLER_CONTAINER_LABEL_PREFIX}
+          AUTO_START_SELLER_ON_CREATE=${AUTO_START_SELLER_ON_CREATE}
+          MARZBAN_TOKEN_PATH=${MARZBAN_TOKEN_PATH}
+          API_TIMEOUT_SECONDS=${API_TIMEOUT_SECONDS}
+          TELEGRAM_API_IP=${TELEGRAM_API_IP}
+          CARD_TO_CARD_INSTRUCTIONS=${CARD_TO_CARD_INSTRUCTIONS}
+          MARZBAN_DEFAULT_PROXIES_JSON=${MARZBAN_DEFAULT_PROXIES_JSON}
+          TRIAL_ENABLED=${TRIAL_ENABLED}
+          TRIAL_DURATION_DAYS=${TRIAL_DURATION_DAYS}
+          TRIAL_DATA_LIMIT_GB=${TRIAL_DATA_LIMIT_GB}
+          BOT_RATE_LIMIT_PER_MINUTE=${BOT_RATE_LIMIT_PER_MINUTE}
+          EOF
+
+          sed -i 's/^          //' production.env
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" production.env "$DEPLOY_USER@$DEPLOY_HOST:/tmp/vpn-bot-platform.env"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "install -m 600 /tmp/vpn-bot-platform.env '$DEPLOY_APP_DIR/.env' && rm -f /tmp/vpn-bot-platform.env"
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "APP_DIR='$DEPLOY_APP_DIR' DEPLOY_BRANCH='main' sh '$DEPLOY_APP_DIR/deploy/deploy.sh'"
