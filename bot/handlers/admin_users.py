@@ -9,6 +9,7 @@ from bot.admin_users import (
     admin_user_detail_keyboard,
     admin_user_wallet_keyboard,
     admin_users_list_keyboard,
+    notify_wallet_admin_adjustment,
     user_detail_text,
     user_display_name,
     user_subscriptions_text,
@@ -189,12 +190,16 @@ async def user_wallet_quick_add(callback: CallbackQuery, ctx: AppContext) -> Non
         await db.commit()
         user = await repository.get_user(user_id)
         subscription_count = await repository.count_user_subscriptions(user.id)
+    notified = await notify_wallet_admin_adjustment(callback.bot, user, amount=amount)
     await _edit_callback_message(
         callback,
         with_footer(user_detail_text(user=user, subscription_count=subscription_count)),
         reply_markup=admin_user_detail_keyboard(user=user),
     )
-    await callback.answer(f"{amount:,} تومان اضافه شد.")
+    answer = f"{amount:,} تومان اضافه شد."
+    if not notified:
+        answer += " (ارسال پیام به کاربر ناموفق بود.)"
+    await callback.answer(answer)
 
 
 @router.callback_query(F.data.regexp(r"^adm:wallet:\d+:custom$"))
@@ -240,8 +245,10 @@ async def user_wallet_custom_finish(message: Message, state: FSMContext, ctx: Ap
         user = await repository.get_user(user_id)
         subscription_count = await repository.count_user_subscriptions(user.id)
     await state.clear()
+    notified = await notify_wallet_admin_adjustment(message.bot, user, amount=amount)
+    admin_note = "" if notified else "\n\nارسال پیام به کاربر ناموفق بود."
     await message.answer(
-        with_footer(user_detail_text(user=user, subscription_count=subscription_count)),
+        with_footer(user_detail_text(user=user, subscription_count=subscription_count) + admin_note),
         reply_markup=admin_user_detail_keyboard(user=user),
     )
 

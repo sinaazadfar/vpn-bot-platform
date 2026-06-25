@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot import constants as c
+from bot.admin_users import notify_wallet_admin_adjustment
 from bot.context import AppContext
 from bot.db import Repository, normalize_support_username
 from bot.formatting import with_footer
@@ -360,7 +361,10 @@ async def adjust_wallet_command(message: Message, ctx: AppContext) -> None:
             return
         await repository.adjust_wallet(target.id, amount, "admin_adjust")
         await db.commit()
-    await message.answer("موجودی تغییر کرد.", reply_markup=admin_back_keyboard())
+        target = await repository.get_user(target.id)
+    notified = await notify_wallet_admin_adjustment(message.bot, target, amount=amount)
+    note = "موجودی تغییر کرد و به کاربر اطلاع داده شد." if notified else "موجودی تغییر کرد. (ارسال پیام به کاربر ناموفق بود.)"
+    await message.answer(note, reply_markup=admin_back_keyboard())
 
 
 @router.message(F.text == c.ADMIN_PAYMENTS)

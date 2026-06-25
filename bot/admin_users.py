@@ -169,3 +169,43 @@ def admin_user_wallet_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"adm:user:{user_id}")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def wallet_admin_adjustment_user_text(*, amount: int, balance: int) -> str:
+    if amount > 0:
+        return "\n".join(
+            [
+                "💳 <b>شارژ کیف پول</b>",
+                "",
+                f"✅ مبلغ <b>{amount:,}</b> تومان به کیف پول شما اضافه شد.",
+                "",
+                "می‌توانید همین حالا اشتراک بخرید یا موجودی را در بخش کیف پول ببینید.",
+                "",
+                f"💰 موجودی فعلی: <b>{balance:,}</b> تومان",
+            ]
+        )
+    abs_amount = abs(amount)
+    return "\n".join(
+        [
+            "💳 <b>به‌روزرسانی کیف پول</b>",
+            "",
+            f"مبلغ <b>{abs_amount:,}</b> تومان از کیف پول شما کسر شد.",
+            "",
+            f"💰 موجودی فعلی: <b>{balance:,}</b> تومان",
+        ]
+    )
+
+
+async def notify_wallet_admin_adjustment(bot, user: User, *, amount: int) -> bool:
+    from bot.formatting import with_footer
+    from bot.keyboards import back_to_main_keyboard, wallet_after_approval_keyboard
+
+    if amount == 0:
+        return False
+    text = with_footer(wallet_admin_adjustment_user_text(amount=amount, balance=user.wallet_balance))
+    keyboard = wallet_after_approval_keyboard() if amount > 0 else back_to_main_keyboard()
+    try:
+        await bot.send_message(user.telegram_id, text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        return False
+    return True

@@ -1,7 +1,7 @@
 import pytest
 import pytest_asyncio
 
-from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, user_button_title, user_display_name, users_total_pages
+from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, user_button_title, user_display_name, users_total_pages, wallet_admin_adjustment_user_text
 from bot.db import Database, Repository
 
 
@@ -187,6 +187,19 @@ async def test_cannot_block_admin_user(repository):
     assert admin.role == "admin"
     result = await repository.set_user_blocked(admin.id, blocked=True)
     assert result is None
+
+
+def test_wallet_admin_adjustment_user_text_credit():
+    text = wallet_admin_adjustment_user_text(amount=100_000, balance=250_000)
+    assert "100,000" in text
+    assert "250,000" in text
+    assert "شارژ کیف پول" in text
+
+
+def test_wallet_admin_adjustment_user_text_debit():
+    text = wallet_admin_adjustment_user_text(amount=-50_000, balance=200_000)
+    assert "50,000" in text
+    assert "کسر شد" in text
 
 
 def test_users_total_pages():
