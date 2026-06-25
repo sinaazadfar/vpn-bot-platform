@@ -11,6 +11,7 @@ from bot.db import Repository
 from bot.formatting import with_footer
 from bot.handlers.admin import _edit_callback_message, require_admin
 from bot.keyboards import admin_back_keyboard
+from bot.forced_join import resolve_required_chat
 from bot.states import DiscountCreate, ForcedJoinAdd, TicketReply
 
 router = Router()
@@ -86,46 +87,32 @@ async def admin_join_add_start(callback: CallbackQuery, state: FSMContext, ctx: 
     if callback.from_user.id not in ctx.settings.admin_ids:
         await callback.answer("دسترسی ندارید.", show_alert=True)
         return
-    await state.set_state(ForcedJoinAdd.chat_id)
-    await _edit_callback_message(callback, with_footer("آیدی عددی کانال/گروه را بفرستید."), reply_markup=admin_back_keyboard())
+    await state.set_state(ForcedJoinAdd.ref)
+    await _edit_callback_message(
+        callback,
+        with_footer("آیدی عددی، @username یا لینک کانال (t.me/...) را بفرستید."),
+        reply_markup=admin_back_keyboard(),
+    )
     await callback.answer()
 
 
-@router.message(ForcedJoinAdd.chat_id)
-async def admin_join_chat_id(message: Message, state: FSMContext, ctx: AppContext) -> None:
+@router.message(ForcedJoinAdd.ref)
+async def admin_join_ref(message: Message, state: FSMContext, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
+        return
+    raw = (message.text or "").strip()
+    if not raw:
+        await message.answer("ورودی خالی است.")
         return
     try:
-        chat_id = int((message.text or "").strip())
-    except ValueError:
-        await message.answer("آیدی معتبر نیست.")
+        chat_id, title, invite_link = await resolve_required_chat(message.bot, raw)
+    except ValueError as exc:
+        await message.answer(str(exc))
         return
-    await state.update_data(forced_join_chat_id=chat_id)
-    await state.set_state(ForcedJoinAdd.title)
-    await message.answer("عنوان نمایشی کانال را بفرستید.")
-
-
-@router.message(ForcedJoinAdd.title)
-async def admin_join_title(message: Message, state: FSMContext, ctx: AppContext) -> None:
-    if not await require_admin(message, ctx):
-        return
-    await state.update_data(forced_join_title=(message.text or "").strip())
-    await state.set_state(ForcedJoinAdd.invite_link)
-    await message.answer("لینک دعوت کانال را بفرستید (https://t.me/...).")
-
-
-@router.message(ForcedJoinAdd.invite_link)
-async def admin_join_link(message: Message, state: FSMContext, ctx: AppContext) -> None:
-    if not await require_admin(message, ctx):
-        return
-    data = await state.get_data()
-    chat_id = int(data["forced_join_chat_id"])
-    title = str(data.get("forced_join_title") or "")
-    invite_link = (message.text or "").strip()
     async with ctx.database.session() as db:
         await Repository(db).add_required_chat(chat_id, title, invite_link)
     await state.clear()
-    await message.answer("کانال اضافه شد.", reply_markup=admin_back_keyboard())
+    await message.answer(f"کانال «{title}» اضافه شد.", reply_markup=admin_back_keyboard())
 
 
 @router.callback_query(F.data.startswith("admin:join:del:"))

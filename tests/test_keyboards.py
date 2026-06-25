@@ -59,9 +59,7 @@ def test_subscription_detail_keyboard_uses_persian_labels_and_all_configs_action
         "همه کانفیگ‌ها",
         "فایل متنی کانفیگ‌ها",
         "تغییر لینک اشتراک",
-        "تمدید زمان",
-        "افزایش حجم",
-        "تمدید کامل (زمان+حجم)",
+        "تمدید اشتراک",
         "آموزش اتصال",
     }.issubset(labels)
     assert "sub:configs_all:42" in callbacks

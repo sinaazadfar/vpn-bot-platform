@@ -27,9 +27,7 @@ class AdminUserSearch(StatesGroup):
 
 
 class ForcedJoinAdd(StatesGroup):
-    chat_id = State()
-    title = State()
-    invite_link = State()
+    ref = State()
 
 
 class TicketCreate(StatesGroup):

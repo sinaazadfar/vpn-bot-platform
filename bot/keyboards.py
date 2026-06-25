@@ -252,11 +252,7 @@ def subscription_detail_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="فایل متنی کانفیگ‌ها", callback_data=f"sub:configs_txt:{subscription_id}"),
             ],
             [
-                InlineKeyboardButton(text="تمدید زمان", callback_data=f"sub:renew:{subscription_id}"),
-                InlineKeyboardButton(text="افزایش حجم", callback_data=f"sub:volume:{subscription_id}"),
-            ],
-            [
-                InlineKeyboardButton(text="تمدید کامل (زمان+حجم)", callback_data=f"sub:extend:{subscription_id}"),
+                InlineKeyboardButton(text="تمدید اشتراک", callback_data=f"sub:extend:{subscription_id}"),
                 InlineKeyboardButton(text="تغییر لینک اشتراک", callback_data=f"sub:revoke:{subscription_id}"),
             ],
             [InlineKeyboardButton(text="آموزش اتصال", callback_data="menu:tutorial")],

@@ -994,31 +994,6 @@ class Repository:
         final_price = before_discount * (100 - discount_percent) // 100
         return PurchaseOffer(traffic_gb, duration_days, source, discount_percent, base_price, duration_extra, final_price)
 
-    def build_renew_offer(self, settings: PricingSettings, duration_days: int, discount_percent: int = 0) -> PurchaseOffer:
-        if duration_days == 30:
-            if not settings.one_month_enabled:
-                raise ValueError("duration_disabled")
-            duration_extra = 0
-        elif duration_days == 90:
-            if not settings.three_month_enabled:
-                raise ValueError("duration_disabled")
-            duration_extra = settings.three_month_extra_price
-        else:
-            raise ValueError("invalid_duration")
-        if discount_percent < 0 or discount_percent > 100:
-            raise ValueError("invalid_discount")
-        final_price = duration_extra * (100 - discount_percent) // 100
-        return PurchaseOffer(0, duration_days, "renew", discount_percent, 0, duration_extra, final_price)
-
-    def build_volume_offer(self, settings: PricingSettings, traffic_gb: int, discount_percent: int = 0) -> PurchaseOffer:
-        if traffic_gb < 1 or traffic_gb > 200:
-            raise ValueError("invalid_traffic")
-        if discount_percent < 0 or discount_percent > 100:
-            raise ValueError("invalid_discount")
-        base_price = traffic_gb * settings.per_gb_price
-        final_price = base_price * (100 - discount_percent) // 100
-        return PurchaseOffer(traffic_gb, 0, "volume", discount_percent, base_price, 0, final_price)
-
     async def create_subscription_after_charge(
         self,
         user: User,
@@ -1123,54 +1098,6 @@ class Repository:
             (expires_at, offer.traffic_gb, offer.duration_days, offer.final_price, utcnow(), subscription.id, user.id),
         )
         await self.adjust_wallet(user.id, -offer.final_price, "subscription_extend", linked_subscription_id=subscription.id)
-        await self.db.commit()
-        row = await self._fetchone("SELECT * FROM subscriptions WHERE id = ?", (subscription.id,))
-        return self._subscription(row)
-
-    async def renew_subscription_after_charge(
-        self,
-        user: User,
-        subscription: Subscription,
-        offer: PurchaseOffer,
-        expires_at: str,
-    ) -> Subscription:
-        if user.wallet_balance < offer.final_price:
-            raise ValueError("insufficient_balance")
-        await self.db.execute(
-            """
-            UPDATE subscriptions
-            SET expires_at = ?,
-                duration_days = duration_days + ?,
-                final_price = final_price + ?,
-                updated_at = ?
-            WHERE id = ? AND user_id = ?
-            """,
-            (expires_at, offer.duration_days, offer.final_price, utcnow(), subscription.id, user.id),
-        )
-        await self.adjust_wallet(user.id, -offer.final_price, "subscription_renew", linked_subscription_id=subscription.id)
-        await self.db.commit()
-        row = await self._fetchone("SELECT * FROM subscriptions WHERE id = ?", (subscription.id,))
-        return self._subscription(row)
-
-    async def add_volume_after_charge(
-        self,
-        user: User,
-        subscription: Subscription,
-        offer: PurchaseOffer,
-    ) -> Subscription:
-        if user.wallet_balance < offer.final_price:
-            raise ValueError("insufficient_balance")
-        await self.db.execute(
-            """
-            UPDATE subscriptions
-            SET traffic_gb = traffic_gb + ?,
-                final_price = final_price + ?,
-                updated_at = ?
-            WHERE id = ? AND user_id = ?
-            """,
-            (offer.traffic_gb, offer.final_price, utcnow(), subscription.id, user.id),
-        )
-        await self.adjust_wallet(user.id, -offer.final_price, "subscription_volume", linked_subscription_id=subscription.id)
         await self.db.commit()
         row = await self._fetchone("SELECT * FROM subscriptions WHERE id = ?", (subscription.id,))
         return self._subscription(row)

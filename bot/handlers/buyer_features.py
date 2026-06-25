@@ -10,14 +10,13 @@ from bot import constants as c
 from bot.context import AppContext
 from bot.db import Repository
 from bot.formatting import with_footer
-from bot.keyboards import back_to_main_keyboard, duration_keyboard, subscription_detail_keyboard, traffic_presets_keyboard, wallet_ledger_keyboard, wallet_top_up_keyboard
+from bot.keyboards import back_to_main_keyboard, subscription_detail_keyboard, wallet_ledger_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
 from bot.menu_helpers import main_menu_for_user
 from bot.notifications import wallet_reason_label
 from bot.states import BuyerTicketReply, TicketCreate, TicketReply
 from bot.handlers.buyer import (
     _edit_callback_message,
-    _insufficient_wallet_text,
     get_owned_subscription,
 )
 
@@ -174,108 +173,6 @@ async def trial_start(callback: CallbackQuery, ctx: AppContext) -> None:
     await _edit_callback_message(
         callback,
         with_footer(f"تست رایگان فعال شد.\n{gb}GB / {days} روز\n\n{marzban_sub.subscription_url}"),
-        reply_markup=subscription_detail_keyboard(subscription.id),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("sub:renew:"))
-async def subscription_renew_start(callback: CallbackQuery, ctx: AppContext) -> None:
-    subscription_id = int(callback.data.split(":")[2])
-    subscription = await get_owned_subscription(callback, ctx, subscription_id)
-    if not subscription:
-        return
-    async with ctx.database.session() as db:
-        settings = await Repository(db).get_pricing_settings()
-    await _edit_callback_message(
-        callback,
-        with_footer("مدت تمدید را انتخاب کنید:"),
-        reply_markup=duration_keyboard(settings, subscription.traffic_gb, "preset", 0, prefix=f"renew_duration:{subscription_id}"),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("renew_duration:"))
-async def renew_choose_duration(callback: CallbackQuery, ctx: AppContext) -> None:
-    _, raw_subscription_id, raw_duration, raw_gb, source, raw_discount = callback.data.split(":")
-    subscription_id = int(raw_subscription_id)
-    subscription = await get_owned_subscription(callback, ctx, subscription_id)
-    if not subscription:
-        return
-    async with ctx.database.session() as db:
-        repository = Repository(db)
-        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
-        settings = await repository.get_pricing_settings()
-        offer = repository.build_renew_offer(settings, int(raw_duration), int(raw_discount))
-        if user.wallet_balance < offer.final_price:
-            await callback.answer("موجودی کافی نیست.", show_alert=True)
-            return
-        try:
-            marzban_sub = await ctx.marzban.renew_subscription_expiry(
-                subscription.marzban_username,
-                offer.duration_days,
-                subscription.expires_at,
-                subscription.traffic_gb,
-            )
-            updated = await repository.renew_subscription_after_charge(user, subscription, offer, marzban_sub.expires_at)
-            await db.commit()
-        except (MarzbanError, ValueError) as exc:
-            await callback.answer(str(exc)[:180], show_alert=True)
-            return
-    await _edit_callback_message(
-        callback,
-        with_footer(f"تمدید زمان انجام شد.\nانقضا: {updated.expires_at[:10]}"),
-        reply_markup=subscription_detail_keyboard(subscription.id),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("sub:volume:"))
-async def subscription_volume_start(callback: CallbackQuery, ctx: AppContext) -> None:
-    subscription_id = int(callback.data.split(":")[2])
-    subscription = await get_owned_subscription(callback, ctx, subscription_id)
-    if not subscription:
-        return
-    async with ctx.database.session() as db:
-        presets = await Repository(db).list_traffic_presets()
-    await _edit_callback_message(
-        callback,
-        with_footer("حجم اضافه را انتخاب کنید:"),
-        reply_markup=traffic_presets_keyboard(presets, prefix=f"volume_traffic:{subscription.id}"),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("volume_traffic:"))
-async def volume_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
-    _, raw_subscription_id, action, *rest = callback.data.split(":")
-    subscription_id = int(raw_subscription_id)
-    subscription = await get_owned_subscription(callback, ctx, subscription_id)
-    if not subscription:
-        return
-    traffic_gb = int(rest[0])
-    async with ctx.database.session() as db:
-        repository = Repository(db)
-        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
-        settings = await repository.get_pricing_settings()
-        preset = await repository.get_traffic_preset(traffic_gb)
-        discount = preset.discount_percent if preset else 0
-        offer = repository.build_volume_offer(settings, traffic_gb, discount)
-        if user.wallet_balance < offer.final_price:
-            await _edit_callback_message(callback, with_footer(_insufficient_wallet_text(user.wallet_balance, offer.final_price)), reply_markup=subscription_detail_keyboard(subscription.id))
-            await callback.answer()
-            return
-        try:
-            await ctx.quota.ensure_available(repository, requested_gb=traffic_gb)
-            await ctx.marzban.add_subscription_volume(subscription.marzban_username, traffic_gb, subscription.expires_at, subscription.traffic_gb)
-            updated = await repository.add_volume_after_charge(user, subscription, offer)
-            await db.commit()
-        except Exception as exc:
-            await callback.answer(str(exc)[:180], show_alert=True)
-            return
-    await _edit_callback_message(
-        callback,
-        with_footer(f"حجم اضافه شد.\nحجم کل: {updated.traffic_gb} GB"),
         reply_markup=subscription_detail_keyboard(subscription.id),
     )
     await callback.answer()

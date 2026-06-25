@@ -145,68 +145,6 @@ class MarzbanClient:
             expires_at=datetime.fromtimestamp(body.get("expire", expire), UTC).isoformat(),
         )
 
-    async def renew_subscription_expiry(
-        self,
-        username: str,
-        add_days: int,
-        current_expires_at: str,
-        current_traffic_gb: int,
-    ) -> MarzbanSubscription:
-        access_token = self.token or await self._login()
-        base_expire = self._parse_expire(current_expires_at)
-        expire = int((base_expire + timedelta(days=add_days)).timestamp())
-        payload = {
-            "expire": expire,
-            "data_limit": current_traffic_gb * 1024 * 1024 * 1024,
-            "status": "active",
-        }
-        return await self._put_user(username, payload, access_token, expire, current_expires_at)
-
-    async def add_subscription_volume(
-        self,
-        username: str,
-        add_gb: int,
-        current_expires_at: str,
-        current_traffic_gb: int,
-    ) -> MarzbanSubscription:
-        access_token = self.token or await self._login()
-        base_expire = self._parse_expire(current_expires_at)
-        expire = int(base_expire.timestamp())
-        payload = {
-            "expire": expire,
-            "data_limit": (current_traffic_gb + add_gb) * 1024 * 1024 * 1024,
-            "status": "active",
-        }
-        return await self._put_user(username, payload, access_token, expire, current_expires_at)
-
-    async def _put_user(
-        self,
-        username: str,
-        payload: dict,
-        access_token: str,
-        expire: int,
-        fallback_expires_at: str,
-    ) -> MarzbanSubscription:
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await self._retry_request(
-                    lambda: client.put(
-                        f"{self.base_url}/api/user/{username}",
-                        json=payload,
-                        headers={"Authorization": f"Bearer {access_token}"},
-                    )
-                )
-        except httpx.RequestError as exc:
-            raise MarzbanError(f"Cannot connect to Marzban panel while updating user {username}: {exc}") from exc
-        if response.status_code >= 400:
-            raise MarzbanError(f"Marzban update failed: {response.status_code} {response.text[:500]}")
-        body = response.json() if response.content else {}
-        return MarzbanSubscription(
-            username=body.get("username", username),
-            subscription_url=self._extract_subscription_url(body) or f"{self.base_url}/sub/{username}",
-            expires_at=datetime.fromtimestamp(body.get("expire", expire), UTC).isoformat(),
-        )
-
     async def fetch_subscription_text(self, subscription_url: str) -> str:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
