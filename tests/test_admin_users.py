@@ -134,6 +134,43 @@ async def test_ensure_user_updates_profile(repository):
 
 
 @pytest.mark.asyncio
+async def test_sync_telegram_profile(repository):
+    user = await repository.ensure_user(10008, set())
+    updated = await repository.sync_telegram_profile(
+        user.telegram_id,
+        first_name="Fetched",
+        last_name="Name",
+        username="fetcheduser",
+    )
+    assert updated is not None
+    assert updated.first_name == "Fetched"
+    assert updated.last_name == "Name"
+    assert updated.username == "fetcheduser"
+
+
+@pytest.mark.asyncio
+async def test_sync_telegram_profile_skips_none_values(repository):
+    user = await repository.ensure_user(10009, set(), first_name="Keep", username="keepme")
+    updated = await repository.sync_telegram_profile(user.telegram_id, first_name=None, last_name="New", username=None)
+    assert updated is not None
+    assert updated.first_name == "Keep"
+    assert updated.last_name == "New"
+    assert updated.username == "keepme"
+
+
+def test_user_needs_profile_sync():
+    from bot.db import User
+    from bot.user_profile import user_needs_profile_sync
+
+    assert user_needs_profile_sync(
+        User(1, 1, "buyer", 0, "abc", None, first_name=None, last_name=None, username="x")
+    )
+    assert not user_needs_profile_sync(
+        User(1, 1, "buyer", 0, "abc", None, first_name="Ali", last_name=None, username=None)
+    )
+
+
+@pytest.mark.asyncio
 async def test_set_user_blocked(repository):
     user = await repository.ensure_user(10002, set())
     blocked = await repository.set_user_blocked(user.id, blocked=True)

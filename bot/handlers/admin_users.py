@@ -20,6 +20,7 @@ from bot.formatting import with_footer
 from bot.handlers.admin import _edit_callback_message, require_admin
 from bot.keyboards import admin_back_keyboard
 from bot.states import AdminUserMessage, AdminUserSearch, AdminUserWallet
+from bot.user_profile import refresh_user_profile_from_telegram, refresh_users_profiles_from_telegram
 
 router = Router()
 
@@ -37,6 +38,7 @@ async def _render_users_list(
     search_query: str | None = None,
     search_results=None,
 ) -> None:
+    bot = target.bot
     async with ctx.database.session() as db:
         repository = Repository(db)
         if search_query is not None:
@@ -47,6 +49,7 @@ async def _render_users_list(
             total_users = await repository.count_users()
             display_page = page
             users = await repository.list_users_page(page=page, per_page=USERS_PER_PAGE)
+        users = await refresh_users_profiles_from_telegram(bot, repository, users)
     text = with_footer(users_list_text(users=users, page=display_page, total_users=total_users, search_query=search_query))
     markup = admin_users_list_keyboard(users=users, page=display_page, total_users=total_users, search_query=search_query)
     if isinstance(target, CallbackQuery):
@@ -62,6 +65,7 @@ async def _render_user_detail(callback: CallbackQuery, ctx: AppContext, user_id:
         if user is None:
             await callback.answer("کاربر پیدا نشد.", show_alert=True)
             return
+        user = await refresh_user_profile_from_telegram(callback.bot, repository, user)
         subscription_count = await repository.count_user_subscriptions(user.id)
     await _edit_callback_message(
         callback,

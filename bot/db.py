@@ -326,6 +326,40 @@ class Repository:
         row = await self._fetchone("SELECT * FROM users WHERE id = ?", (user_id,))
         return self._user(row) if row else None
 
+    async def sync_telegram_profile(
+        self,
+        telegram_id: int,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        username: str | None = None,
+    ) -> User | None:
+        row = await self._fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+        if not row:
+            return None
+        updates: list[str] = []
+        params: list[object] = []
+        for column, value in (
+            ("first_name", first_name),
+            ("last_name", last_name),
+            ("username", username),
+        ):
+            if value is not None and row[column] != value:
+                updates.append(f"{column} = ?")
+                params.append(value)
+        if not updates:
+            return self._user(row)
+        updates.append("updated_at = ?")
+        params.append(utcnow())
+        params.append(telegram_id)
+        await self.db.execute(
+            f"UPDATE users SET {', '.join(updates)} WHERE telegram_id = ?",
+            tuple(params),
+        )
+        await self.db.commit()
+        row = await self._fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+        return self._user(row)
+
     async def get_user_by_referral_code(self, code: str) -> User | None:
         normalized = normalize_referral_code(code)
         if not normalized:
