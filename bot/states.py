@@ -21,6 +21,18 @@ class WalletAdjust(StatesGroup):
     amount = State()
 
 
+class AdminUserSearch(StatesGroup):
+    query = State()
+
+
+class AdminUserWallet(StatesGroup):
+    amount = State()
+
+
+class AdminUserMessage(StatesGroup):
+    text = State()
+
+
 class Broadcast(StatesGroup):
     text = State()
 

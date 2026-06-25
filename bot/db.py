@@ -51,6 +51,7 @@ class User:
     wallet_balance: int
     referral_code: str
     referred_by: int | None
+    is_blocked: bool = False
 
 
 @dataclass(slots=True)
@@ -204,6 +205,10 @@ class Database:
                 (gb, utcnow()),
             )
         await self._normalize_existing_referral_codes(db)
+        user_info = await db.execute_fetchall("PRAGMA table_info(users)")
+        user_columns = {row["name"] for row in user_info}
+        if "is_blocked" not in user_columns:
+            await db.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0")
 
     async def _normalize_existing_referral_codes(self, db: aiosqlite.Connection) -> None:
         rows = await db.execute_fetchall("SELECT id, referral_code FROM users ORDER BY id ASC")
@@ -292,6 +297,49 @@ class Repository:
     async def list_users(self, limit: int = 20) -> list[User]:
         rows = await self._fetchall("SELECT * FROM users ORDER BY id DESC LIMIT ?", (limit,))
         return [self._user(row) for row in rows]
+
+    async def count_users(self) -> int:
+        row = await self._fetchone("SELECT COUNT(*) AS total FROM users")
+        return int(row["total"]) if row else 0
+
+    async def list_users_page(self, *, page: int, per_page: int = 8) -> list[User]:
+        safe_page = max(page, 1)
+        offset = (safe_page - 1) * per_page
+        rows = await self._fetchall(
+            "SELECT * FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
+            (per_page, offset),
+        )
+        return [self._user(row) for row in rows]
+
+    async def search_users(self, query: str, *, limit: int = 20) -> list[User]:
+        raw = query.strip()
+        if not raw:
+            return []
+        if raw.isdigit():
+            rows = await self._fetchall(
+                "SELECT * FROM users WHERE CAST(telegram_id AS TEXT) LIKE ? ORDER BY id DESC LIMIT ?",
+                (f"%{raw}%", limit),
+            )
+            return [self._user(row) for row in rows]
+        normalized = normalize_referral_code(raw)
+        if normalized:
+            rows = await self._fetchall(
+                "SELECT * FROM users WHERE referral_code LIKE ? ORDER BY id DESC LIMIT ?",
+                (f"%{normalized}%", limit),
+            )
+            return [self._user(row) for row in rows]
+        return []
+
+    async def set_user_blocked(self, user_id: int, *, blocked: bool) -> User | None:
+        user = await self.get_user(user_id)
+        if user is None or user.role == "admin":
+            return None
+        await self.db.execute(
+            "UPDATE users SET is_blocked = ?, updated_at = ? WHERE id = ?",
+            (1 if blocked else 0, utcnow(), user_id),
+        )
+        await self.db.commit()
+        return await self.get_user(user_id)
 
     async def adjust_wallet(self, user_id: int, amount: int, reason: str, linked_payment_id: int | None = None, linked_subscription_id: int | None = None) -> None:
         await self.db.execute("UPDATE users SET wallet_balance = wallet_balance + ?, updated_at = ? WHERE id = ?", (amount, utcnow(), user_id))
@@ -583,7 +631,17 @@ class Repository:
             return await cur.fetchall()
 
     def _user(self, row: aiosqlite.Row) -> User:
-        return User(row["id"], row["telegram_id"], row["role"], row["wallet_balance"], row["referral_code"], row["referred_by"])
+        keys = row.keys()
+        is_blocked = bool(row["is_blocked"]) if "is_blocked" in keys else False
+        return User(
+            row["id"],
+            row["telegram_id"],
+            row["role"],
+            row["wallet_balance"],
+            row["referral_code"],
+            row["referred_by"],
+            is_blocked,
+        )
 
     def _pricing_settings(self, row: aiosqlite.Row) -> PricingSettings:
         return PricingSettings(row["per_gb_price"], row["three_month_extra_price"], bool(row["one_month_enabled"]), bool(row["three_month_enabled"]))

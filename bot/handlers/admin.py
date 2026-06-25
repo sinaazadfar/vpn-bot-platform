@@ -333,22 +333,9 @@ async def preset_discount_finish(message: Message, state: FSMContext, ctx: AppCo
 async def users(message: Message, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
         return
-    async with ctx.database.session() as db:
-        users_list = await Repository(db).list_users(20)
-    text = "\n".join(f"{user.telegram_id} | {user.role} | {user.wallet_balance:,} تومان" for user in users_list) or "کاربری ثبت نشده است."
-    await message.answer(text + "\n\nبرای تغییر موجودی: /adjust TELEGRAM_ID AMOUNT", reply_markup=admin_back_keyboard())
+    from bot.handlers.admin_users import _render_users_list
 
-
-@router.callback_query(F.data == "admin:users")
-async def users_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    if callback.from_user.id not in ctx.settings.admin_ids:
-        await callback.answer("دسترسی ندارید.", show_alert=True)
-        return
-    async with ctx.database.session() as db:
-        users_list = await Repository(db).list_users(20)
-    text = "\n".join(f"{user.telegram_id} | {user.role} | {user.wallet_balance:,} تومان" for user in users_list) or "کاربری ثبت نشده است."
-    await _edit_callback_message(callback, text + "\n\nبرای تغییر موجودی: /adjust TELEGRAM_ID AMOUNT", reply_markup=admin_back_keyboard())
-    await callback.answer()
+    await _render_users_list(message, ctx, page=1)
 
 
 @router.message(F.text.startswith("/adjust"))

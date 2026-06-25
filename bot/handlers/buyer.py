@@ -145,6 +145,9 @@ async def start(message: Message, ctx: AppContext) -> None:
                     referral_feedback = "کد رفرال قبلا برای حساب شما ثبت شده است."
                     referred_by = None
         user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids, referred_by=referred_by)
+        if user.is_blocked and message.from_user.id not in ctx.settings.admin_ids:
+            await message.answer("حساب شما توسط ادمین مسدود شده است.", reply_markup=back_to_main_keyboard())
+            return
         if referred_by:
             referral_feedback = "کد رفرال با موفقیت برای حساب شما ثبت شد."
         support_username = await repository.get_support_username()
@@ -184,6 +187,9 @@ async def back_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        if user.is_blocked and callback.from_user.id not in ctx.settings.admin_ids:
+            await callback.answer("حساب شما مسدود شده است.", show_alert=True)
+            return
         support_username = await repository.get_support_username()
         earning_enabled = await repository.get_earning_enabled()
     await _edit_callback_message(callback, with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
