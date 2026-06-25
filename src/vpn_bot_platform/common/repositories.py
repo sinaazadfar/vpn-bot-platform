@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 import json
+import os
 
 from sqlalchemy import or_, select
 from sqlalchemy import func
@@ -409,12 +410,11 @@ async def get_seller_bot_quota_usage(
     if seller_bot is None:
         raise ValueError("seller_bot_not_found")
     if seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value:
-        from vpn_bot_platform.common.config import get_settings
         from vpn_bot_platform.common.simple_seller_quota import read_simple_seller_used_gb
 
         used_gb = await read_simple_seller_used_gb(
             seller_bot_id=seller_bot_id,
-            seller_data_host_path=get_settings().seller_data_host_path,
+            seller_data_host_path=os.getenv("SELLER_DATA_HOST_PATH", "./data/sellers"),
         )
         return SellerBotQuotaUsage(
             limit_gb=seller_bot.volume_limit_gb or 0,
