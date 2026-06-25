@@ -420,6 +420,7 @@ class ResellerService:
         panel_name: str,
         panel_base_url: str,
         ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
+        reseller_username: str | None = None,
         panel_username: str | None = None,
         panel_password: str | None = None,
         panel_token: str | None = None,
@@ -436,6 +437,7 @@ class ResellerService:
             await upsert_telegram_user(
                 session,
                 telegram_id=reseller_telegram_id,
+                username=reseller_username,
                 first_name=reseller_display_name,
             )
             existing_reseller = await get_reseller_by_telegram_id(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 
 from aiogram import F, Router
@@ -22,16 +23,16 @@ from vpn_bot_platform.common.ui.keyboards import (
     forced_join_menu,
     inline_keyboard,
     master_main_menu,
-    master_reply_menu,
     master_section_menu,
     master_seller_bot_actions,
     panel_actions,
+    panel_list_menu,
     paginate,
     plan_actions,
     reseller_list_menu,
-    reseller_card_actions,
     reseller_detail_actions,
     reseller_actions,
+    seller_bot_more_menu,
     seller_bot_list_menu,
     seller_bot_provision_success_menu,
     seller_bot_type_menu,
@@ -57,6 +58,7 @@ class ResellerRenameStates(StatesGroup):
 class SellerBotCreateStates(StatesGroup):
     bot_type = State()
     owner_telegram_id = State()
+    owner_username = State()
     owner_display_name = State()
     name = State()
     token = State()
@@ -205,6 +207,17 @@ def _sellerbot_panel_auth_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _normalize_telegram_username(raw: str) -> str:
+    value = raw.strip().lstrip("@")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}", value):
+        raise ValueError("invalid_telegram_username")
+    return value
+
+
+def _username_error_message() -> str:
+    return "یوزرنیم معتبر نیست. مثال: sina_azad (بدون @، حداقل ۵ کاراکتر)"
+
+
 async def _show_add_seller_bot_start(
     message: Message,
     state: FSMContext,
@@ -216,10 +229,10 @@ async def _show_add_seller_bot_start(
     await message.answer(
         "\n".join(
             [
-                title("Add Seller Bot"),
-                "One wizard creates the owner, Marzban panel, and seller bot together.",
+                title("ربات جدید"),
+                "مالک، پنل مرزبان و ربات در یک مرحله ساخته می‌شوند.",
                 "",
-                "Choose which seller bot codebase to use.",
+                "نوع ربات را انتخاب کنید:",
             ]
         ),
         reply_markup=seller_bot_type_menu(has_external_templates=bool(templates)),
@@ -239,10 +252,10 @@ async def _edit_add_seller_bot_start(
     await callback.message.edit_text(
         "\n".join(
             [
-                title("Add Seller Bot"),
-                "One wizard creates the owner, Marzban panel, and seller bot together.",
+                title("ربات جدید"),
+                "مالک، پنل مرزبان و ربات در یک مرحله ساخته می‌شوند.",
                 "",
-                "Choose which seller bot codebase to use.",
+                "نوع ربات را انتخاب کنید:",
             ]
         ),
         reply_markup=seller_bot_type_menu(has_external_templates=bool(templates)),
@@ -256,10 +269,27 @@ async def _edit_sellerbot_owner_step(callback: CallbackQuery, state: FSMContext)
     await callback.message.edit_text(
         "\n".join(
             [
-                title("Add Seller Bot"),
-                "Send the new bot owner's Telegram numeric ID.",
+                title("ربات جدید"),
+                "آیدی عددی تلگرام مالک ربات را بفرستید.",
                 "",
-                "This person becomes the reseller admin for this bot.",
+                "این شخص ادمین ربات فروشنده می‌شود.",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+    )
+
+
+async def _edit_sellerbot_owner_username_step(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.message is None:
+        return
+    await state.set_state(SellerBotCreateStates.owner_username)
+    await callback.message.edit_text(
+        "\n".join(
+            [
+                title("ربات جدید"),
+                "یوزرنیم تلگرام مالک را بفرستید (با یا بدون @).",
+                "",
+                "مثال: sina_azad",
             ]
         ),
         reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
@@ -274,7 +304,6 @@ async def start(message: Message, state: FSMContext | None = None) -> None:
         _master_dashboard_text(),
         reply_markup=master_main_menu(),
     )
-    await message.answer("Quick actions:", reply_markup=master_reply_menu())
 
 
 @router.message(Command("admin"))
@@ -285,7 +314,6 @@ async def admin_menu(message: Message, state: FSMContext | None = None) -> None:
         _master_dashboard_text(),
         reply_markup=master_main_menu(),
     )
-    await message.answer("Quick actions:", reply_markup=master_reply_menu())
 
 
 @router.message(Command("cancel"))
@@ -298,14 +326,14 @@ async def cancel_flow(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(F.text.in_({"ربات های فروشنده", "افزودن ربات فروشنده"}))
-async def master_reply_menu_alias_persian(
+@router.message(F.text.in_({"🏠 منوی اصلی", "منوی اصلی", "ربات های فروشنده", "ربات‌های فروشنده", "افزودن ربات فروشنده", "ربات جدید"}))
+async def master_reply_menu_alias(
     message: Message,
     reseller_service: ResellerService,
     state: FSMContext,
 ) -> None:
     await state.clear()
-    if message.text == "ربات های فروشنده":
+    if message.text in {"ربات های فروشنده", "ربات‌های فروشنده"}:
         seller_bots = [
             seller_bot
             for seller_bot in await reseller_service.list_seller_bots()
@@ -322,12 +350,27 @@ async def master_reply_menu_alias_persian(
                 labels=labels,
             ),
         )
-    elif message.text == "افزودن ربات فروشنده":
+        return
+    if message.text in {"افزودن ربات فروشنده", "ربات جدید"}:
         await _show_add_seller_bot_start(message, state, reseller_service)
+        return
+    await message.answer(_master_dashboard_text(), reply_markup=master_main_menu())
 
 
-@router.message(F.text.in_({"Seller Bots", "Add Seller Bot", "Resellers", "Panels", "Plans", "Reports", "Settings"}))
-async def master_reply_menu_alias(
+@router.message(
+    F.text.in_(
+        {
+            "Seller Bots",
+            "Add Seller Bot",
+            "Resellers",
+            "Panels",
+            "Plans",
+            "Reports",
+            "Settings",
+        }
+    )
+)
+async def master_reply_menu_alias_english(
     message: Message,
     reseller_service: ResellerService,
     state: FSMContext,
@@ -353,9 +396,22 @@ async def master_reply_menu_alias(
     elif message.text == "Add Seller Bot":
         await _show_add_seller_bot_start(message, state, reseller_service)
     elif message.text == "Resellers":
-        await message.answer(await _resellers_text(reseller_service), reply_markup=master_section_menu("resellers"))
+        resellers = await reseller_service.list_resellers()
+        page = _paginate_resellers(resellers, page=1)
+        await message.answer(
+            _resellers_page_text(page),
+            reply_markup=reseller_list_menu(
+                page=page.page,
+                total_pages=page.total_pages,
+                resellers=list(page.items),
+            ),
+        )
     elif message.text == "Panels":
-        await message.answer(await _panels_text(reseller_service), reply_markup=master_section_menu("panels"))
+        panels = await reseller_service.list_marzban_panels()
+        await message.answer(
+            await _panels_text(reseller_service),
+            reply_markup=panel_list_menu(panels=panels[:20]),
+        )
     elif message.text == "Plans":
         await message.answer(await _plans_text(reseller_service), reply_markup=master_section_menu("plans"))
     elif message.text == "Reports":
@@ -363,12 +419,8 @@ async def master_reply_menu_alias(
         await message.answer(_format_report("Global Report - Today", report), reply_markup=master_section_menu("reports"))
     elif message.text == "Settings":
         await message.answer(
-            _button_guide_text(
-                "Settings",
-                "Use these controls for channel and platform configuration.",
-                ["/set_forced_join <chat_id> [title]"],
-            ),
-            reply_markup=master_section_menu("settings"),
+            "\n".join([title("تنظیمات"), "تنظیمات پیشرفته پلتفرم."]),
+            reply_markup=master_section_menu("platform_settings"),
         )
 
 
@@ -390,11 +442,17 @@ async def master_menu_callback(
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Platform Settings"),
-                    "Advanced controls are here so daily seller-bot work stays simple.",
+                    title("تنظیمات"),
+                    "فروشنده‌ها، پنل‌ها و تنظیمات پیشرفته.",
                 ]
             ),
             reply_markup=master_section_menu("platform_settings"),
+        )
+    elif action.action == "platform_more":
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("سایر تنظیمات"), "پلن، تخفیف و پیام همگانی."]),
+            reply_markup=master_section_menu("platform_more"),
         )
     elif action.action == "resellers":
         page_number = _parse_positive_int(action.value) or 1
@@ -402,20 +460,12 @@ async def master_menu_callback(
         page = _paginate_resellers(resellers, page=page_number)
         await callback.message.edit_text(
             _resellers_page_text(page),
-            reply_markup=reseller_list_menu(page=page.page, total_pages=page.total_pages),
+            reply_markup=reseller_list_menu(
+                page=page.page,
+                total_pages=page.total_pages,
+                resellers=list(page.items),
+            ),
         )
-        for reseller in page.items:
-            await callback.message.answer(
-                "\n".join(
-                    [
-                        title("Reseller Action"),
-                        f"Name: {reseller.display_name}",
-                        f"Telegram: {reseller.telegram_user_id}",
-                        f"Status: {status_label(reseller.status)}",
-                    ]
-                ),
-                reply_markup=reseller_card_actions(reseller.telegram_user_id),
-            )
     elif action.action in {"reseller_detail", "reseller_seller_bots", "reseller_plans", "reseller_panels"}:
         if not action.value or not action.value.isdigit():
             await callback.answer("Invalid reseller.", show_alert=True)
@@ -847,25 +897,27 @@ async def master_menu_callback(
             await callback.answer(str(exc), show_alert=True)
             return
         await callback.message.edit_text(text, reply_markup=master_seller_bot_actions(action.value))
+    elif action.action == "seller_more":
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
+        if seller_bot is None:
+            await callback.answer("ربات پیدا نشد.", show_alert=True)
+            return
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("تنظیمات بیشتر"),
+                    f"ربات: {seller_bot.name}",
+                ]
+            ),
+            reply_markup=seller_bot_more_menu(seller_bot.id),
+        )
     elif action.action == "panels":
         await state.clear()
+        panels = await reseller_service.list_marzban_panels()
         await callback.message.edit_text(
             await _panels_text(reseller_service),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=panel_list_menu(panels=panels[:20]),
         )
-        for panel in (await reseller_service.list_marzban_panels())[:5]:
-            await callback.message.answer(
-                "\n".join(
-                    [
-                        title("Panel Action"),
-                        f"Name: {panel.name}",
-                        f"URL: {panel.base_url}",
-                        f"Status: {status_label('active' if panel.is_active else 'disabled')}",
-                        f"ID: {panel.id}",
-                    ]
-                ),
-                reply_markup=panel_actions(panel.id, auth_type=_panel_auth_type(panel)),
-            )
     elif action.action == "panel_detail":
         if not action.value:
             await callback.answer("Panel is missing.", show_alert=True)
@@ -1988,6 +2040,7 @@ async def master_menu_callback(
     elif action.action == "sellerbot_create":
         data = await state.get_data()
         owner_telegram_id = data.get("sellerbot_owner_telegram_id")
+        owner_username = str(data.get("sellerbot_owner_username") or "").strip()
         owner_display_name = str(data.get("sellerbot_owner_display_name") or "").strip()
         bot_name = str(data.get("sellerbot_name") or "").strip()
         bot_token = str(data.get("sellerbot_token") or "").strip()
@@ -2002,6 +2055,7 @@ async def master_menu_callback(
         volume_limit_gb = data.get("sellerbot_volume_limit_gb")
         required = [
             owner_telegram_id,
+            owner_username,
             owner_display_name,
             bot_name,
             bot_token,
@@ -2021,6 +2075,7 @@ async def master_menu_callback(
             result = await reseller_service.provision_seller_bot_bundle(
                 reseller_telegram_id=int(owner_telegram_id),
                 reseller_display_name=owner_display_name,
+                reseller_username=owner_username,
                 bot_name=bot_name,
                 bot_token=bot_token,
                 panel_name=panel_name,
@@ -2306,19 +2361,45 @@ async def sellerbot_create_owner_telegram_id(message: Message, state: FSMContext
     raw_value = (message.text or "").strip()
     if not raw_value.isdigit():
         await message.answer(
-            "\n".join([title("Add Seller Bot"), "Send a numeric Telegram ID for the new owner."]),
+            "\n".join([title("ربات جدید"), "آیدی عددی تلگرام را بفرستید (فقط عدد)."]),
             reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
         return
     await state.update_data(sellerbot_owner_telegram_id=int(raw_value))
+    await state.set_state(SellerBotCreateStates.owner_username)
+    await message.answer(
+        "\n".join(
+            [
+                title("ربات جدید"),
+                "یوزرنیم تلگرام مالک را بفرستید (با یا بدون @).",
+                "",
+                "مثال: sina_azad",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+    )
+
+
+@router.message(SellerBotCreateStates.owner_username)
+async def sellerbot_create_owner_username(message: Message, state: FSMContext) -> None:
+    raw_value = (message.text or "").strip()
+    try:
+        username = _normalize_telegram_username(raw_value)
+    except ValueError:
+        await message.answer(
+            "\n".join([title("ربات جدید"), _username_error_message()]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_owner_username=username)
     await state.set_state(SellerBotCreateStates.owner_display_name)
     await message.answer(
         "\n".join(
             [
-                title("Add Seller Bot"),
-                "Send the owner's display name.",
+                title("ربات جدید"),
+                "نام نمایشی مالک را بفرستید.",
                 "",
-                "Example: Sina Azad",
+                "مثال: سینا آزاد",
             ]
         ),
         reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
@@ -2330,7 +2411,7 @@ async def sellerbot_create_owner_display_name(message: Message, state: FSMContex
     display_name = (message.text or "").strip()
     if not display_name or display_name.startswith("/"):
         await message.answer(
-            "\n".join([title("Add Seller Bot"), "Send a display name for the new owner."]),
+            "\n".join([title("ربات جدید"), "یک نام نمایشی برای مالک بفرستید."]),
             reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
         return
@@ -2339,10 +2420,10 @@ async def sellerbot_create_owner_display_name(message: Message, state: FSMContex
     await message.answer(
         "\n".join(
             [
-                title("Add Seller Bot"),
-                "Type the display name for this seller bot.",
+                title("ربات جدید"),
+                "نام نمایشی ربات فروشنده را بفرستید.",
                 "",
-                "Example: Sina Azad VPN",
+                "مثال: وی‌پی‌ان سینا",
             ]
         ),
         reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
@@ -4124,8 +4205,8 @@ def _telegram_code_block(value: str) -> str:
 def _master_dashboard_text() -> str:
     return "\n".join(
         [
-            title("Master Dashboard"),
-            "Choose a button. Daily work starts with seller bots.",
+            title("پنل مدیریت"),
+            "از منوی زیر یکی را انتخاب کنید.",
         ]
     )
 
@@ -4446,10 +4527,11 @@ def _seller_bots_search_text(query: str, seller_bots) -> str:
 def _sellerbot_confirm_text(data: dict, *, error: str | None = None) -> str:
     panel_auth = data.get("sellerbot_panel_auth") or "-"
     lines = [
-        title("Confirm Seller Bot"),
-        f"UI profile: {data.get('sellerbot_ui_profile') or 'platform'}",
-        f"Owner Telegram: {data.get('sellerbot_owner_telegram_id')}",
-        f"Owner name: {data.get('sellerbot_owner_display_name')}",
+        title("تأیید ربات جدید"),
+        f"نوع: {data.get('sellerbot_ui_profile') or 'platform'}",
+        f"آیدی مالک: {data.get('sellerbot_owner_telegram_id')}",
+        f"یوزرنیم: @{data.get('sellerbot_owner_username')}",
+        f"نام مالک: {data.get('sellerbot_owner_display_name')}",
         f"Bot name: {data.get('sellerbot_name')}",
         f"Panel name: {data.get('sellerbot_panel_name')}",
         f"Panel URL: {data.get('sellerbot_panel_base_url')}",

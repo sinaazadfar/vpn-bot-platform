@@ -201,7 +201,7 @@ async def test_master_confirm_shows_error_when_reseller_already_exists() -> None
     assert state.cleared is False
     assert callback.alerts == ["This Telegram ID already owns a reseller account."]
     assert callback.message.edited_text is not None
-    assert "Confirm Seller Bot" in callback.message.edited_text
+    assert "تأیید ربات جدید" in callback.message.edited_text
     assert "Could not create seller bot:" in callback.message.edited_text
     assert len(seller_bots) == 1
 
@@ -665,6 +665,7 @@ def _bundle_wizard_state(**overrides) -> dict:
     state = {
         "sellerbot_ui_profile": SellerBotUiProfile.SIMPLE_SELLER.value,
         "sellerbot_owner_telegram_id": 22222,
+        "sellerbot_owner_username": "simple_admin",
         "sellerbot_owner_display_name": "Simple Seller Admin",
         "sellerbot_name": "Simple Seller Bot",
         "sellerbot_token": _valid_bot_token(),

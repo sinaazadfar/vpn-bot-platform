@@ -77,7 +77,7 @@ def nav_row(
         row.append(("🔄 بروزرسانی", build_callback(scope, refresh_action)))
     if cancel_action:
         row.append(("❌ انصراف", build_callback(scope, cancel_action)))
-    row.append(("📱 منوی اصلی", build_callback(scope, home_action)))
+    row.append(("🏠 خانه", build_callback(scope, home_action)))
     return row
 
 
@@ -111,21 +111,17 @@ def reply_keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
 
 
 def master_reply_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard(
-        [
-            ["ربات های فروشنده", "افزودن ربات فروشنده"],
-        ]
-    )
+    return reply_keyboard([["🏠 منوی اصلی"]])
 
 
 def master_main_menu() -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
-            [("🤖 ربات های فروشنده", build_callback("m", "seller_bots"))],
-            [("➕ افزودن ربات فروشنده", build_callback("m", "add_seller_bot"))],
+            [("🤖 ربات‌های فروشنده", build_callback("m", "seller_bots"))],
+            [("➕ ربات جدید", build_callback("m", "add_seller_bot"))],
             [
-                ("⚙️ تنظیمات پلتفرم", build_callback("m", "platform_settings")),
-                ("📊 گزارش ها", build_callback("m", "reports")),
+                ("📊 گزارش‌ها", build_callback("m", "reports")),
+                ("⚙️ تنظیمات", build_callback("m", "platform_settings")),
             ],
         ]
     )
@@ -134,63 +130,38 @@ def master_main_menu() -> InlineKeyboardMarkup:
 def master_section_menu(section: str) -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = []
     if section == "resellers":
-        rows.append(
-            [
-                ("تغییر نام", build_callback("m", "guide_rename_reseller")),
-            ]
-        )
+        pass
     elif section == "seller_bots":
-        rows.append(
-            [
-                ("➕ افزودن ربات فروشنده", build_callback("m", "add_seller_bot")),
-                ("🔎 جستجو", build_callback("m", "seller_search")),
-            ]
-        )
-        rows.append([("🧩 قالب های ربات", build_callback("m", "external_bots"))])
+        rows.append([("➕ ربات جدید", build_callback("m", "add_seller_bot"))])
     elif section == "platform_settings":
         rows.append(
             [
-                ("فروشنده ها", build_callback("m", "resellers")),
-                ("پنل ها", build_callback("m", "panels")),
+                ("👤 فروشنده‌ها", build_callback("m", "resellers")),
+                ("📡 پنل‌ها", build_callback("m", "panels")),
             ]
         )
+        rows.append([("🔧 سایر تنظیمات", build_callback("m", "platform_more"))])
+        rows.append([("🖥 سیستم", build_callback("m", "system"))])
+    elif section == "platform_more":
         rows.append(
             [
-                ("پلن ها", build_callback("m", "plans")),
-                ("کدهای تخفیف", build_callback("m", "discounts")),
+                ("📦 پلن‌ها", build_callback("m", "plans")),
+                ("🏷 تخفیف‌ها", build_callback("m", "discounts")),
             ]
         )
-        rows.append(
-            [
-                ("پیام های همگانی", build_callback("m", "broadcasts")),
-                ("سیستم", build_callback("m", "system")),
-            ]
-        )
+        rows.append([("📣 پیام همگانی", build_callback("m", "broadcasts"))])
+        rows.append(nav_row(scope="m", back_action="platform_settings", home_action="home"))
+        return inline_keyboard(rows)
     elif section == "external_bots":
-        rows.append(
-            [
-                ("افزودن قالب", build_callback("m", "guide_add_external_template")),
-                ("افزودن ربات خارجی", build_callback("m", "guide_add_external_seller_bot")),
-            ]
-        )
+        rows.append([("➕ قالب خارجی", build_callback("m", "guide_add_external_template"))])
     elif section == "panels":
-        rows.append([("اختصاص پنل", build_callback("m", "guide_assign_panel"))])
+        rows.append([("🔗 اختصاص پنل", build_callback("m", "guide_assign_panel"))])
     elif section == "plans":
-        rows.append(
-            [
-                ("افزودن پلن عمومی", build_callback("m", "guide_add_global_plan")),
-                ("افزودن پلن فروشنده", build_callback("m", "guide_add_reseller_plan")),
-            ]
-        )
+        rows.append([("➕ پلن عمومی", build_callback("m", "guide_add_global_plan"))])
     elif section == "discounts":
-        rows.append([("افزودن تخفیف", build_callback("m", "guide_add_discount"))])
+        rows.append([("➕ تخفیف", build_callback("m", "guide_add_discount"))])
     elif section == "broadcasts":
-        rows.append(
-            [
-                ("ساخت پیام همگانی", build_callback("m", "guide_global_broadcast")),
-                ("پیش نویس ها", build_callback("m", "broadcast_history")),
-            ]
-        )
+        rows.append([("➕ پیام همگانی", build_callback("m", "guide_global_broadcast"))])
     elif section == "settings":
         rows.append(
             [
@@ -201,7 +172,6 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
         rows.append(
             [
                 ("تست رایگان", build_callback("m", "settings_trial")),
-                ("پرداخت ها", build_callback("m", "settings_payments")),
             ]
         )
     elif section == "reports":
@@ -212,25 +182,22 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
                 ("۳۰ روز", build_callback("m", "report_30")),
             ]
         )
-        rows.append([("بازه دلخواه", build_callback("m", "report_custom"))])
     elif section == "system":
-        rows.append([("تنظیمات پیشرفته", build_callback("m", "settings"))])
         rows.append(
             [
-                ("سلامت سیستم", build_callback("m", "system_health")),
-                ("نسخه", build_callback("m", "system_version")),
-            ]
-        )
-        rows.append(
-            [
-                ("بکاپ", build_callback("m", "system_backup")),
+                ("سلامت", build_callback("m", "system_health")),
                 ("لاگ بررسی", build_callback("m", "system_audit")),
             ]
         )
-        rows.append([("خطاهای اخیر", build_callback("m", "system_errors"))])
-    rows.append(
-        nav_row(scope="m", refresh_action=section, home_action="home")
-    )
+        rows.append([("تنظیمات پیشرفته", build_callback("m", "settings"))])
+    back_action = None
+    if section in {"resellers", "panels", "plans", "discounts", "broadcasts", "settings", "system", "external_bots"}:
+        back_action = "platform_settings" if section != "external_bots" else "seller_bots"
+    elif section == "seller_bots":
+        back_action = None
+    elif section == "reports":
+        back_action = None
+    rows.append(nav_row(scope="m", back_action=back_action, home_action="home"))
     return inline_keyboard(rows)
 
 
@@ -271,26 +238,23 @@ def seller_bot_list_menu(
     labels: dict[str, str] | None = None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = [
-        [
-            ("➕ افزودن ربات فروشنده", build_callback("m", "add_seller_bot")),
-            ("🔎 جستجو", build_callback("m", "seller_search")),
-        ]
+        [("➕ ربات جدید", build_callback("m", "add_seller_bot"))],
     ]
     for seller_bot in seller_bots or []:
         bot_id = str(getattr(seller_bot, "id"))
-        name = str(getattr(seller_bot, "name", "ربات فروشنده")).strip() or "ربات فروشنده"
+        name = str(getattr(seller_bot, "name", "ربات")).strip() or "ربات"
         status = str(getattr(seller_bot, "status", "")).strip()
         if labels and bot_id in labels:
             label = labels[bot_id]
         elif status:
-            label = f"{name[:20]} | {status[:10]}"
+            label = f"{name[:18]} · {status[:8]}"
         else:
-            label = name[:32]
+            label = name[:28]
         rows.append([(label, build_callback("m", "seller_select", bot_id))])
     page_row = pagination_row(scope="m", action="seller_bots", page=page, total_pages=total_pages)
     if page_row:
         rows.append(page_row)
-    rows.append(nav_row(scope="m", refresh_action="seller_bots", home_action="home"))
+    rows.append(nav_row(scope="m", home_action="home"))
     return inline_keyboard(rows)
 
 
@@ -298,14 +262,11 @@ def seller_bot_provision_success_menu(*, seller_bot_id: str, panel_id: str) -> I
     return inline_keyboard(
         [
             [
-                ("Start bot", build_callback("m", "seller_start", seller_bot_id)),
-                ("Test panel", build_callback("m", "panel_test", panel_id)),
+                ("▶️ شروع ربات", build_callback("m", "seller_start", seller_bot_id)),
+                ("📡 تست پنل", build_callback("m", "panel_test", panel_id)),
             ],
-            [
-                ("Open bot config", build_callback("m", "seller_select", seller_bot_id)),
-                ("Seller bots", build_callback("m", "seller_bots")),
-            ],
-            [("Home", build_callback("m", "home"))],
+            [("⚙️ تنظیمات ربات", build_callback("m", "seller_select", seller_bot_id))],
+            nav_row(scope="m", home_action="home"),
         ]
     )
 
@@ -314,41 +275,53 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("🧩 تنظیمات", build_callback("m", "seller_detail", seller_bot_id)),
-                ("📡 پنل ربات", build_callback("m", "seller_config_panel", seller_bot_id)),
-            ],
-            [
-                ("💰 قوانین قیمت گذاری", build_callback("m", "seller_config_pricing", seller_bot_id)),
-                ("👥 ادمین های ربات", build_callback("m", "seller_config_admins", seller_bot_id)),
+                ("▶️ شروع", build_callback("m", "seller_start", seller_bot_id)),
+                ("⏹ توقف", build_callback("m", "seller_stop", seller_bot_id)),
+                ("🔄 ری‌استارت", build_callback("m", "seller_restart", seller_bot_id)),
             ],
             [
                 ("➕ افزودن گیگ", build_callback("m", "seller_volume_add", seller_bot_id)),
-                ("📊 تنظیم سقف گیگ", build_callback("m", "seller_volume_edit", seller_bot_id)),
+                ("📊 سقف گیگ", build_callback("m", "seller_volume_edit", seller_bot_id)),
             ],
             [
-                ("شروع", build_callback("m", "seller_start", seller_bot_id)),
-                ("توقف", build_callback("m", "seller_stop", seller_bot_id)),
-                ("راه اندازی مجدد", build_callback("m", "seller_restart", seller_bot_id)),
+                ("📡 پنل", build_callback("m", "seller_config_panel", seller_bot_id)),
+                ("ℹ️ جزئیات", build_callback("m", "seller_detail", seller_bot_id)),
+                ("🔧 بیشتر", build_callback("m", "seller_more", seller_bot_id)),
+            ],
+            nav_row(scope="m", back_action="seller_bots", home_action="home"),
+        ]
+    )
+
+
+def seller_bot_more_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("👥 ادمین‌ها", build_callback("m", "seller_config_admins", seller_bot_id)),
+                ("💰 قیمت‌گذاری", build_callback("m", "seller_config_pricing", seller_bot_id)),
             ],
             [
-                ("سلامت", build_callback("m", "seller_health", seller_bot_id)),
-                ("لاگ ها", build_callback("m", "seller_logs", seller_bot_id)),
+                ("❤️ سلامت", build_callback("m", "seller_health", seller_bot_id)),
+                ("📋 لاگ", build_callback("m", "seller_logs", seller_bot_id)),
             ],
             [
-                ("غیرفعال", build_callback("m", "seller_disable", seller_bot_id)),
-                ("حذف", build_callback("m", "seller_delete_confirm", seller_bot_id)),
+                ("⏸ غیرفعال", build_callback("m", "seller_disable", seller_bot_id)),
+                ("🗑 حذف", build_callback("m", "seller_delete_confirm", seller_bot_id)),
             ],
-            [("بازگشت", build_callback("m", "seller_bots")), ("خانه", build_callback("m", "home"))],
+            [
+                ("🔙 بازگشت", build_callback("m", "seller_select", seller_bot_id)),
+                ("🏠 خانه", build_callback("m", "home")),
+            ],
         ]
     )
 
 
 def seller_bot_type_menu(*, has_external_templates: bool) -> InlineKeyboardMarkup:
-    rows = [[("ربات فروشنده داخلی", build_callback("m", "sellerbot_type", "native"))]]
-    rows.append([("Simple Seller", build_callback("m", "sellerbot_type", "simple_seller"))])
+    rows = [[("فروشنده پلتفرم", build_callback("m", "sellerbot_type", "native"))]]
+    rows.append([("فروشنده ساده", build_callback("m", "sellerbot_type", "simple_seller"))])
     if has_external_templates:
-        rows.append([("ربات با قالب خارجی", build_callback("m", "sellerbot_type", "external"))])
-    rows.append([("انصراف", build_callback("m", "sellerbot_cancel")), ("خانه", build_callback("m", "home"))])
+        rows.append([("قالب خارجی", build_callback("m", "sellerbot_type", "external"))])
+    rows.append([("❌ انصراف", build_callback("m", "sellerbot_cancel"))])
     return inline_keyboard(rows)
 
 
@@ -356,16 +329,8 @@ def reseller_card_actions(telegram_id: int) -> InlineKeyboardMarkup:
     value = str(telegram_id)
     return inline_keyboard(
         [
-            [("جزئیات", build_callback("m", "reseller_detail", value))],
-            [
-                ("تغییر نام", build_callback("m", "reseller_rename_select", value)),
-            ],
-            [
-                ("فعال سازی", build_callback("m", "reseller_active", value)),
-                ("تعلیق", build_callback("m", "reseller_suspended", value)),
-                ("غیرفعال", build_callback("m", "reseller_disabled", value)),
-            ],
-            [("بازگشت", build_callback("m", "resellers")), ("خانه", build_callback("m", "home"))],
+            [("📋 جزئیات", build_callback("m", "reseller_detail", value))],
+            nav_row(scope="m", back_action="resellers", home_action="home"),
         ]
     )
 
@@ -375,49 +340,69 @@ def reseller_detail_actions(telegram_id: int) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [
             [
-                ("ربات های فروشنده", build_callback("m", "reseller_seller_bots", value)),
-                ("پلن ها", build_callback("m", "reseller_plans", value)),
+                ("🤖 ربات‌ها", build_callback("m", "reseller_seller_bots", value)),
+                ("📡 پنل‌ها", build_callback("m", "reseller_panels", value)),
             ],
-            [("پنل های اختصاص داده شده", build_callback("m", "reseller_panels", value))],
             [
-                ("تغییر نام", build_callback("m", "reseller_rename_select", value)),
-                ("وضعیت", build_callback("m", "reseller_status_menu", value)),
+                ("✏️ تغییر نام", build_callback("m", "reseller_rename_select", value)),
+                ("⚙️ وضعیت", build_callback("m", "reseller_status_menu", value)),
             ],
-            [("بازگشت", build_callback("m", "resellers")), ("خانه", build_callback("m", "home"))],
+            nav_row(scope="m", back_action="resellers", home_action="home"),
         ]
     )
 
 
-def reseller_list_menu(*, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    rows: list[list[tuple[str, str]]] = [
-        [
-            ("افزودن فروشنده", build_callback("m", "guide_add_reseller")),
-            ("تغییر نام", build_callback("m", "guide_rename_reseller")),
-        ]
-    ]
+def reseller_list_menu(
+    *,
+    page: int,
+    total_pages: int,
+    resellers: list[object] | None = None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = []
+    for reseller in resellers or []:
+        telegram_id = int(getattr(reseller, "telegram_user_id"))
+        name = str(getattr(reseller, "display_name", "فروشنده")).strip() or "فروشنده"
+        status = str(getattr(reseller, "status", "")).strip()
+        label = f"{name[:20]} · {status[:8]}" if status else name[:28]
+        rows.append([(label, build_callback("m", "reseller_detail", str(telegram_id)))])
     page_row = pagination_row(scope="m", action="resellers", page=page, total_pages=total_pages)
     if page_row:
         rows.append(page_row)
-    rows.append(nav_row(scope="m", refresh_action="resellers", home_action="home"))
+    rows.append(nav_row(scope="m", back_action="platform_settings", home_action="home"))
+    return inline_keyboard(rows)
+
+
+def panel_list_menu(*, panels: list[object] | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [
+        [("🔗 اختصاص پنل", build_callback("m", "guide_assign_panel"))],
+    ]
+    for panel in panels or []:
+        panel_id = str(getattr(panel, "id"))
+        name = str(getattr(panel, "name", "پنل")).strip() or "پنل"
+        active = bool(getattr(panel, "is_active", True))
+        status = "فعال" if active else "غیرفعال"
+        rows.append([(f"{name[:20]} · {status}", build_callback("m", "panel_detail", panel_id))])
+    rows.append(nav_row(scope="m", back_action="platform_settings", home_action="home"))
     return inline_keyboard(rows)
 
 
 def panel_actions(panel_id: str, *, auth_type: str = "password") -> InlineKeyboardMarkup:
     credential_action = (
-        ("تغییر توکن", build_callback("m", "panel_change_token", panel_id))
+        ("🔑 تغییر توکن", build_callback("m", "panel_change_token", panel_id))
         if auth_type == "token"
-        else ("تغییر رمز", build_callback("m", "panel_change_password", panel_id))
+        else ("🔑 تغییر رمز", build_callback("m", "panel_change_password", panel_id))
     )
     return inline_keyboard(
         [
-            [("جزئیات", build_callback("m", "panel_detail", panel_id))],
             [
-                ("تست اتصال", build_callback("m", "panel_test", panel_id)),
-                ("غیرفعال", build_callback("m", "panel_disable_confirm", panel_id)),
+                ("📡 تست اتصال", build_callback("m", "panel_test", panel_id)),
+                credential_action,
             ],
-            [credential_action],
-            [("اختصاص به فروشنده", build_callback("m", "guide_assign_panel"))],
-            [("بازگشت", build_callback("m", "panels")), ("خانه", build_callback("m", "home"))],
+            [
+                ("⏸ غیرفعال", build_callback("m", "panel_disable_confirm", panel_id)),
+                ("🔗 اختصاص", build_callback("m", "guide_assign_panel")),
+            ],
+            nav_row(scope="m", back_action="panels", home_action="home"),
         ]
     )
 

@@ -55,6 +55,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     seller_admin_menu,
     seller_buyer_menu,
     seller_bot_config_menu,
+    seller_bot_more_menu,
     seller_bot_list_menu,
     seller_bot_type_menu,
     seller_report_menu,
@@ -150,6 +151,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_section_menu("broadcasts"),
         master_section_menu("settings"),
         master_section_menu("system"),
+        master_section_menu("platform_more"),
         reseller_actions(123456789),
         reseller_list_menu(page=1, total_pages=3),
         reseller_card_actions(123456789),
@@ -166,6 +168,7 @@ def test_inline_keyboards_fit_callback_limit() -> None:
         master_seller_bot_actions(uuid),
         external_template_actions(uuid),
         seller_bot_config_menu(uuid),
+        seller_bot_more_menu(uuid),
         seller_bot_list_menu(page=1, total_pages=3, seller_bots=[seller_bot]),
         seller_bot_type_menu(has_external_templates=True),
         seller_bot_type_menu(has_external_templates=False),
@@ -234,7 +237,7 @@ def test_seller_bot_type_menu_has_simple_seller_button() -> None:
 
 def test_seller_bot_actions_has_delete_button() -> None:
     uuid = "12345678-1234-1234-1234-123456789abc"
-    keyboard = master_seller_bot_actions(uuid)
+    keyboard = seller_bot_more_menu(uuid)
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
     assert f"m:seller_delete_confirm:{uuid}" in callbacks
