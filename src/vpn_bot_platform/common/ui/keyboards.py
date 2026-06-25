@@ -385,7 +385,12 @@ def reseller_list_menu(*, page: int, total_pages: int) -> InlineKeyboardMarkup:
     return inline_keyboard(rows)
 
 
-def panel_actions(panel_id: str) -> InlineKeyboardMarkup:
+def panel_actions(panel_id: str, *, auth_type: str = "password") -> InlineKeyboardMarkup:
+    credential_action = (
+        ("تغییر توکن", build_callback("m", "panel_change_token", panel_id))
+        if auth_type == "token"
+        else ("تغییر رمز", build_callback("m", "panel_change_password", panel_id))
+    )
     return inline_keyboard(
         [
             [("جزئیات", build_callback("m", "panel_detail", panel_id))],
@@ -393,6 +398,7 @@ def panel_actions(panel_id: str) -> InlineKeyboardMarkup:
                 ("تست اتصال", build_callback("m", "panel_test", panel_id)),
                 ("غیرفعال", build_callback("m", "panel_disable_confirm", panel_id)),
             ],
+            [credential_action],
             [("اختصاص به فروشنده", build_callback("m", "guide_assign_panel"))],
             [("بازگشت", build_callback("m", "panels")), ("خانه", build_callback("m", "home"))],
         ]

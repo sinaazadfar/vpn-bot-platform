@@ -118,6 +118,16 @@ class PanelPasswordCreateStates(StatesGroup):
     confirm = State()
 
 
+class PanelPasswordEditStates(StatesGroup):
+    password = State()
+    confirm = State()
+
+
+class PanelTokenEditStates(StatesGroup):
+    token = State()
+    confirm = State()
+
+
 class PanelAssignmentCreateStates(StatesGroup):
     reseller = State()
     panel = State()
@@ -149,6 +159,24 @@ def _parse_args(raw: str | None) -> list[str]:
         return shlex.split(raw or "")
     except ValueError:
         return []
+
+
+def _panel_auth_type(panel) -> str:
+    return "token" if panel.token_encrypted else "password"
+
+
+def _panel_error_message(error: ValueError) -> str:
+    messages = {
+        "panel_credentials_required": "Panel credentials are required.",
+        "panel_base_url_invalid": "Send a valid URL starting with http:// or https://.",
+        "panel_base_url_exists": "This panel URL is already registered.",
+        "panel_not_found": "Panel not found.",
+        "panel_password_required": "Panel password is required.",
+        "panel_token_required": "Panel token is required.",
+        "panel_token_auth_only": "This panel uses token auth. Change the token instead.",
+        "panel_password_auth_only": "This panel uses username/password auth.",
+    }
+    return messages.get(str(error), str(error))
 
 
 async def _show_add_seller_bot_start(
@@ -766,6 +794,7 @@ async def master_menu_callback(
             return
         await callback.message.edit_text(text, reply_markup=master_seller_bot_actions(action.value))
     elif action.action == "panels":
+        await state.clear()
         await callback.message.edit_text(
             await _panels_text(reseller_service),
             reply_markup=master_section_menu("panels"),
@@ -781,7 +810,7 @@ async def master_menu_callback(
                         f"ID: {panel.id}",
                     ]
                 ),
-                reply_markup=panel_actions(panel.id),
+                reply_markup=panel_actions(panel.id, auth_type=_panel_auth_type(panel)),
             )
     elif action.action == "panel_detail":
         if not action.value:
@@ -794,7 +823,7 @@ async def master_menu_callback(
             return
         await callback.message.edit_text(
             _panel_detail_text(detail),
-            reply_markup=panel_actions(detail.panel.id),
+            reply_markup=panel_actions(detail.panel.id, auth_type=detail.auth_type),
         )
     elif action.action == "panel_test":
         if not action.value:
@@ -815,7 +844,7 @@ async def master_menu_callback(
                     f"Message: {result.message}",
                 ]
             ),
-            reply_markup=panel_actions(result.panel.id),
+            reply_markup=panel_actions(result.panel.id, auth_type=_panel_auth_type(result.panel)),
         )
     elif action.action == "panel_disable_confirm":
         if not action.value:
@@ -851,8 +880,154 @@ async def master_menu_callback(
             return
         await callback.message.edit_text(
             _panel_detail_text(detail),
-            reply_markup=panel_actions(detail.panel.id),
+            reply_markup=panel_actions(detail.panel.id, auth_type=detail.auth_type),
         )
+    elif action.action == "panel_change_password":
+        if not action.value:
+            await callback.answer("Panel is missing.", show_alert=True)
+            return
+        try:
+            detail = await reseller_service.get_panel_detail(panel_id=action.value)
+        except ValueError:
+            await callback.answer("Panel not found.", show_alert=True)
+            return
+        if detail.auth_type == "token":
+            await callback.answer("This panel uses token auth.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(panel_credentials_panel_id=detail.panel.id)
+        await state.set_state(PanelPasswordEditStates.password)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Change Panel Password"),
+                    f"Panel: {detail.panel.name}",
+                    "",
+                    "Send the new Marzban admin password.",
+                    "It will be encrypted and hidden in the preview.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_edit_cancel"),
+        )
+        await callback.answer()
+    elif action.action == "panel_change_token":
+        if not action.value:
+            await callback.answer("Panel is missing.", show_alert=True)
+            return
+        try:
+            detail = await reseller_service.get_panel_detail(panel_id=action.value)
+        except ValueError:
+            await callback.answer("Panel not found.", show_alert=True)
+            return
+        if detail.auth_type != "token":
+            await callback.answer("This panel uses username/password auth.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(panel_credentials_panel_id=detail.panel.id)
+        await state.set_state(PanelTokenEditStates.token)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("Change Panel Token"),
+                    f"Panel: {detail.panel.name}",
+                    "",
+                    "Send the new Marzban admin token.",
+                    "It will be encrypted and hidden in the preview.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_edit_cancel"),
+        )
+        await callback.answer()
+    elif action.action == "panel_password_edit_apply":
+        data = await state.get_data()
+        panel_id = str(data.get("panel_credentials_panel_id") or "")
+        password = str(data.get("panel_password_edit_value") or "").strip()
+        if not panel_id or not password:
+            await callback.answer("Password update draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            detail = await reseller_service.update_panel_password(
+                panel_id=panel_id,
+                password=password,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError as exc:
+            await callback.answer(_panel_error_message(exc), show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Panel Password Updated"), f"Panel: {detail.panel.name}"]),
+            reply_markup=panel_actions(detail.panel.id, auth_type=detail.auth_type),
+        )
+        await callback.answer()
+    elif action.action == "panel_token_edit_apply":
+        data = await state.get_data()
+        panel_id = str(data.get("panel_credentials_panel_id") or "")
+        token_value = str(data.get("panel_token_edit_value") or "").strip()
+        if not panel_id or not token_value:
+            await callback.answer("Token update draft is incomplete.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            detail = await reseller_service.update_panel_token(
+                panel_id=panel_id,
+                token=token_value,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError as exc:
+            await callback.answer(_panel_error_message(exc), show_alert=True)
+            return
+        await state.clear()
+        await callback.message.edit_text(
+            "\n".join([title("Panel Token Updated"), f"Panel: {detail.panel.name}"]),
+            reply_markup=panel_actions(detail.panel.id, auth_type=detail.auth_type),
+        )
+        await callback.answer()
+    elif action.action == "panel_password_edit_cancel":
+        panel_id = str((await state.get_data()).get("panel_credentials_panel_id") or "")
+        await state.clear()
+        if panel_id:
+            try:
+                detail = await reseller_service.get_panel_detail(panel_id=panel_id)
+            except ValueError:
+                await callback.message.edit_text(
+                    "\n".join([title("Password Update Canceled"), "No panel was changed."]),
+                    reply_markup=master_section_menu("panels"),
+                )
+            else:
+                await callback.message.edit_text(
+                    _panel_detail_text(detail),
+                    reply_markup=panel_actions(detail.panel.id, auth_type=detail.auth_type),
+                )
+        else:
+            await callback.message.edit_text(
+                "\n".join([title("Password Update Canceled"), "No panel was changed."]),
+                reply_markup=master_section_menu("panels"),
+            )
+        await callback.answer()
+    elif action.action == "panel_token_edit_cancel":
+        panel_id = str((await state.get_data()).get("panel_credentials_panel_id") or "")
+        await state.clear()
+        if panel_id:
+            try:
+                detail = await reseller_service.get_panel_detail(panel_id=panel_id)
+            except ValueError:
+                await callback.message.edit_text(
+                    "\n".join([title("Token Update Canceled"), "No panel was changed."]),
+                    reply_markup=master_section_menu("panels"),
+                )
+            else:
+                await callback.message.edit_text(
+                    _panel_detail_text(detail),
+                    reply_markup=panel_actions(detail.panel.id, auth_type=detail.auth_type),
+                )
+        else:
+            await callback.message.edit_text(
+                "\n".join([title("Token Update Canceled"), "No panel was changed."]),
+                reply_markup=master_section_menu("panels"),
+            )
+        await callback.answer()
     elif action.action == "guide_add_panel_token":
         await state.clear()
         await state.set_state(PanelTokenCreateStates.name)
@@ -865,8 +1040,9 @@ async def master_menu_callback(
                     "Example: Germany Main",
                 ]
             ),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_cancel"),
         )
+        await callback.answer()
     elif action.action == "guide_add_panel_password":
         await state.clear()
         await state.set_state(PanelPasswordCreateStates.name)
@@ -879,8 +1055,9 @@ async def master_menu_callback(
                     "Example: Germany Login",
                 ]
             ),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
         )
+        await callback.answer()
     elif action.action == "panel_token_create":
         data = await state.get_data()
         panel_name = str(data.get("panel_token_name") or "").strip()
@@ -897,7 +1074,7 @@ async def master_menu_callback(
                 token=token_value,
             )
         except ValueError as exc:
-            await callback.answer(str(exc), show_alert=True)
+            await callback.answer(_panel_error_message(exc), show_alert=True)
             return
         await state.clear()
         await callback.message.edit_text(
@@ -910,14 +1087,16 @@ async def master_menu_callback(
                     f"Status: {status_label('active' if panel.is_active else 'disabled')}",
                 ]
             ),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=panel_actions(panel.id, auth_type="token"),
         )
+        await callback.answer()
     elif action.action == "panel_token_cancel":
         await state.clear()
         await callback.message.edit_text(
             "\n".join([title("Panel Canceled"), "No panel was registered."]),
             reply_markup=master_section_menu("panels"),
         )
+        await callback.answer()
     elif action.action == "panel_password_create":
         data = await state.get_data()
         panel_name = str(data.get("panel_password_name") or "").strip()
@@ -936,7 +1115,7 @@ async def master_menu_callback(
                 password=password,
             )
         except ValueError as exc:
-            await callback.answer(str(exc), show_alert=True)
+            await callback.answer(_panel_error_message(exc), show_alert=True)
             return
         await state.clear()
         await callback.message.edit_text(
@@ -949,14 +1128,16 @@ async def master_menu_callback(
                     f"Status: {status_label('active' if panel.is_active else 'disabled')}",
                 ]
             ),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=panel_actions(panel.id, auth_type="password"),
         )
+        await callback.answer()
     elif action.action == "panel_password_cancel":
         await state.clear()
         await callback.message.edit_text(
             "\n".join([title("Panel Canceled"), "No panel was registered."]),
             reply_markup=master_section_menu("panels"),
         )
+        await callback.answer()
     elif action.action == "guide_assign_panel":
         await state.clear()
         resellers = await reseller_service.list_resellers()
@@ -2715,7 +2896,7 @@ async def panel_token_create_name(message: Message, state: FSMContext) -> None:
     if not panel_name or panel_name.startswith("/"):
         await message.answer(
             "\n".join([title("Add Token Panel"), "Send a panel name, not a command."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_cancel"),
         )
         return
     await state.update_data(panel_token_name=panel_name[:128])
@@ -2729,7 +2910,7 @@ async def panel_token_create_name(message: Message, state: FSMContext) -> None:
                 "Example: https://panel.example.com",
             ]
         ),
-        reply_markup=master_section_menu("panels"),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_cancel"),
     )
 
 
@@ -2739,7 +2920,7 @@ async def panel_token_create_base_url(message: Message, state: FSMContext) -> No
     if not base_url.startswith(("http://", "https://")):
         await message.answer(
             "\n".join([title("Add Token Panel"), "Send a valid URL starting with http:// or https://."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_cancel"),
         )
         return
     await state.update_data(panel_token_base_url=base_url)
@@ -2753,7 +2934,7 @@ async def panel_token_create_base_url(message: Message, state: FSMContext) -> No
                 "The token will be encrypted and hidden in the preview.",
             ]
         ),
-        reply_markup=master_section_menu("panels"),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_cancel"),
     )
 
 
@@ -2763,7 +2944,7 @@ async def panel_token_create_token(message: Message, state: FSMContext) -> None:
     if not token_value or token_value.startswith("/"):
         await message.answer(
             "\n".join([title("Add Token Panel"), "Send the panel token, not a command."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_cancel"),
         )
         return
     await state.update_data(panel_token_value=token_value)
@@ -2799,7 +2980,7 @@ async def panel_password_create_name(message: Message, state: FSMContext) -> Non
     if not panel_name or panel_name.startswith("/"):
         await message.answer(
             "\n".join([title("Add Login Panel"), "Send a panel name, not a command."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
         )
         return
     await state.update_data(panel_password_name=panel_name[:128])
@@ -2813,7 +2994,7 @@ async def panel_password_create_name(message: Message, state: FSMContext) -> Non
                 "Example: https://panel.example.com",
             ]
         ),
-        reply_markup=master_section_menu("panels"),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
     )
 
 
@@ -2823,14 +3004,14 @@ async def panel_password_create_base_url(message: Message, state: FSMContext) ->
     if not base_url.startswith(("http://", "https://")):
         await message.answer(
             "\n".join([title("Add Login Panel"), "Send a valid URL starting with http:// or https://."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
         )
         return
     await state.update_data(panel_password_base_url=base_url)
     await state.set_state(PanelPasswordCreateStates.username)
     await message.answer(
         "\n".join([title("Add Login Panel"), "Send the Marzban admin username."]),
-        reply_markup=master_section_menu("panels"),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
     )
 
 
@@ -2840,7 +3021,7 @@ async def panel_password_create_username(message: Message, state: FSMContext) ->
     if not username or username.startswith("/"):
         await message.answer(
             "\n".join([title("Add Login Panel"), "Send a username, not a command."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
         )
         return
     await state.update_data(panel_password_username=username[:128])
@@ -2854,7 +3035,7 @@ async def panel_password_create_username(message: Message, state: FSMContext) ->
                 "The password will be encrypted and hidden in the preview.",
             ]
         ),
-        reply_markup=master_section_menu("panels"),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
     )
 
 
@@ -2864,7 +3045,7 @@ async def panel_password_create_password(message: Message, state: FSMContext) ->
     if not password or password.startswith("/"):
         await message.answer(
             "\n".join([title("Add Login Panel"), "Send the panel password, not a command."]),
-            reply_markup=master_section_menu("panels"),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_cancel"),
         )
         return
     await state.update_data(panel_password_value=password)
@@ -2892,6 +3073,62 @@ async def panel_password_create_password(message: Message, state: FSMContext) ->
 async def panel_password_create_waiting_for_confirmation(message: Message) -> None:
     await message.answer(
         "\n".join([title("Confirm Login Panel"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(PanelPasswordEditStates.password)
+async def panel_password_edit_password(message: Message, state: FSMContext) -> None:
+    password = (message.text or "").strip()
+    if not password or password.startswith("/"):
+        await message.answer(
+            "\n".join([title("Change Panel Password"), "Send the new password, not a command."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_password_edit_cancel"),
+        )
+        return
+    await state.update_data(panel_password_edit_value=password)
+    await state.set_state(PanelPasswordEditStates.confirm)
+    await message.answer(
+        "\n".join([title("Confirm Password Change"), "Password: hidden"]),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="panel_password_edit_apply",
+            cancel_action="panel_password_edit_cancel",
+        ),
+    )
+
+
+@router.message(PanelPasswordEditStates.confirm)
+async def panel_password_edit_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Password Change"), "Use Confirm or Cancel below the preview."])
+    )
+
+
+@router.message(PanelTokenEditStates.token)
+async def panel_token_edit_token(message: Message, state: FSMContext) -> None:
+    token_value = (message.text or "").strip()
+    if not token_value or token_value.startswith("/"):
+        await message.answer(
+            "\n".join([title("Change Panel Token"), "Send the new token, not a command."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="panel_token_edit_cancel"),
+        )
+        return
+    await state.update_data(panel_token_edit_value=token_value)
+    await state.set_state(PanelTokenEditStates.confirm)
+    await message.answer(
+        "\n".join([title("Confirm Token Change"), "Token: hidden"]),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="panel_token_edit_apply",
+            cancel_action="panel_token_edit_cancel",
+        ),
+    )
+
+
+@router.message(PanelTokenEditStates.confirm)
+async def panel_token_edit_waiting_for_confirmation(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Confirm Token Change"), "Use Confirm or Cancel below the preview."])
     )
 
 
@@ -3470,11 +3707,15 @@ async def add_panel_token(
         await message.answer("Usage: /add_panel_token <name> <base_url> <token>")
         return
 
-    panel = await reseller_service.register_marzban_panel(
-        name=args[0].strip(),
-        base_url=args[1].strip(),
-        token=args[2].strip(),
-    )
+    try:
+        panel = await reseller_service.register_marzban_panel(
+            name=args[0].strip(),
+            base_url=args[1].strip(),
+            token=args[2].strip(),
+        )
+    except ValueError as exc:
+        await message.answer(_panel_error_message(exc))
+        return
     await message.answer(f"Panel registered.\nID: {panel.id}\nName: {panel.name}")
 
 
@@ -3489,12 +3730,16 @@ async def add_panel_password(
         await message.answer("Usage: /add_panel_password <name> <base_url> <username> <password>")
         return
 
-    panel = await reseller_service.register_marzban_panel(
-        name=args[0].strip(),
-        base_url=args[1].strip(),
-        username=args[2].strip(),
-        password=args[3].strip(),
-    )
+    try:
+        panel = await reseller_service.register_marzban_panel(
+            name=args[0].strip(),
+            base_url=args[1].strip(),
+            username=args[2].strip(),
+            password=args[3].strip(),
+        )
+    except ValueError as exc:
+        await message.answer(_panel_error_message(exc))
+        return
     await message.answer(f"Panel registered.\nID: {panel.id}\nName: {panel.name}")
 
 

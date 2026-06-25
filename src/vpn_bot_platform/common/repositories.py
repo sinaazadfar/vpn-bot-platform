@@ -162,6 +162,30 @@ async def get_marzban_panel(session: AsyncSession, *, panel_id: str) -> MarzbanP
     return await session.get(MarzbanPanel, panel_id)
 
 
+async def get_marzban_panel_by_base_url(session: AsyncSession, *, base_url: str) -> MarzbanPanel | None:
+    normalized_url = base_url.rstrip("/")
+    result = await session.execute(select(MarzbanPanel).where(MarzbanPanel.base_url == normalized_url))
+    return result.scalar_one_or_none()
+
+
+async def update_marzban_panel_credentials(
+    session: AsyncSession,
+    *,
+    panel: MarzbanPanel,
+    secret_box: SecretBox,
+    username: str | None = None,
+    password: str | None = None,
+    token: str | None = None,
+) -> MarzbanPanel:
+    if username is not None:
+        panel.username_encrypted = secret_box.encrypt(username)
+    if password is not None:
+        panel.password_encrypted = secret_box.encrypt(password)
+    if token is not None:
+        panel.token_encrypted = secret_box.encrypt(token)
+    return panel
+
+
 async def set_marzban_panel_active(
     session: AsyncSession,
     *,

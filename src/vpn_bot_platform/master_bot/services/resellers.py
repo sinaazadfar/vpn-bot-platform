@@ -28,6 +28,7 @@ from vpn_bot_platform.common.repositories import (
     create_seller_bot,
     count_panel_assignments,
     get_marzban_panel,
+    get_marzban_panel_by_base_url,
     get_external_bot_template,
     get_external_bot_template_by_key,
     get_global_broadcast,
@@ -56,6 +57,7 @@ from vpn_bot_platform.common.repositories import (
     set_plan_active,
     list_marzban_panels,
     list_resellers,
+    update_marzban_panel_credentials,
     update_panel_assignment_routing,
     update_external_bot_template_sync_state,
     update_seller_bot_volume,
@@ -805,11 +807,17 @@ class ResellerService:
     ) -> MarzbanPanel:
         if not token and not (username and password):
             raise ValueError("panel_credentials_required")
+        normalized_url = base_url.rstrip("/")
+        if not normalized_url.startswith(("http://", "https://")):
+            raise ValueError("panel_base_url_invalid")
         async with session_scope() as session:
+            existing = await get_marzban_panel_by_base_url(session, base_url=normalized_url)
+            if existing is not None:
+                raise ValueError("panel_base_url_exists")
             panel = await create_marzban_panel(
                 session,
                 name=name,
-                base_url=base_url,
+                base_url=normalized_url,
                 username=username,
                 password=password,
                 token=token,
@@ -821,10 +829,80 @@ class ResellerService:
                 actor_type=AuditActorType.SUPER_USER,
                 target_type="marzban_panel",
                 target_id=panel.id,
-                metadata={"name": name, "base_url": base_url.rstrip("/")},
+                metadata={"name": name, "base_url": normalized_url},
             )
             await session.flush()
             return panel
+
+    async def update_panel_password(
+        self,
+        *,
+        panel_id: str,
+        password: str,
+        actor_telegram_id: int | None = None,
+    ) -> PanelDetail:
+        if not password:
+            raise ValueError("panel_password_required")
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            if panel.token_encrypted:
+                raise ValueError("panel_token_auth_only")
+            await update_marzban_panel_credentials(
+                session,
+                panel=panel,
+                secret_box=self.secret_box,
+                password=password,
+            )
+            await record_audit_log(
+                session,
+                action="marzban_panel.password_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="marzban_panel",
+                target_id=panel.id,
+                metadata={"name": panel.name, "base_url": panel.base_url},
+            )
+            assignment_count = await count_panel_assignments(session, panel_id=panel.id)
+            await session.flush()
+            auth_type = "token" if panel.token_encrypted else "password"
+            return PanelDetail(panel=panel, assignment_count=assignment_count, auth_type=auth_type)
+
+    async def update_panel_token(
+        self,
+        *,
+        panel_id: str,
+        token: str,
+        actor_telegram_id: int | None = None,
+    ) -> PanelDetail:
+        if not token:
+            raise ValueError("panel_token_required")
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            if not panel.token_encrypted:
+                raise ValueError("panel_password_auth_only")
+            await update_marzban_panel_credentials(
+                session,
+                panel=panel,
+                secret_box=self.secret_box,
+                token=token,
+            )
+            await record_audit_log(
+                session,
+                action="marzban_panel.token_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="marzban_panel",
+                target_id=panel.id,
+                metadata={"name": panel.name, "base_url": panel.base_url},
+            )
+            assignment_count = await count_panel_assignments(session, panel_id=panel.id)
+            await session.flush()
+            auth_type = "token" if panel.token_encrypted else "password"
+            return PanelDetail(panel=panel, assignment_count=assignment_count, auth_type=auth_type)
 
     async def list_marzban_panels(self) -> list[MarzbanPanel]:
         async with session_scope() as session:

@@ -488,6 +488,53 @@ class _FakeRuntimeController:
         return "running"
 
 
+@pytest.mark.asyncio
+async def test_register_marzban_panel_rejects_duplicate_base_url() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await service.register_marzban_panel(
+            name="panel-a",
+            base_url="https://panel.example.com/",
+            token="token-a",
+        )
+        with pytest.raises(ValueError, match="panel_base_url_exists"):
+            await service.register_marzban_panel(
+                name="panel-b",
+                base_url="https://panel.example.com",
+                username="admin",
+                password="secret",
+            )
+    finally:
+        await dispose_engine()
+
+
+@pytest.mark.asyncio
+async def test_update_panel_password_changes_encrypted_value() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    secret_box = SecretBox(Fernet.generate_key().decode("utf-8"))
+    service = ResellerService(secret_box)
+
+    try:
+        panel = await service.register_marzban_panel(
+            name="login-panel",
+            base_url="https://login-panel.example.com",
+            username="admin",
+            password="old-secret",
+        )
+        old_encrypted = panel.password_encrypted
+        detail = await service.update_panel_password(panel_id=panel.id, password="new-secret")
+        updated_password = secret_box.decrypt(detail.panel.password_encrypted)
+    finally:
+        await dispose_engine()
+
+    assert old_encrypted != detail.panel.password_encrypted
+    assert updated_password == "new-secret"
+
+
 def _settings(fernet_key: str) -> Settings:
     return Settings(
         DATABASE_URL="sqlite+aiosqlite:///:memory:",
