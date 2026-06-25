@@ -221,6 +221,7 @@ def subscription_detail_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="تغییر لینک اشتراک", callback_data=f"sub:revoke:{subscription_id}"),
                 InlineKeyboardButton(text="تمدید اشتراک", callback_data=f"sub:extend:{subscription_id}"),
             ],
+            [InlineKeyboardButton(text="آموزش اتصال", callback_data="menu:tutorial")],
             [InlineKeyboardButton(text=c.BACK, callback_data="subs:page:1")],
         ]
     )

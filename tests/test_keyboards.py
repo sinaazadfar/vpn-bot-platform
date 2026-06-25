@@ -59,8 +59,10 @@ def test_subscription_detail_keyboard_uses_persian_labels_and_all_configs_action
         "فایل متنی کانفیگ‌ها",
         "تغییر لینک اشتراک",
         "تمدید اشتراک",
+        "آموزش اتصال",
     }.issubset(labels)
     assert "sub:configs_all:42" in callbacks
+    assert "menu:tutorial" in callbacks
 
 
 def test_earn_keyboards_have_details_invite_and_back_actions():

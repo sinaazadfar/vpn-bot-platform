@@ -8,6 +8,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from bot import constants as c
+from bot.connection_guides import (
+    get_app,
+    get_platform,
+    guides_app_keyboard,
+    guides_app_text,
+    guides_apps_keyboard,
+    guides_home_text,
+    guides_platform_text,
+    guides_platforms_keyboard,
+)
 from bot.configs import build_configs_txt, parse_v2ray_configs
 from bot.context import AppContext
 from bot.db import User, Repository, normalize_referral_code
@@ -822,12 +832,57 @@ async def profile_callback(callback: CallbackQuery, ctx: AppContext) -> None:
 
 @router.message(F.text == c.TUTORIAL)
 async def tutorial(message: Message, ctx: AppContext) -> None:
-    await message.answer(ctx.settings.tutorial_text, reply_markup=back_to_main_keyboard())
+    await message.answer(
+        with_footer(guides_home_text(extra_note=ctx.settings.tutorial_text)),
+        reply_markup=guides_platforms_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "menu:tutorial")
 async def tutorial_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    await _edit_callback_message(callback, ctx.settings.tutorial_text, reply_markup=back_to_main_keyboard())
+    await _edit_callback_message(
+        callback,
+        with_footer(guides_home_text(extra_note=ctx.settings.tutorial_text)),
+        reply_markup=guides_platforms_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("guide:p:"))
+async def guide_platform_callback(callback: CallbackQuery) -> None:
+    platform_key = callback.data.removeprefix("guide:p:")
+    platform = get_platform(platform_key)
+    if platform is None:
+        await callback.answer("سیستم‌عامل پیدا نشد.", show_alert=True)
+        return
+    await _edit_callback_message(
+        callback,
+        with_footer(guides_platform_text(platform)),
+        reply_markup=guides_apps_keyboard(platform),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("guide:a:"))
+async def guide_app_callback(callback: CallbackQuery) -> None:
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4 or parts[0] != "guide" or parts[1] != "a":
+        await callback.answer("درخواست نامعتبر.", show_alert=True)
+        return
+    platform_key, app_key = parts[2], parts[3]
+    platform = get_platform(platform_key)
+    if platform is None:
+        await callback.answer("سیستم‌عامل پیدا نشد.", show_alert=True)
+        return
+    app = get_app(platform_key, app_key)
+    if app is None:
+        await callback.answer("اپ پیدا نشد.", show_alert=True)
+        return
+    await _edit_callback_message(
+        callback,
+        with_footer(guides_app_text(platform, app)),
+        reply_markup=guides_app_keyboard(platform, app),
+    )
     await callback.answer()
 
 
