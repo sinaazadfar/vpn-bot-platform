@@ -15,6 +15,7 @@ from vpn_bot_platform.common.models import (
 )
 from vpn_bot_platform.master_bot.handlers.basic import master_menu_callback
 from vpn_bot_platform.master_bot.services.resellers import ResellerService
+from vpn_bot_platform.seller_bot.services import SellerContextService
 
 
 @pytest.mark.asyncio
@@ -131,93 +132,64 @@ async def test_master_confirm_creates_simple_seller_as_native_platform_bot() -> 
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
-    state = _FakeState(
-        {
-            "sellerbot_runtime_type": "native",
-            "sellerbot_ui_profile": SellerBotUiProfile.SIMPLE_SELLER.value,
-            "sellerbot_template_key": None,
-            "sellerbot_reseller_telegram_id": 22222,
-            "sellerbot_name": "Simple Seller Bot",
-            "sellerbot_token": "222:secret",
-            "sellerbot_panel_id": "",
-            "sellerbot_panel_admin": "simple_admin",
-            "sellerbot_volume_limit_gb": 25,
-        }
-    )
+    state = _FakeState(_bundle_wizard_state())
+    callback = _FakeCallback("m:sellerbot_create", user_id=999)
 
     try:
-        registered = await service.register_reseller(
-            telegram_id=22222,
-            display_name="Simple Seller Admin",
-        )
-        panel = await service.register_marzban_panel(
-            name="simple-panel",
-            base_url="https://simple-panel.example.com/",
-            token="panel-token",
-        )
-        state.data["sellerbot_panel_id"] = panel.id
-        callback = _FakeCallback("m:sellerbot_create", user_id=999)
-
         await master_menu_callback(callback, state, service)  # type: ignore[arg-type]
 
         seller_bots = await service.list_seller_bots()
+        resellers = await service.list_resellers()
         assignments = await service.list_panel_assignments_for_reseller(
-            reseller_id=registered.reseller.id,
+            reseller_id=seller_bots[0].reseller_id,
         )
+        audit_logs = await service.recent_audit_logs(limit=10)
     finally:
         await dispose_engine()
 
     assert state.cleared is True
     assert callback.alerts == []
     assert callback.message.edited_text is not None
-    assert "Seller Bot Registered" in callback.message.edited_text
+    assert "Seller Bot Provisioned" in callback.message.edited_text
     assert len(seller_bots) == 1
     seller_bot = seller_bots[0]
     assert seller_bot.runtime_type == SellerBotRuntimeType.NATIVE.value
     assert seller_bot.external_template_id is None
     assert seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value
-    assert seller_bot.reseller_id == registered.reseller.id
+    assert resellers[0].telegram_user_id == 22222
     assert seller_bot.volume_limit_gb == 25
     assert len(assignments) == 1
-    assert assignments[0].assignment.panel_id == panel.id
     assert assignments[0].assignment.marzban_admin_username == "simple_admin"
+    assert any(log.action == "seller_bot.provision_bundle" for log in audit_logs)
 
 
 @pytest.mark.asyncio
-async def test_master_confirm_shows_error_when_seller_bot_create_fails() -> None:
+async def test_master_confirm_shows_error_when_reseller_already_exists() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
-    state = _FakeState(
-        {
-            "sellerbot_runtime_type": "native",
-            "sellerbot_ui_profile": SellerBotUiProfile.SIMPLE_SELLER.value,
-            "sellerbot_template_key": None,
-            "sellerbot_reseller_telegram_id": 22222,
-            "sellerbot_name": "Duplicate Simple Seller Bot",
-            "sellerbot_token": "222:secret",
-            "sellerbot_panel_id": "",
-            "sellerbot_panel_admin": "simple_admin",
-            "sellerbot_volume_limit_gb": 25,
-        }
-    )
+    token = _valid_bot_token()
 
     try:
-        await service.register_reseller(
-            telegram_id=22222,
-            display_name="Simple Seller Admin",
-        )
-        await service.register_seller_bot(
+        await service.provision_seller_bot_bundle(
             reseller_telegram_id=22222,
+            reseller_display_name="Existing Owner",
             bot_name="Existing Bot",
-            bot_token="222:secret",
+            bot_token=token,
+            panel_name="existing-panel",
+            panel_base_url="https://existing-panel.example.com",
+            panel_token="panel-token",
+            marzban_admin_username="simple_admin",
+            ui_profile=SellerBotUiProfile.SIMPLE_SELLER,
+            volume_limit_gb=10,
+            actor_telegram_id=999,
         )
-        panel = await service.register_marzban_panel(
-            name="simple-panel",
-            base_url="https://simple-panel.example.com/",
-            token="panel-token",
+        state = _FakeState(
+            _bundle_wizard_state(
+                sellerbot_token=_valid_bot_token() + "B",
+                sellerbot_panel_base_url="https://another-panel.example.com",
+            )
         )
-        state.data["sellerbot_panel_id"] = panel.id
         callback = _FakeCallback("m:sellerbot_create", user_id=999)
 
         await master_menu_callback(callback, state, service)  # type: ignore[arg-type]
@@ -227,11 +199,10 @@ async def test_master_confirm_shows_error_when_seller_bot_create_fails() -> None
         await dispose_engine()
 
     assert state.cleared is False
-    assert callback.alerts == ["seller_bot_token_already_registered"]
+    assert callback.alerts == ["This Telegram ID already owns a reseller account."]
     assert callback.message.edited_text is not None
     assert "Confirm Seller Bot" in callback.message.edited_text
-    assert "Stock: 25 GB" in callback.message.edited_text
-    assert "Could not create seller bot: seller_bot_token_already_registered" in callback.message.edited_text
+    assert "Could not create seller bot:" in callback.message.edited_text
     assert len(seller_bots) == 1
 
 
@@ -352,7 +323,7 @@ async def test_start_simple_seller_uses_standalone_runtime_and_database_path() -
     assert env["DATABASE_PATH"] == f"/app/data/sellers/{seller_bot.id}/bot.sqlite3"
     assert env["SELLER_DATABASE_PATH"] == f"/app/data/sellers/{seller_bot.id}/bot.sqlite3"
     assert env["PLATFORM_DATABASE_URL"] == "sqlite+aiosqlite:///:memory:"
-    assert env["ADMIN_IDS"] == "22222"
+    assert env["ADMIN_IDS"] == "22222,999"
     assert env["MARZBAN_BASE_URL"] == "https://panel.example.com"
     assert env["MARZBAN_USERNAME"] == "panel-user"
     assert env["MARZBAN_PASSWORD"] == "panel-pass"
@@ -535,12 +506,177 @@ async def test_update_panel_password_changes_encrypted_value() -> None:
     assert updated_password == "new-secret"
 
 
-def _settings(fernet_key: str) -> Settings:
+@pytest.mark.asyncio
+async def test_provision_seller_bot_bundle_creates_all_entities() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+    token = _valid_bot_token()
+
+    try:
+        result = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=44444,
+            reseller_display_name="Bundle Owner",
+            bot_name="bundle-bot",
+            bot_token=token,
+            panel_name="bundle-panel",
+            panel_base_url="https://bundle-panel.example.com",
+            panel_username="admin",
+            panel_password="secret",
+            marzban_admin_username="marzban-admin",
+            ui_profile=SellerBotUiProfile.PLATFORM,
+            volume_limit_gb=50,
+            actor_telegram_id=999,
+        )
+        resellers = await service.list_resellers()
+        panels = await service.list_marzban_panels()
+        seller_bots = await service.list_seller_bots()
+        assignments = await service.list_panel_assignments_for_reseller(
+            reseller_id=result.reseller.id,
+        )
+        audit_logs = await service.recent_audit_logs(limit=10)
+    finally:
+        await dispose_engine()
+
+    assert result.reseller_existed is False
+    assert len(resellers) == 1
+    assert len(panels) == 1
+    assert len(seller_bots) == 1
+    assert len(assignments) == 1
+    assert assignments[0].assignment.panel_id == result.panel.id
+    assert seller_bots[0].volume_limit_gb == 50
+    assert any(log.action == "seller_bot.provision_bundle" for log in audit_logs)
+
+
+@pytest.mark.asyncio
+async def test_provision_seller_bot_bundle_rejects_duplicate_reseller() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await service.provision_seller_bot_bundle(
+            reseller_telegram_id=55555,
+            reseller_display_name="First Owner",
+            bot_name="first-bot",
+            bot_token=_valid_bot_token(),
+            panel_name="first-panel",
+            panel_base_url="https://first-panel.example.com",
+            panel_token="panel-token",
+            actor_telegram_id=999,
+        )
+        with pytest.raises(ValueError, match="reseller_already_exists"):
+            await service.provision_seller_bot_bundle(
+                reseller_telegram_id=55555,
+                reseller_display_name="Second Owner",
+                bot_name="second-bot",
+                bot_token=_valid_bot_token() + "C",
+                panel_name="second-panel",
+                panel_base_url="https://second-panel.example.com",
+                panel_token="panel-token-2",
+                actor_telegram_id=999,
+            )
+    finally:
+        await dispose_engine()
+
+
+@pytest.mark.asyncio
+async def test_provision_seller_bot_bundle_rejects_duplicate_panel_url() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        await service.provision_seller_bot_bundle(
+            reseller_telegram_id=66666,
+            reseller_display_name="Owner A",
+            bot_name="bot-a",
+            bot_token=_valid_bot_token(),
+            panel_name="shared-panel",
+            panel_base_url="https://shared-panel.example.com/",
+            panel_token="panel-token",
+            actor_telegram_id=999,
+        )
+        with pytest.raises(ValueError, match="panel_base_url_exists"):
+            await service.provision_seller_bot_bundle(
+                reseller_telegram_id=77777,
+                reseller_display_name="Owner B",
+                bot_name="bot-b",
+                bot_token=_valid_bot_token() + "D",
+                panel_name="shared-panel-copy",
+                panel_base_url="https://shared-panel.example.com",
+                panel_token="panel-token-2",
+                actor_telegram_id=999,
+            )
+    finally:
+        await dispose_engine()
+
+
+@pytest.mark.asyncio
+async def test_platform_seller_super_user_passes_admin_check() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    key = Fernet.generate_key().decode("utf-8")
+    settings = _settings(key, super_user_telegram_id=88888)
+    service = ResellerService(SecretBox(key), settings=settings)
+
+    try:
+        result = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=33333,
+            reseller_display_name="Platform Owner",
+            bot_name="platform-bot",
+            bot_token=_valid_bot_token(),
+            panel_name="platform-panel",
+            panel_base_url="https://platform-panel.example.com",
+            panel_token="panel-token",
+            ui_profile=SellerBotUiProfile.PLATFORM,
+            actor_telegram_id=88888,
+        )
+        seller_context = SellerContextService(result.seller_bot.id, settings=settings)
+        assert await seller_context.is_reseller_admin(telegram_id=88888) is True
+        assert await seller_context.is_reseller_admin(telegram_id=33333) is True
+        assert await seller_context.is_reseller_admin(telegram_id=11111) is False
+    finally:
+        await dispose_engine()
+
+
+@pytest.mark.asyncio
+async def test_simple_seller_admin_ids_include_super_user() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    key = Fernet.generate_key().decode("utf-8")
+    settings = _settings(key, super_user_telegram_id=88888)
+    service = ResellerService(SecretBox(key), settings=settings)
+
+    admin_ids = service._simple_seller_admin_ids(33333)
+    assert admin_ids == "33333,88888"
+
+
+def _settings(fernet_key: str, *, super_user_telegram_id: int | None = 999) -> Settings:
     return Settings(
         DATABASE_URL="sqlite+aiosqlite:///:memory:",
         FERNET_KEY=fernet_key,
         SELLER_DATA_HOST_PATH="/tmp/sellers",
+        SUPER_USER_TELEGRAM_ID=super_user_telegram_id,
     )
+
+
+def _bundle_wizard_state(**overrides) -> dict:
+    state = {
+        "sellerbot_ui_profile": SellerBotUiProfile.SIMPLE_SELLER.value,
+        "sellerbot_owner_telegram_id": 22222,
+        "sellerbot_owner_display_name": "Simple Seller Admin",
+        "sellerbot_name": "Simple Seller Bot",
+        "sellerbot_token": _valid_bot_token(),
+        "sellerbot_panel_name": "simple-panel",
+        "sellerbot_panel_base_url": "https://simple-panel.example.com",
+        "sellerbot_panel_auth": "token",
+        "sellerbot_panel_token": "panel-token",
+        "sellerbot_panel_admin": "simple_admin",
+        "sellerbot_volume_limit_gb": 25,
+    }
+    state.update(overrides)
+    return state
 
 
 def _valid_bot_token() -> str:

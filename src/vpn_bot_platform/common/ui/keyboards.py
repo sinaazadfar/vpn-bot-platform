@@ -136,7 +136,6 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
     if section == "resellers":
         rows.append(
             [
-                ("افزودن فروشنده", build_callback("m", "guide_add_reseller")),
                 ("تغییر نام", build_callback("m", "guide_rename_reseller")),
             ]
         )
@@ -175,12 +174,6 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
             ]
         )
     elif section == "panels":
-        rows.append(
-            [
-                ("افزودن پنل با توکن", build_callback("m", "guide_add_panel_token")),
-                ("افزودن پنل با ورود", build_callback("m", "guide_add_panel_password")),
-            ]
-        )
         rows.append([("اختصاص پنل", build_callback("m", "guide_assign_panel"))])
     elif section == "plans":
         rows.append(
@@ -221,6 +214,7 @@ def master_section_menu(section: str) -> InlineKeyboardMarkup:
         )
         rows.append([("بازه دلخواه", build_callback("m", "report_custom"))])
     elif section == "system":
+        rows.append([("تنظیمات پیشرفته", build_callback("m", "settings"))])
         rows.append(
             [
                 ("سلامت سیستم", build_callback("m", "system_health")),
@@ -274,6 +268,7 @@ def seller_bot_list_menu(
     page: int,
     total_pages: int,
     seller_bots: list[object] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = [
         [
@@ -285,13 +280,34 @@ def seller_bot_list_menu(
         bot_id = str(getattr(seller_bot, "id"))
         name = str(getattr(seller_bot, "name", "ربات فروشنده")).strip() or "ربات فروشنده"
         status = str(getattr(seller_bot, "status", "")).strip()
-        label = f"{name[:24]} | {status[:12]}" if status else name[:32]
+        if labels and bot_id in labels:
+            label = labels[bot_id]
+        elif status:
+            label = f"{name[:20]} | {status[:10]}"
+        else:
+            label = name[:32]
         rows.append([(label, build_callback("m", "seller_select", bot_id))])
     page_row = pagination_row(scope="m", action="seller_bots", page=page, total_pages=total_pages)
     if page_row:
         rows.append(page_row)
     rows.append(nav_row(scope="m", refresh_action="seller_bots", home_action="home"))
     return inline_keyboard(rows)
+
+
+def seller_bot_provision_success_menu(*, seller_bot_id: str, panel_id: str) -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [
+                ("Start bot", build_callback("m", "seller_start", seller_bot_id)),
+                ("Test panel", build_callback("m", "panel_test", panel_id)),
+            ],
+            [
+                ("Open bot config", build_callback("m", "seller_select", seller_bot_id)),
+                ("Seller bots", build_callback("m", "seller_bots")),
+            ],
+            [("Home", build_callback("m", "home"))],
+        ]
+    )
 
 
 def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
@@ -312,6 +328,7 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
             [
                 ("شروع", build_callback("m", "seller_start", seller_bot_id)),
                 ("توقف", build_callback("m", "seller_stop", seller_bot_id)),
+                ("راه اندازی مجدد", build_callback("m", "seller_restart", seller_bot_id)),
             ],
             [
                 ("سلامت", build_callback("m", "seller_health", seller_bot_id)),

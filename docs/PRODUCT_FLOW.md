@@ -17,52 +17,56 @@ The platform has two Telegram bot types:
 
 ## Master Bot Flow
 
-Main menu:
+Main menu (daily-first):
 
-- Resellers
-- Seller Bots
-- Panels
-- Plans
-- Discounts
-- Payments
-- Broadcasts
+- Seller Bots (list and manage)
+- Add Seller Bot (unified onboarding wizard — primary CTA)
 - Reports
-- Settings
-- System
+- Platform Settings (advanced: resellers, panels, plans, discounts, broadcasts, system)
+
+Reply keyboard shortcuts mirror the inline menu in Persian.
+
+### Unified Seller Bot Onboarding
+
+One wizard creates a new owner, Marzban panel, and seller bot in a single transaction:
+
+1. Super User opens **Add Seller Bot**.
+2. Selects bot type: **Platform** or **Simple Seller**.
+3. Enters new owner Telegram numeric ID and display name.
+4. Enters bot display name and BotFather token.
+5. Enters new panel name, base URL, and auth mode (token or username/password).
+6. Optionally sets Marzban admin username scope.
+7. Sets initial volume stock (GB).
+8. Confirms summary (secrets hidden).
+9. Master Bot provisions reseller + panel + bot + panel assignment atomically.
+10. On success: optional auto-start, panel connection test, and actions **Start bot**, **Open bot config**, **Test panel**.
+
+Super User (`SUPER_USER_TELEGRAM_ID`) is co-admin on every provisioned bot.
+
+Separate **Add Reseller** and **Add Panel** flows are demoted under Platform Settings for advanced edge cases only (for example multi-panel routing). Use **Assign Panel** when an existing panel must be linked to another reseller.
 
 ### Reseller Flow
 
-1. Super User opens Resellers.
-2. Selects Add Reseller.
-3. Enters Telegram numeric ID.
-4. Enters display name.
-5. Confirms creation.
-6. Master Bot shows reseller detail.
-7. Super User can rename, activate, suspend, disable, view seller bots, view plans, and view panel assignments.
+1. Super User opens Platform Settings → Resellers.
+2. Browses existing owners (created automatically by Add Seller Bot).
+3. Opens reseller detail for rename, activate, suspend, disable, seller bots, plans, and panel assignments.
 
-### Seller Bot Creation Flow
+### Seller Bot Management
 
 1. Super User opens Seller Bots.
-2. Selects Register New Bot.
-3. Selects reseller.
-4. Enters bot display name.
-5. Enters BotFather token.
-6. Master Bot validates token format.
-7. Super User confirms registration.
-8. Master Bot offers seller runtime actions: start, stop, restart, health, logs, disable.
-9. Production runtime starts the Seller Bot container.
+2. List rows show status, used/limit GB, and health badge when available.
+3. Opens bot config card for runtime and observability actions:
+   - Start | Stop | Restart
+   - Health | Logs
+   - Volume stock, pricing, admins, panel link
+4. Production runtime starts the Seller Bot container when requested.
 
-### Panel Flow
+### Panel Flow (Advanced)
 
-1. Super User opens Panels.
-2. Adds Marzban panel with token auth or username/password auth.
-3. Tests panel connection.
-4. Assigns panel to reseller.
-5. Sets routing fields:
-   - priority: lower values are tried first.
-   - weight: higher values receive more traffic among equal-priority panels.
-   - optional Marzban admin username.
-6. Can disable a panel so it stops receiving new provisioning.
+1. Super User opens Platform Settings → Panels.
+2. Lists registered panels; tests connection; changes token or password; disables panels.
+3. **Assign Panel** links an existing panel to a reseller with priority, weight, and optional Marzban admin username.
+4. For new onboarding, use **Add Seller Bot** instead of adding panels separately.
 
 ### Plan Flow
 

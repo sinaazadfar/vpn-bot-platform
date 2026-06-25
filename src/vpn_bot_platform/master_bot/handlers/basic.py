@@ -7,12 +7,12 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.token import TokenValidationError, validate_token
 
 from vpn_bot_platform.common.models import DiscountType, PlanPurpose, ResellerStatus, SellerBotUiProfile
 from vpn_bot_platform.common.forced_join import ForcedJoinChat
-from vpn_bot_platform.common.ui.callbacks import parse_callback
+from vpn_bot_platform.common.ui.callbacks import build_callback, parse_callback
 from vpn_bot_platform.common.ui.keyboards import (
     broadcast_actions,
     cancel_only_keyboard,
@@ -22,6 +22,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     forced_join_menu,
     inline_keyboard,
     master_main_menu,
+    master_reply_menu,
     master_section_menu,
     master_seller_bot_actions,
     panel_actions,
@@ -32,6 +33,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     reseller_detail_actions,
     reseller_actions,
     seller_bot_list_menu,
+    seller_bot_provision_success_menu,
     seller_bot_type_menu,
 )
 from vpn_bot_platform.common.ui.messages import section, short_id, status_label, title
@@ -54,10 +56,16 @@ class ResellerRenameStates(StatesGroup):
 
 class SellerBotCreateStates(StatesGroup):
     bot_type = State()
-    reseller = State()
+    owner_telegram_id = State()
+    owner_display_name = State()
     name = State()
     token = State()
-    panel = State()
+    panel_name = State()
+    panel_base_url = State()
+    panel_auth_type = State()
+    panel_username = State()
+    panel_password = State()
+    panel_token = State()
     panel_admin = State()
     volume = State()
     confirm = State()
@@ -175,8 +183,26 @@ def _panel_error_message(error: ValueError) -> str:
         "panel_token_required": "Panel token is required.",
         "panel_token_auth_only": "This panel uses token auth. Change the token instead.",
         "panel_password_auth_only": "This panel uses username/password auth.",
+        "reseller_already_exists": "This Telegram ID already owns a reseller account.",
+        "reseller_not_found": "Reseller not found.",
     }
     return messages.get(str(error), str(error))
+
+
+def _bundle_error_message(exc: Exception) -> str:
+    if isinstance(exc, ValueError):
+        return _panel_error_message(exc)
+    return str(exc)
+
+
+def _sellerbot_panel_auth_keyboard() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        [
+            [("Panel token auth", build_callback("m", "sellerbot_panel_auth", "token"))],
+            [("Panel login auth", build_callback("m", "sellerbot_panel_auth", "password"))],
+            [("Cancel", build_callback("m", "sellerbot_cancel"))],
+        ]
+    )
 
 
 async def _show_add_seller_bot_start(
@@ -191,10 +217,9 @@ async def _show_add_seller_bot_start(
         "\n".join(
             [
                 title("Add Seller Bot"),
-                "Choose which seller bot codebase to use.",
+                "One wizard creates the owner, Marzban panel, and seller bot together.",
                 "",
-                "Our Seller Bot is the built-in platform bot.",
-                "External Template Bot uses a registered external template.",
+                "Choose which seller bot codebase to use.",
             ]
         ),
         reply_markup=seller_bot_type_menu(has_external_templates=bool(templates)),
@@ -215,45 +240,29 @@ async def _edit_add_seller_bot_start(
         "\n".join(
             [
                 title("Add Seller Bot"),
-                "Choose which seller bot codebase to use.",
+                "One wizard creates the owner, Marzban panel, and seller bot together.",
                 "",
-                "Our Seller Bot is the built-in platform bot.",
-                "External Template Bot uses a registered external template.",
+                "Choose which seller bot codebase to use.",
             ]
         ),
         reply_markup=seller_bot_type_menu(has_external_templates=bool(templates)),
     )
 
 
-async def _edit_add_seller_bot_reseller_step(
-    callback: CallbackQuery,
-    state: FSMContext,
-    reseller_service: ResellerService,
-) -> None:
+async def _edit_sellerbot_owner_step(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.message is None:
         return
-    resellers = await reseller_service.list_resellers()
-    if not resellers:
-        await callback.message.edit_text(
-            "\n".join([title("Add Seller Bot"), "Create a reseller/admin first."]),
-            reply_markup=master_section_menu("platform_settings"),
-        )
-        return
-    await state.set_state(SellerBotCreateStates.reseller)
+    await state.set_state(SellerBotCreateStates.owner_telegram_id)
     await callback.message.edit_text(
         "\n".join(
             [
                 title("Add Seller Bot"),
-                "Select the reseller/admin who owns this bot.",
+                "Send the new bot owner's Telegram numeric ID.",
                 "",
-                "This person becomes the current bot admin.",
+                "This person becomes the reseller admin for this bot.",
             ]
         ),
-        reply_markup=_reseller_select_keyboard(
-            resellers[:10],
-            action_name="sellerbot_reseller",
-            cancel_action="sellerbot_cancel",
-        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
     )
 
 
@@ -265,6 +274,7 @@ async def start(message: Message, state: FSMContext | None = None) -> None:
         _master_dashboard_text(),
         reply_markup=master_main_menu(),
     )
+    await message.answer("Quick actions:", reply_markup=master_reply_menu())
 
 
 @router.message(Command("admin"))
@@ -275,6 +285,7 @@ async def admin_menu(message: Message, state: FSMContext | None = None) -> None:
         _master_dashboard_text(),
         reply_markup=master_main_menu(),
     )
+    await message.answer("Quick actions:", reply_markup=master_reply_menu())
 
 
 @router.message(Command("cancel"))
@@ -285,6 +296,34 @@ async def cancel_flow(message: Message, state: FSMContext) -> None:
         "\n".join([title("Canceled"), "Current flow was cleared."]),
         reply_markup=master_main_menu(),
     )
+
+
+@router.message(F.text.in_({"ربات های فروشنده", "افزودن ربات فروشنده"}))
+async def master_reply_menu_alias_persian(
+    message: Message,
+    reseller_service: ResellerService,
+    state: FSMContext,
+) -> None:
+    await state.clear()
+    if message.text == "ربات های فروشنده":
+        seller_bots = [
+            seller_bot
+            for seller_bot in await reseller_service.list_seller_bots()
+            if seller_bot.status != "disabled"
+        ]
+        page = paginate(seller_bots, page=1, per_page=5)
+        labels = await _seller_bot_list_labels(reseller_service, list(page.items))
+        await message.answer(
+            await _seller_bots_page_text(reseller_service, page),
+            reply_markup=seller_bot_list_menu(
+                page=page.page,
+                total_pages=page.total_pages,
+                seller_bots=list(page.items),
+                labels=labels,
+            ),
+        )
+    elif message.text == "افزودن ربات فروشنده":
+        await _show_add_seller_bot_start(message, state, reseller_service)
 
 
 @router.message(F.text.in_({"Seller Bots", "Add Seller Bot", "Resellers", "Panels", "Plans", "Reports", "Settings"}))
@@ -301,12 +340,14 @@ async def master_reply_menu_alias(
             if seller_bot.status != "disabled"
         ]
         page = paginate(seller_bots, page=1, per_page=5)
+        labels = await _seller_bot_list_labels(reseller_service, list(page.items))
         await message.answer(
-            _seller_bots_page_text(page),
+            await _seller_bots_page_text(reseller_service, page),
             reply_markup=seller_bot_list_menu(
                 page=page.page,
                 total_pages=page.total_pages,
                 seller_bots=list(page.items),
+                labels=labels,
             ),
         )
     elif message.text == "Add Seller Bot":
@@ -387,6 +428,17 @@ async def master_menu_callback(
             text = await _reseller_detail_text(reseller_service, reseller)
         elif action.action == "reseller_seller_bots":
             text = await _reseller_seller_bots_text(reseller_service, reseller)
+            seller_bots = [
+                item for item in await reseller_service.list_seller_bots() if item.reseller_id == reseller.id
+            ]
+            reply_markup = (
+                _reseller_seller_bots_keyboard(seller_bots)
+                if seller_bots
+                else reseller_detail_actions(reseller.telegram_user_id)
+            )
+            await callback.message.edit_text(text, reply_markup=reply_markup)
+            await callback.answer()
+            return
         elif action.action == "reseller_plans":
             text = await _reseller_plans_text(reseller_service, reseller)
         else:
@@ -509,12 +561,14 @@ async def master_menu_callback(
             if seller_bot.status != "disabled"
         ]
         page = paginate(seller_bots, page=page_number, per_page=5)
+        labels = await _seller_bot_list_labels(reseller_service, list(page.items))
         await callback.message.edit_text(
-            _seller_bots_page_text(page),
+            await _seller_bots_page_text(reseller_service, page),
             reply_markup=seller_bot_list_menu(
                 page=page.page,
                 total_pages=page.total_pages,
                 seller_bots=list(page.items),
+                labels=labels,
             ),
         )
     elif action.action == "seller_select":
@@ -1890,160 +1944,99 @@ async def master_menu_callback(
         if action.value not in {"native", "external", "simple_seller"}:
             await callback.answer("Invalid bot type.", show_alert=True)
             return
+        if action.value == "external":
+            await callback.answer("External seller bots are not available in the unified wizard yet.", show_alert=True)
+            return
         if action.value == "simple_seller":
             await state.update_data(
                 sellerbot_runtime_type="native",
                 sellerbot_template_key=None,
                 sellerbot_ui_profile=SellerBotUiProfile.SIMPLE_SELLER.value,
             )
-            await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
-            return
-        if action.value == "external":
-            templates = await reseller_service.list_external_bot_templates()
-            if not templates:
-                await callback.message.edit_text(
-                    "\n".join([title("Add Seller Bot"), "No external bot templates are registered."]),
-                    reply_markup=master_section_menu("seller_bots"),
-                )
-                return
+        else:
             await state.update_data(
-                sellerbot_runtime_type="external",
+                sellerbot_runtime_type="native",
+                sellerbot_template_key=None,
                 sellerbot_ui_profile=SellerBotUiProfile.PLATFORM.value,
             )
-            await state.set_state(SellerBotCreateStates.bot_type)
+        await _edit_sellerbot_owner_step(callback, state)
+    elif action.action == "sellerbot_panel_auth":
+        if action.value not in {"token", "password"}:
+            await callback.answer("Invalid panel auth type.", show_alert=True)
+            return
+        await state.update_data(sellerbot_panel_auth=action.value)
+        if action.value == "token":
+            await state.set_state(SellerBotCreateStates.panel_token)
             await callback.message.edit_text(
-                "\n".join([title("Add Seller Bot"), "Choose which external bot template to use."]),
-                reply_markup=_external_template_select_keyboard(templates[:10]),
+                "\n".join(
+                    [
+                        title("Add Seller Bot"),
+                        "Send the Marzban admin token for this new panel.",
+                        "",
+                        "The token will be encrypted and hidden in the preview.",
+                    ]
+                ),
+                reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
             )
-            return
-        await state.update_data(
-            sellerbot_runtime_type="native",
-            sellerbot_template_key=None,
-            sellerbot_ui_profile=SellerBotUiProfile.PLATFORM.value,
-        )
-        await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
-    elif action.action == "sellerbot_template":
-        if not action.value:
-            await callback.answer("Template is missing.", show_alert=True)
-            return
-        await state.update_data(
-            sellerbot_runtime_type="external",
-            sellerbot_template_key=action.value,
-            sellerbot_ui_profile=SellerBotUiProfile.PLATFORM.value,
-        )
-        await _edit_add_seller_bot_reseller_step(callback, state, reseller_service)
-    elif action.action == "add_seller_bot_legacy":
-        await state.clear()
-        resellers = await reseller_service.list_resellers()
-        if not resellers:
+        else:
+            await state.set_state(SellerBotCreateStates.panel_username)
             await callback.message.edit_text(
-                "\n".join([title("Add Seller Bot"), "Create a reseller first."]),
-                reply_markup=master_section_menu("seller_bots"),
+                "\n".join([title("Add Seller Bot"), "Send the Marzban admin username for this new panel."]),
+                reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
             )
-            return
-        await state.set_state(SellerBotCreateStates.reseller)
-        await callback.message.edit_text(
-            "\n".join(
-                [
-                    title("Add Seller Bot"),
-                    "Select the reseller who owns this bot.",
-                ]
-            ),
-            reply_markup=_reseller_select_keyboard(
-                resellers[:10],
-                action_name="sellerbot_reseller",
-                cancel_action="sellerbot_cancel",
-            ),
-        )
-    elif action.action == "sellerbot_reseller":
-        if not action.value or not action.value.isdigit():
-            await callback.answer("Invalid reseller.", show_alert=True)
-            return
-        await state.update_data(sellerbot_reseller_telegram_id=int(action.value))
-        await state.set_state(SellerBotCreateStates.name)
-        await callback.message.edit_text(
-            "\n".join(
-                [
-                    title("Add Seller Bot"),
-                    "Type the display name for this seller bot.",
-                    "",
-                    "Example:",
-                    "Sina Azad VPN",
-                    "",
-                    "This name is only for your management panel.",
-                ]
-            ),
-            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
-        )
-    elif action.action == "sellerbot_panel":
-        if not action.value:
-            await callback.answer("Panel is missing.", show_alert=True)
-            return
-        await state.update_data(sellerbot_panel_id=action.value)
-        await state.set_state(SellerBotCreateStates.panel_admin)
-        await callback.message.edit_text(
-            "\n".join(
-                [
-                    title("Add Seller Bot"),
-                    "Type the Marzban admin username for this seller bot.",
-                    "",
-                    "Example:",
-                    "sina_reseller",
-                    "",
-                    "Send - to use the default panel admin.",
-                ]
-            ),
-            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
-        )
+        await callback.answer()
     elif action.action == "sellerbot_create":
         data = await state.get_data()
-        reseller_telegram_id = data.get("sellerbot_reseller_telegram_id")
+        owner_telegram_id = data.get("sellerbot_owner_telegram_id")
+        owner_display_name = str(data.get("sellerbot_owner_display_name") or "").strip()
         bot_name = str(data.get("sellerbot_name") or "").strip()
         bot_token = str(data.get("sellerbot_token") or "").strip()
-        runtime_type = str(data.get("sellerbot_runtime_type") or "native")
-        template_key = str(data.get("sellerbot_template_key") or "").strip()
-        ui_profile = str(data.get("sellerbot_ui_profile") or SellerBotUiProfile.PLATFORM.value)
-        panel_id = str(data.get("sellerbot_panel_id") or "").strip()
+        ui_profile_value = str(data.get("sellerbot_ui_profile") or SellerBotUiProfile.PLATFORM.value)
+        panel_name = str(data.get("sellerbot_panel_name") or "").strip()
+        panel_base_url = str(data.get("sellerbot_panel_base_url") or "").strip()
+        panel_auth = str(data.get("sellerbot_panel_auth") or "").strip()
+        panel_username = str(data.get("sellerbot_panel_username") or "").strip() or None
+        panel_password = str(data.get("sellerbot_panel_password") or "").strip() or None
+        panel_token = str(data.get("sellerbot_panel_token") or "").strip() or None
         panel_admin = str(data.get("sellerbot_panel_admin") or "").strip() or None
         volume_limit_gb = data.get("sellerbot_volume_limit_gb")
-        if not reseller_telegram_id or not bot_name or not bot_token or not panel_id:
+        required = [
+            owner_telegram_id,
+            owner_display_name,
+            bot_name,
+            bot_token,
+            panel_name,
+            panel_base_url,
+            panel_auth,
+        ]
+        if not all(required):
             await callback.answer("Seller bot draft is incomplete.", show_alert=True)
             await state.clear()
             return
         try:
-            if runtime_type == "external":
-                if not template_key:
-                    await callback.answer("External template is missing.", show_alert=True)
-                    return
-                seller_bot, assignment = await reseller_service.register_external_seller_bot_with_panel(
-                    reseller_telegram_id=int(reseller_telegram_id),
-                    bot_name=bot_name,
-                    bot_token=bot_token,
-                    template_id_or_key=template_key,
-                    panel_id=panel_id,
-                    marzban_admin_username=panel_admin,
-                    volume_limit_gb=volume_limit_gb,
-                    actor_telegram_id=callback.from_user.id,
-                )
-            else:
-                try:
-                    seller_bot_ui_profile = SellerBotUiProfile(ui_profile)
-                except ValueError:
-                    seller_bot_ui_profile = SellerBotUiProfile.PLATFORM
-                seller_bot, assignment = await reseller_service.register_seller_bot_with_panel(
-                    reseller_telegram_id=int(reseller_telegram_id),
-                    bot_name=bot_name,
-                    bot_token=bot_token,
-                    panel_id=panel_id,
-                    marzban_admin_username=panel_admin,
-                    volume_limit_gb=volume_limit_gb,
-                    ui_profile=seller_bot_ui_profile,
-                    actor_telegram_id=callback.from_user.id,
-                )
+            seller_bot_ui_profile = SellerBotUiProfile(ui_profile_value)
+        except ValueError:
+            seller_bot_ui_profile = SellerBotUiProfile.PLATFORM
+        try:
+            result = await reseller_service.provision_seller_bot_bundle(
+                reseller_telegram_id=int(owner_telegram_id),
+                reseller_display_name=owner_display_name,
+                bot_name=bot_name,
+                bot_token=bot_token,
+                panel_name=panel_name,
+                panel_base_url=panel_base_url,
+                ui_profile=seller_bot_ui_profile,
+                panel_username=panel_username if panel_auth == "password" else None,
+                panel_password=panel_password if panel_auth == "password" else None,
+                panel_token=panel_token if panel_auth == "token" else None,
+                marzban_admin_username=panel_admin,
+                volume_limit_gb=volume_limit_gb,
+                actor_telegram_id=callback.from_user.id,
+            )
         except ValueError as exc:
-            await callback.answer(str(exc), show_alert=True)
+            await callback.answer(_bundle_error_message(exc), show_alert=True)
             await callback.message.edit_text(
-                _sellerbot_confirm_text(data, error=str(exc)),
+                _sellerbot_confirm_text(data, error=_bundle_error_message(exc)),
                 reply_markup=confirm_keyboard(
                     scope="m",
                     confirm_action="sellerbot_create",
@@ -2051,20 +2044,47 @@ async def master_menu_callback(
                 ),
             )
             return
+        except (TokenValidationError, RuntimeError) as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        seller_bot = result.seller_bot
+        panel = result.panel
+        start_status = "Auto-start: skipped"
+        if reseller_service.settings and reseller_service.settings.auto_start_seller_on_create:
+            try:
+                seller_bot = await reseller_service.start_seller_bot(seller_bot_id=seller_bot.id)
+                start_status = f"Auto-start: {status_label(seller_bot.status)}"
+            except (ValueError, RuntimeError) as exc:
+                start_status = f"Auto-start failed: {exc}"
+        panel_test_status = "Panel test: skipped"
+        try:
+            panel_test = await reseller_service.test_panel_connection(panel_id=panel.id)
+            panel_test_status = f"Panel test: {status_label('active' if panel_test.ok else 'failed')} ({panel_test.message})"
+        except ValueError:
+            panel_test_status = "Panel test: panel not found"
         await state.clear()
         await callback.message.edit_text(
             "\n".join(
                 [
-                    title("Seller Bot Registered"),
+                    title("Seller Bot Provisioned"),
                     f"ID: {seller_bot.id}",
                     f"Name: {seller_bot.name}",
+                    f"Owner: {result.reseller.display_name} ({result.reseller.telegram_user_id})",
+                    f"Panel: {panel.name}",
                     f"Status: {status_label(seller_bot.status)}",
-                    f"Panel assignment: {assignment.id}",
                     f"Stock: {_seller_bot_volume_text(seller_bot)}",
+                    start_status,
+                    panel_test_status,
+                    "",
+                    "Super user is co-admin on this bot.",
                 ]
             ),
-            reply_markup=master_seller_bot_actions(seller_bot.id),
+            reply_markup=seller_bot_provision_success_menu(
+                seller_bot_id=seller_bot.id,
+                panel_id=panel.id,
+            ),
         )
+        await callback.answer()
     elif action.action == "seller_volume_add_confirm":
         data = await state.get_data()
         seller_bot_id = str(data.get("seller_volume_bot_id") or "")
@@ -2274,17 +2294,58 @@ async def reseller_rename_waiting_for_confirmation(message: Message) -> None:
     )
 
 
-@router.message(SellerBotCreateStates.reseller)
-async def sellerbot_create_waiting_for_reseller(message: Message) -> None:
-    await message.answer(
-        "\n".join([title("Add Seller Bot"), "Select a reseller using the buttons."])
-    )
-
-
 @router.message(SellerBotCreateStates.bot_type)
 async def sellerbot_create_waiting_for_type(message: Message) -> None:
     await message.answer(
         "\n".join([title("Add Seller Bot"), "Choose the bot type using the buttons."])
+    )
+
+
+@router.message(SellerBotCreateStates.owner_telegram_id)
+async def sellerbot_create_owner_telegram_id(message: Message, state: FSMContext) -> None:
+    raw_value = (message.text or "").strip()
+    if not raw_value.isdigit():
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send a numeric Telegram ID for the new owner."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_owner_telegram_id=int(raw_value))
+    await state.set_state(SellerBotCreateStates.owner_display_name)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Send the owner's display name.",
+                "",
+                "Example: Sina Azad",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+    )
+
+
+@router.message(SellerBotCreateStates.owner_display_name)
+async def sellerbot_create_owner_display_name(message: Message, state: FSMContext) -> None:
+    display_name = (message.text or "").strip()
+    if not display_name or display_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send a display name for the new owner."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_owner_display_name=display_name[:128])
+    await state.set_state(SellerBotCreateStates.name)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Type the display name for this seller bot.",
+                "",
+                "Example: Sina Azad VPN",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
     )
 
 
@@ -2324,11 +2385,7 @@ async def sellerbot_create_name(message: Message, state: FSMContext) -> None:
 
 
 @router.message(SellerBotCreateStates.token)
-async def sellerbot_create_token(
-    message: Message,
-    state: FSMContext,
-    reseller_service: ResellerService,
-) -> None:
+async def sellerbot_create_token(message: Message, state: FSMContext) -> None:
     bot_token = (message.text or "").strip()
     try:
         validate_token(bot_token)
@@ -2340,47 +2397,141 @@ async def sellerbot_create_token(
                     f"Invalid token: {exc}",
                     "",
                     "Paste the exact token from BotFather.",
-                    "Example format: 123456789:ABCdef...",
                 ]
             ),
             reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
         )
         return
     await state.update_data(sellerbot_token=bot_token)
-    panels = await reseller_service.list_marzban_panels()
-    active_panels = [panel for panel in panels if panel.is_active]
-    if not active_panels:
-        await message.answer(
-            "\n".join(
-                [
-                    title("Add Seller Bot"),
-                    "No active Marzban panel exists.",
-                    "Create a panel first from Platform Settings > Panels.",
-                ]
-            ),
-            reply_markup=master_section_menu("platform_settings"),
-        )
-        return
-    await state.set_state(SellerBotCreateStates.panel)
+    await state.set_state(SellerBotCreateStates.panel_name)
     await message.answer(
         "\n".join(
             [
                 title("Add Seller Bot"),
-                "Choose which Marzban panel this seller bot should use.",
+                "Send a short name for the new Marzban panel.",
+                "",
+                "Example: Germany Main",
             ]
         ),
-        reply_markup=_panel_select_keyboard(
-            active_panels[:10],
-            action_name="sellerbot_panel",
-            cancel_action="sellerbot_cancel",
-        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
     )
 
 
-@router.message(SellerBotCreateStates.panel)
-async def sellerbot_create_waiting_for_panel(message: Message) -> None:
+@router.message(SellerBotCreateStates.panel_name)
+async def sellerbot_create_panel_name(message: Message, state: FSMContext) -> None:
+    panel_name = (message.text or "").strip()
+    if not panel_name or panel_name.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send a panel name, not a command."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_panel_name=panel_name[:128])
+    await state.set_state(SellerBotCreateStates.panel_base_url)
     await message.answer(
-        "\n".join([title("Add Seller Bot"), "Select a panel using the buttons."])
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Send the Marzban base URL.",
+                "",
+                "Example: https://panel.example.com",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+    )
+
+
+@router.message(SellerBotCreateStates.panel_base_url)
+async def sellerbot_create_panel_base_url(message: Message, state: FSMContext) -> None:
+    base_url = (message.text or "").strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send a valid URL starting with http:// or https://."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_panel_base_url=base_url)
+    await state.set_state(SellerBotCreateStates.panel_auth_type)
+    await message.answer(
+        "\n".join([title("Add Seller Bot"), "Choose how this new panel authenticates."]),
+        reply_markup=_sellerbot_panel_auth_keyboard(),
+    )
+
+
+@router.message(SellerBotCreateStates.panel_auth_type)
+async def sellerbot_create_waiting_for_panel_auth(message: Message) -> None:
+    await message.answer(
+        "\n".join([title("Add Seller Bot"), "Choose panel auth using the buttons."])
+    )
+
+
+@router.message(SellerBotCreateStates.panel_username)
+async def sellerbot_create_panel_username(message: Message, state: FSMContext) -> None:
+    username = (message.text or "").strip()
+    if not username or username.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send a panel username, not a command."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_panel_username=username[:128])
+    await state.set_state(SellerBotCreateStates.panel_password)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Send the Marzban admin password for this new panel.",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+    )
+
+
+@router.message(SellerBotCreateStates.panel_password)
+async def sellerbot_create_panel_password(message: Message, state: FSMContext) -> None:
+    password = (message.text or "").strip()
+    if not password or password.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send the panel password, not a command."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_panel_password=password)
+    await state.set_state(SellerBotCreateStates.panel_admin)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Send the Marzban admin username used for provisioning.",
+                "",
+                "Send - to use the panel login username.",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+    )
+
+
+@router.message(SellerBotCreateStates.panel_token)
+async def sellerbot_create_panel_token(message: Message, state: FSMContext) -> None:
+    token_value = (message.text or "").strip()
+    if not token_value or token_value.startswith("/"):
+        await message.answer(
+            "\n".join([title("Add Seller Bot"), "Send the panel token, not a command."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
+        )
+        return
+    await state.update_data(sellerbot_panel_token=token_value)
+    await state.set_state(SellerBotCreateStates.panel_admin)
+    await message.answer(
+        "\n".join(
+            [
+                title("Add Seller Bot"),
+                "Send the Marzban admin username used for provisioning.",
+                "",
+                "Send - to skip and use the default panel scope.",
+            ]
+        ),
+        reply_markup=cancel_only_keyboard(scope="m", cancel_action="sellerbot_cancel"),
     )
 
 
@@ -2576,12 +2727,14 @@ async def sellerbot_search_query(
         )
         return
     page = paginate(seller_bots, page=1, per_page=10)
+    labels = await _seller_bot_list_labels(reseller_service, list(page.items))
     await message.answer(
         _seller_bots_search_text(query, seller_bots),
         reply_markup=seller_bot_list_menu(
             page=page.page,
             total_pages=page.total_pages,
             seller_bots=list(page.items),
+            labels=labels,
         ),
     )
 
@@ -4004,7 +4157,14 @@ def _resellers_page_text(page) -> str:
         f"- {reseller.display_name} | {status_label(reseller.status)} | tg={reseller.telegram_user_id}"
         for reseller in page.items
     ]
-    rows.extend(["", f"Page: {page.page}/{page.total_pages}", f"Total: {page.total_items}"])
+    rows.extend(
+        [
+            "",
+            "Use Add Seller Bot to onboard a new owner and bot.",
+            f"Page: {page.page}/{page.total_pages}",
+            f"Total: {page.total_items}",
+        ]
+    )
     return "\n".join([title("Resellers"), section("Resellers", rows)])
 
 
@@ -4075,6 +4235,15 @@ async def _reseller_panels_text(reseller_service: ResellerService, reseller) -> 
     return "\n".join([title("Panel Assignments"), section("Assignments", rows)])
 
 
+def _reseller_seller_bots_keyboard(seller_bots) -> InlineKeyboardMarkup:
+    rows = [
+        [(seller_bot.name[:32], build_callback("m", "seller_select", seller_bot.id))]
+        for seller_bot in seller_bots[:10]
+    ]
+    rows.append([("Back", build_callback("m", "resellers")), ("Home", build_callback("m", "home"))])
+    return inline_keyboard(rows)
+
+
 def _reseller_select_keyboard(resellers, *, action_name: str, cancel_action: str):
     rows = [
         [(reseller.display_name, f"m:{action_name}:{reseller.telegram_user_id}")]
@@ -4115,7 +4284,13 @@ async def _panels_text(reseller_service: ResellerService) -> str:
         f"- {panel.name} | {status_label('active' if panel.is_active else 'disabled')} | id={short_id(panel.id)}"
         for panel in panels[:20]
     ]
-    rows.extend(["", "Use the buttons below to add or assign panels."])
+    rows.extend(
+        [
+            "",
+            "Use Add Seller Bot to onboard a new bot with a new panel.",
+            "Use Assign Panel only for advanced multi-panel routing.",
+        ]
+    )
     return "\n".join([title("Panels"), section("Registered panels", rows)])
 
 
@@ -4177,11 +4352,27 @@ async def _seller_bots_text(reseller_service: ResellerService) -> str:
     return "\n".join([title("Seller Bots"), section("Registered bots", rows)])
 
 
-def _seller_bots_page_text(page) -> str:
-    rows = [
-        f"- {seller_bot.name} | {status_label(seller_bot.status)} | id={short_id(seller_bot.id)}"
-        for seller_bot in page.items
-    ]
+async def _seller_bot_list_labels(
+    reseller_service: ResellerService,
+    seller_bots: list,
+) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for seller_bot in seller_bots:
+        quota = await reseller_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        labels[seller_bot.id] = (
+            f"{seller_bot.name[:16]} | {seller_bot.status[:8]} | {quota.used_gb}/{quota.limit_gb}GB"
+        )
+    return labels
+
+
+async def _seller_bots_page_text(reseller_service: ResellerService, page) -> str:
+    rows = []
+    for seller_bot in page.items:
+        quota = await reseller_service.seller_bot_quota(seller_bot_id=seller_bot.id)
+        rows.append(
+            f"- {seller_bot.name} | {status_label(seller_bot.status)} | "
+            f"{quota.used_gb}/{quota.limit_gb} GB | id={short_id(seller_bot.id)}"
+        )
     if not rows:
         rows.append("No seller bots yet. Use Add Seller Bot to create one.")
     rows.extend(["", f"Page: {page.page}/{page.total_pages}", f"Total: {page.total_items}"])
@@ -4221,10 +4412,10 @@ def _seller_bot_admins_text(seller_bot, reseller) -> str:
             title("Bot Admins"),
             f"Bot: {seller_bot.name}",
             "",
-            "Current owner/admin:",
+            "Owner/admin:",
             f"- {reseller.display_name} | Telegram: {reseller.telegram_user_id}",
             "",
-            "Extra bot-admin add/remove needs a dedicated bot-admin table. For now, change the reseller owner from Platform Settings > Resellers.",
+            "Platform super user is also co-admin on this bot.",
         ]
     )
 
@@ -4253,17 +4444,20 @@ def _seller_bots_search_text(query: str, seller_bots) -> str:
 
 
 def _sellerbot_confirm_text(data: dict, *, error: str | None = None) -> str:
+    panel_auth = data.get("sellerbot_panel_auth") or "-"
     lines = [
         title("Confirm Seller Bot"),
-        f"Type: {data.get('sellerbot_runtime_type') or 'native'}",
         f"UI profile: {data.get('sellerbot_ui_profile') or 'platform'}",
-        f"Template: {data.get('sellerbot_template_key') or '-'}",
-        f"Reseller Telegram: {data.get('sellerbot_reseller_telegram_id')}",
+        f"Owner Telegram: {data.get('sellerbot_owner_telegram_id')}",
+        f"Owner name: {data.get('sellerbot_owner_display_name')}",
         f"Bot name: {data.get('sellerbot_name')}",
-        f"Panel ID: {data.get('sellerbot_panel_id')}",
+        f"Panel name: {data.get('sellerbot_panel_name')}",
+        f"Panel URL: {data.get('sellerbot_panel_base_url')}",
+        f"Panel auth: {panel_auth}",
         f"Marzban admin: {data.get('sellerbot_panel_admin') or '-'}",
         f"Stock: {data.get('sellerbot_volume_limit_gb') or 0} GB",
-        "Token: valid and hidden",
+        "Bot token: hidden",
+        "Panel secret: hidden",
     ]
     if error:
         lines.extend(["", f"Could not create seller bot: {error}"])
