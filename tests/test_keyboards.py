@@ -20,13 +20,14 @@ def test_wallet_top_up_keyboard_has_manual_and_back():
     keyboard = wallet_top_up_keyboard()
 
     assert keyboard.inline_keyboard[2][0].callback_data == "wallet:manual"
-    assert keyboard.inline_keyboard[3][0].callback_data == "menu:home"
-    assert keyboard.inline_keyboard[3][1].callback_data == "menu:support"
+    assert keyboard.inline_keyboard[3][0].callback_data == "wallet:ledger:1"
+    assert keyboard.inline_keyboard[4][0].callback_data == "menu:home"
+    assert keyboard.inline_keyboard[4][1].callback_data == "menu:support"
 
 
 def test_wallet_top_up_keyboard_support_uses_url_when_configured():
     keyboard = wallet_top_up_keyboard("Support_User")
-    support_button = keyboard.inline_keyboard[3][1]
+    support_button = keyboard.inline_keyboard[4][1]
 
     assert support_button.url == "https://t.me/Support_User"
     assert support_button.callback_data is None
@@ -58,7 +59,9 @@ def test_subscription_detail_keyboard_uses_persian_labels_and_all_configs_action
         "همه کانفیگ‌ها",
         "فایل متنی کانفیگ‌ها",
         "تغییر لینک اشتراک",
-        "تمدید اشتراک",
+        "تمدید زمان",
+        "افزایش حجم",
+        "تمدید کامل (زمان+حجم)",
         "آموزش اتصال",
     }.issubset(labels)
     assert "sub:configs_all:42" in callbacks
@@ -89,6 +92,7 @@ def test_main_menu_hides_earn_when_disabled_and_shows_when_enabled():
     assert disabled_keyboard.inline_keyboard[3][0].text == c.TUTORIAL
     assert disabled_keyboard.inline_keyboard[3][1].text == c.SUPPORT
     assert enabled_keyboard.inline_keyboard[4][0].text == c.EARN
+    assert any(button.text == "پشتیبانی / تیکت" for row in disabled_keyboard.inline_keyboard for button in row)
 
 
 def test_admin_earning_keyboard_has_toggle_percent_and_back():
@@ -108,6 +112,8 @@ def test_admin_menu_has_quota_button():
 
     assert c.ADMIN_QUOTA in labels
     assert "admin:quota" in callbacks
+    assert "admin:tickets" in callbacks
+    assert "admin:sales" in callbacks
 
 
 def test_admin_back_keyboard_returns_to_admin_panel():

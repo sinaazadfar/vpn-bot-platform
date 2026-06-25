@@ -331,3 +331,13 @@ Reports include:
 - BotMirzaPanel: broadest shop/admin feature set.
 - Marzbot-free: clean Python/aiogram architecture and service separation.
 - Official Marzban Telegram bot: management and health/notification concepts.
+
+## Simple Seller Implementation Notes (2026)
+
+- Global `BlockCheckMiddleware` and `ForcedJoinMiddleware` in `bot/app.py`
+- Admin users: filters, search pagination, profile sync, wallet ledger
+- Admin payments: paginated pending list with receipt view
+- HTML wallet/payment notifications in `bot/notifications.py`
+- Buyer: wallet ledger, trial, tickets, renew vs volume split, support fix
+- Master Bot: panel password/token change from seller bot panel menu
+- Backup script: `scripts/backup_seller_sqlite.sh`

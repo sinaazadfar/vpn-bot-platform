@@ -19,7 +19,8 @@ from bot.context import AppContext
 from bot.db import Repository
 from bot.formatting import with_footer
 from bot.handlers.admin import _edit_callback_message, require_admin
-from bot.keyboards import admin_back_keyboard
+from bot.keyboards import admin_back_keyboard, wallet_ledger_keyboard
+from bot.notifications import wallet_reason_label
 from bot.states import AdminUserMessage, AdminUserSearch, AdminUserWallet
 from bot.user_profile import refresh_user_profile_from_telegram, refresh_users_profiles_from_telegram
 
@@ -37,22 +38,32 @@ async def _render_users_list(
     *,
     page: int = 1,
     search_query: str | None = None,
-    search_results=None,
+    filter_type: str = "all",
 ) -> None:
     bot = target.bot
     async with ctx.database.session() as db:
         repository = Repository(db)
         if search_query is not None:
-            users = search_results if search_results is not None else await repository.search_users(search_query, limit=20)
-            total_users = len(users)
-            display_page = 1
+            total_users = await repository.count_search_users(search_query)
+            users = await repository.search_users_page(search_query, page=page, per_page=USERS_PER_PAGE)
+            display_page = page
+        elif filter_type != "all":
+            total_users = await repository.count_users_filtered(filter_type)
+            users = await repository.list_users_filtered_page(filter_type=filter_type, page=page, per_page=USERS_PER_PAGE)
+            display_page = page
         else:
             total_users = await repository.count_users()
             display_page = page
             users = await repository.list_users_page(page=page, per_page=USERS_PER_PAGE)
         users = await refresh_users_profiles_from_telegram(bot, repository, users)
     text = with_footer(users_list_text(users=users, page=display_page, total_users=total_users, search_query=search_query))
-    markup = admin_users_list_keyboard(users=users, page=display_page, total_users=total_users, search_query=search_query)
+    markup = admin_users_list_keyboard(
+        users=users,
+        page=display_page,
+        total_users=total_users,
+        search_query=search_query,
+        filter_type=filter_type,
+    )
     if isinstance(target, CallbackQuery):
         await _edit_callback_message(target, text, reply_markup=markup)
     else:
@@ -115,6 +126,46 @@ async def users_search_start(callback: CallbackQuery, state: FSMContext, ctx: Ap
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("adm:users:filter:"))
+async def users_filter_callback(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    if not _is_admin(callback, ctx):
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    await state.clear()
+    _, _, _, filter_type, raw_page = callback.data.split(":", 4)
+    page = max(int(raw_page), 1)
+    await _render_users_list(callback, ctx, page=page, filter_type=filter_type)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:users:search:page:"))
+async def users_search_page_callback(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    if not _is_admin(callback, ctx):
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    page = max(int(callback.data.rsplit(":", 1)[-1]), 1)
+    data = await state.get_data()
+    query = str(data.get("admin_users_search_query") or "")
+    if not query:
+        await callback.answer("جستجو منقضی شده.", show_alert=True)
+        return
+    await _render_users_list(callback, ctx, page=page, search_query=query)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:users:sync")
+async def users_sync_profiles(callback: CallbackQuery, ctx: AppContext) -> None:
+    if not _is_admin(callback, ctx):
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        users = await repository.list_users_page(page=1, per_page=USERS_PER_PAGE)
+        await refresh_users_profiles_from_telegram(callback.bot, repository, users)
+    await callback.answer("نام‌ها به‌روز شد.")
+    await _render_users_list(callback, ctx, page=1)
+
+
 @router.message(AdminUserSearch.query)
 async def users_search_finish(message: Message, state: FSMContext, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
@@ -124,12 +175,13 @@ async def users_search_finish(message: Message, state: FSMContext, ctx: AppConte
         await message.answer("عبارت جستجو خالی است.", reply_markup=admin_back_keyboard())
         return
     async with ctx.database.session() as db:
-        results = await Repository(db).search_users(query, limit=20)
-    await state.clear()
-    if not results:
+        total = await Repository(db).count_search_users(query)
+    if total == 0:
         await message.answer(with_footer(f"نتیجه‌ای برای «{query}» پیدا نشد."), reply_markup=admin_back_keyboard())
         return
-    await _render_users_list(message, ctx, search_query=query, search_results=results)
+    await state.update_data(admin_users_search_query=query)
+    await state.set_state(AdminUserSearch.active_query)
+    await _render_users_list(message, ctx, page=1, search_query=query)
 
 
 @router.callback_query(F.data.regexp(r"^adm:user:\d+$"))
@@ -233,6 +285,11 @@ async def user_wallet_custom_finish(message: Message, state: FSMContext, ctx: Ap
     if amount == 0:
         await message.answer("مبلغ نمی‌تواند صفر باشد.", reply_markup=admin_user_wallet_keyboard(user_id))
         return
+    if amount < 0:
+        await state.set_state(AdminUserWallet.confirm)
+        await state.update_data(admin_wallet_amount=amount)
+        await message.answer(f"از کسر {abs(amount):,} تومان مطمئنید؟ /yes یا /no")
+        return
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.get_user(user_id)
@@ -251,6 +308,69 @@ async def user_wallet_custom_finish(message: Message, state: FSMContext, ctx: Ap
         with_footer(user_detail_text(user=user, subscription_count=subscription_count) + admin_note),
         reply_markup=admin_user_detail_keyboard(user=user),
     )
+
+
+@router.message(AdminUserWallet.confirm)
+async def user_wallet_confirm_debit(message: Message, state: FSMContext, ctx: AppContext) -> None:
+    if not await require_admin(message, ctx):
+        return
+    answer = (message.text or "").strip().lower()
+    if answer not in {"/yes", "yes", "بله"}:
+        await state.clear()
+        await message.answer("عملیات لغو شد.", reply_markup=admin_back_keyboard())
+        return
+    data = await state.get_data()
+    user_id = int(data.get("admin_wallet_user_id") or 0)
+    amount = int(data.get("admin_wallet_amount") or 0)
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.get_user(user_id)
+        if user is None:
+            await state.clear()
+            await message.answer("کاربر پیدا نشد.", reply_markup=admin_back_keyboard())
+            return
+        await repository.adjust_wallet(user_id, amount, "admin_adjust")
+        await db.commit()
+        user = await repository.get_user(user_id)
+        subscription_count = await repository.count_user_subscriptions(user.id)
+    await state.clear()
+    notified = await notify_wallet_admin_adjustment(message.bot, user, amount=amount)
+    note = "" if notified else "\n\nارسال پیام به کاربر ناموفق بود."
+    await message.answer(
+        with_footer(user_detail_text(user=user, subscription_count=subscription_count) + note),
+        reply_markup=admin_user_detail_keyboard(user=user),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^adm:user:\d+:ledger(?::page:\d+)?$"))
+async def user_wallet_ledger(callback: CallbackQuery, ctx: AppContext) -> None:
+    if not _is_admin(callback, ctx):
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    parts = callback.data.split(":")
+    user_id = int(parts[2])
+    page = int(parts[5]) if len(parts) >= 6 and parts[3] == "ledger" and parts[4] == "page" else 1
+    per_page = 8
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.get_user(user_id)
+        if user is None:
+            await callback.answer("کاربر پیدا نشد.", show_alert=True)
+            return
+        total = await repository.count_wallet_transactions(user.id)
+        offset = (max(page, 1) - 1) * per_page
+        items = await repository.list_wallet_transactions(user.id, limit=per_page, offset=offset)
+    lines = []
+    for item in items:
+        sign = "+" if item.amount >= 0 else ""
+        lines.append(f"{sign}{item.amount:,} · {wallet_reason_label(item.reason)} · {item.created_at[:16]}")
+    if not lines:
+        lines.append("تراکنشی نیست.")
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    text = "\n".join([f"تاریخچه کیف پول — {user_display_name(user)}", "", f"موجودی: {user.wallet_balance:,} تومان", ""] + lines)
+    markup = wallet_ledger_keyboard(page=page, total_pages=total_pages, scope="adm", scope_id=user_id)
+    await _edit_callback_message(callback, with_footer(text), reply_markup=markup)
+    await callback.answer()
 
 
 @router.callback_query(F.data.regexp(r"^adm:user:\d+:subs$"))

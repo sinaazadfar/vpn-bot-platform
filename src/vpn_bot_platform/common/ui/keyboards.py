@@ -293,12 +293,16 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
     )
 
 
-def seller_bot_panel_menu(*, seller_bot_id: str, panel_id: str | None = None) -> InlineKeyboardMarkup:
+def seller_bot_panel_menu(*, seller_bot_id: str, panel_id: str | None = None, auth_type: str = "password") -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = [
         [("🔄 تغییر پنل", build_callback("m", "seller_change_panel", seller_bot_id))],
     ]
     if panel_id:
         rows.append([("📡 تست پنل", build_callback("m", "panel_test", panel_id))])
+        if auth_type == "token":
+            rows.append([("🔑 تغییر توکن", build_callback("m", "panel_change_token", panel_id))])
+        else:
+            rows.append([("🔑 تغییر رمز", build_callback("m", "panel_change_password", panel_id))])
     rows.append(
         [
             ("🔙 بازگشت", build_callback("m", "seller_select", seller_bot_id)),

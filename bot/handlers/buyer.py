@@ -146,7 +146,7 @@ async def start(message: Message, ctx: AppContext) -> None:
                     referred_by = None
         user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids, referred_by=referred_by)
         if user.is_blocked and message.from_user.id not in ctx.settings.admin_ids:
-            await message.answer("حساب شما توسط ادمین مسدود شده است.", reply_markup=back_to_main_keyboard())
+            await message.answer(with_footer("حساب شما توسط ادمین مسدود شده است."), reply_markup=back_to_main_keyboard())
             return
         if referred_by:
             referral_feedback = "کد رفرال با موفقیت برای حساب شما ثبت شد."
@@ -187,9 +187,6 @@ async def back_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
-        if user.is_blocked and callback.from_user.id not in ctx.settings.admin_ids:
-            await callback.answer("حساب شما مسدود شده است.", show_alert=True)
-            return
         support_username = await repository.get_support_username()
         earning_enabled = await repository.get_earning_enabled()
     await _edit_callback_message(callback, with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
@@ -889,17 +886,6 @@ async def guide_app_callback(callback: CallbackQuery) -> None:
         with_footer(guides_app_text(platform, app)),
         reply_markup=guides_app_keyboard(platform, app),
     )
-    await callback.answer()
-
-
-@router.message(F.text == c.SUPPORT)
-async def support(message: Message, ctx: AppContext) -> None:
-    await message.answer(f"{ctx.settings.support_text}\n\nیوزرنیم پشتیبانی هنوز تنظیم نشده است.", reply_markup=back_to_main_keyboard())
-
-
-@router.callback_query(F.data == "menu:support")
-async def support_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    await _edit_callback_message(callback, f"{ctx.settings.support_text}\n\nیوزرنیم پشتیبانی هنوز تنظیم نشده است.", reply_markup=back_to_main_keyboard())
     await callback.answer()
 
 

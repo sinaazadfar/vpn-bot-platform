@@ -707,9 +707,16 @@ async def master_menu_callback(
             return
         if action.action == "seller_config_panel":
             text, panel_id = await _seller_bot_panel_text(reseller_service, seller_bot, reseller)
+            auth_type = "password"
+            if panel_id:
+                try:
+                    detail = await reseller_service.get_panel_detail(panel_id=panel_id)
+                    auth_type = detail.auth_type
+                except ValueError:
+                    auth_type = "password"
             await callback.message.edit_text(
                 text,
-                reply_markup=seller_bot_panel_menu(seller_bot_id=seller_bot.id, panel_id=panel_id),
+                reply_markup=seller_bot_panel_menu(seller_bot_id=seller_bot.id, panel_id=panel_id, auth_type=auth_type),
             )
             await callback.answer()
             return
@@ -832,6 +839,7 @@ async def master_menu_callback(
             reply_markup=seller_bot_panel_menu(
                 seller_bot_id=seller_bot_id,
                 panel_id=summary.panel.id,
+                auth_type=summary.panel.auth_type if hasattr(summary.panel, "auth_type") else "password",
             ),
         )
         await callback.answer()
@@ -854,9 +862,16 @@ async def master_menu_callback(
             await callback.answer()
             return
         text, panel_id = await _seller_bot_panel_text(reseller_service, seller_bot, reseller)
+        auth_type = "password"
+        if panel_id:
+            try:
+                detail = await reseller_service.get_panel_detail(panel_id=panel_id)
+                auth_type = detail.auth_type
+            except ValueError:
+                auth_type = "password"
         await callback.message.edit_text(
             text,
-            reply_markup=seller_bot_panel_menu(seller_bot_id=seller_bot.id, panel_id=panel_id),
+            reply_markup=seller_bot_panel_menu(seller_bot_id=seller_bot.id, panel_id=panel_id, auth_type=auth_type),
         )
         await callback.answer()
     elif action.action == "seller_delete_confirm":

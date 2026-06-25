@@ -23,10 +23,40 @@ class WalletAdjust(StatesGroup):
 
 class AdminUserSearch(StatesGroup):
     query = State()
+    active_query = State()
+
+
+class ForcedJoinAdd(StatesGroup):
+    chat_id = State()
+    title = State()
+    invite_link = State()
+
+
+class TicketCreate(StatesGroup):
+    subject = State()
+    text = State()
+
+
+class TicketReply(StatesGroup):
+    text = State()
+
+
+class BuyerTicketReply(StatesGroup):
+    text = State()
+
+
+class DiscountCreate(StatesGroup):
+    code = State()
+    percent = State()
+
+
+class PurchaseCoupon(StatesGroup):
+    code = State()
 
 
 class AdminUserWallet(StatesGroup):
     amount = State()
+    confirm = State()
 
 
 class AdminUserMessage(StatesGroup):

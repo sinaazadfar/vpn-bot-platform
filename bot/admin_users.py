@@ -111,9 +111,21 @@ def admin_users_list_keyboard(
     page: int,
     total_users: int,
     search_query: str | None = None,
+    filter_type: str = "all",
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="🔎 جستجو", callback_data="adm:users:search")],
+        [
+            InlineKeyboardButton(text="همه", callback_data="adm:users:filter:all:1"),
+            InlineKeyboardButton(text="مسدود", callback_data="adm:users:filter:blocked:1"),
+        ],
+        [
+            InlineKeyboardButton(text="موجودی‌دار", callback_data="adm:users:filter:funded:1"),
+            InlineKeyboardButton(text="دارای اشتراک", callback_data="adm:users:filter:with_subs:1"),
+        ],
+        [
+            InlineKeyboardButton(text="🔎 جستجو", callback_data="adm:users:search"),
+            InlineKeyboardButton(text="🔄 نام‌ها", callback_data="adm:users:sync"),
+        ],
     ]
     for user in users:
         rows.append([InlineKeyboardButton(text=_user_button_label(user), callback_data=f"adm:user:{user.id}")])
@@ -121,11 +133,20 @@ def admin_users_list_keyboard(
     if total_pages > 1:
         prev_page = max(page - 1, 1)
         next_page = min(page + 1, total_pages)
+        if search_query:
+            page_cb = f"adm:users:search:page:{next_page}"
+            prev_cb = f"adm:users:search:page:{prev_page}"
+        elif filter_type != "all":
+            page_cb = f"adm:users:filter:{filter_type}:{next_page}"
+            prev_cb = f"adm:users:filter:{filter_type}:{prev_page}"
+        else:
+            page_cb = f"adm:users:page:{next_page}"
+            prev_cb = f"adm:users:page:{prev_page}"
         rows.append(
             [
-                InlineKeyboardButton(text="◀️", callback_data=f"adm:users:page:{prev_page}"),
+                InlineKeyboardButton(text="◀️", callback_data=prev_cb),
                 InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"),
-                InlineKeyboardButton(text="▶️", callback_data=f"adm:users:page:{next_page}"),
+                InlineKeyboardButton(text="▶️", callback_data=page_cb),
             ]
         )
     if search_query:
@@ -144,7 +165,10 @@ def admin_user_detail_keyboard(*, user: User) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📋 اشتراک‌ها", callback_data=f"adm:user:{user.id}:subs"),
             ],
             [
-                InlineKeyboardButton(text="✉️ پیام به کاربر", callback_data=f"adm:user:{user.id}:message"),
+                InlineKeyboardButton(text="📒 تاریخچه کیف پول", callback_data=f"adm:user:{user.id}:ledger"),
+                InlineKeyboardButton(text="✉️ پیام", callback_data=f"adm:user:{user.id}:message"),
+            ],
+            [
                 InlineKeyboardButton(text=f"{'🔓' if user.is_blocked else '🔒'} {ban_label}", callback_data=f"adm:user:{user.id}:{ban_action}"),
             ],
             [

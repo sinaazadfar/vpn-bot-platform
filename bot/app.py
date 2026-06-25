@@ -7,6 +7,7 @@ from bot.db import Database
 from bot.formatting import MESSAGE_FOOTER
 from bot.handlers import setup_routers
 from bot.marzban import MarzbanClient
+from bot.middleware import BlockCheckMiddleware, ForcedJoinMiddleware
 from bot.quota import MasterVolumeQuota
 
 def add_message_footer(bot: Bot) -> None:
@@ -53,4 +54,6 @@ async def main() -> None:
         ),
     )
     dp.include_router(setup_routers())
+    dp.update.middleware(BlockCheckMiddleware())
+    dp.update.middleware(ForcedJoinMiddleware())
     await dp.start_polling(bot)
