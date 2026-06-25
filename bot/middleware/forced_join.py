@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from bot.context import AppContext
 from bot.db import Repository
 from bot.forced_join import (
-    check_forced_join,
+    evaluate_forced_join,
     forced_join_keyboard,
     forced_join_recheck_failed_alert,
     forced_join_success_text,
@@ -42,7 +42,7 @@ class ForcedJoinMiddleware(BaseMiddleware):
             chats = await repository.list_required_chats()
             if not chats:
                 return await handler(event, data)
-            allowed = await check_forced_join(event.bot, user_id, chats)
+            allowed, block_reason = await evaluate_forced_join(event.bot, user_id, chats)
 
         if allowed:
             if is_recheck:
@@ -54,7 +54,7 @@ class ForcedJoinMiddleware(BaseMiddleware):
         keyboard = forced_join_keyboard(chats)
         if isinstance(event, CallbackQuery):
             if is_recheck:
-                await event.answer(forced_join_recheck_failed_alert(), show_alert=True)
+                await event.answer(forced_join_recheck_failed_alert(block_reason), show_alert=True)
             else:
                 await event.answer()
             await event.message.edit_text(text, reply_markup=keyboard)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from math import ceil
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -112,7 +113,15 @@ async def admin_join_ref(message: Message, state: FSMContext, ctx: AppContext) -
     async with ctx.database.session() as db:
         await Repository(db).add_required_chat(chat_id, title, invite_link)
     await state.clear()
-    await message.answer(f"کانال «{title}» اضافه شد.", reply_markup=admin_back_keyboard())
+    notice = f"کانال «{title}» اضافه شد."
+    try:
+        await message.bot.get_chat_member(chat_id, message.from_user.id)
+    except TelegramAPIError:
+        notice += (
+            "\n\n⚠️ ربات الان نمی‌تواند عضویت کاربران را بررسی کند."
+            "\nربات را ادمین کانال کن (بدون نیاز به همه دسترسی‌ها)."
+        )
+    await message.answer(notice, reply_markup=admin_back_keyboard())
 
 
 @router.callback_query(F.data.startswith("admin:join:del:"))

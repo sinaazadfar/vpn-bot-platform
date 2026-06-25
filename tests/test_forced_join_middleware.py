@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiogram.types import CallbackQuery, Chat, Message, User
+from aiogram.enums import ChatMemberStatus
+from aiogram.types import ChatMemberLeft, ChatMemberMember
 
 from bot.context import AppContext
 from bot.db import Database, Repository
@@ -77,7 +79,9 @@ async def test_forced_join_blocks_start_when_not_member(tmp_path) -> None:
             return None
 
     message = FakeMessage()
-    message.bot.get_chat_member = AsyncMock(return_value=AsyncMock(status="left"))
+    message.bot.get_chat_member = AsyncMock(
+        return_value=ChatMemberLeft(status=ChatMemberStatus.LEFT, user=User(id=1001, is_bot=False, first_name="Test"))
+    )
 
     called = False
 
@@ -108,7 +112,9 @@ async def test_forced_join_allows_member(tmp_path) -> None:
         bot = AsyncMock()
 
     message = FakeMessage()
-    message.bot.get_chat_member = AsyncMock(return_value=AsyncMock(status="member"))
+    message.bot.get_chat_member = AsyncMock(
+        return_value=ChatMemberMember(status=ChatMemberStatus.MEMBER, user=User(id=1001, is_bot=False, first_name="Test"))
+    )
 
     called = False
 
