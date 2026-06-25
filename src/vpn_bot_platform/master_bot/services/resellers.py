@@ -27,6 +27,7 @@ from vpn_bot_platform.common.repositories import (
     create_reseller,
     create_seller_bot,
     count_panel_assignments,
+    deactivate_reseller_panel_assignments,
     get_marzban_panel,
     get_marzban_panel_by_base_url,
     get_external_bot_template,
@@ -1129,6 +1130,52 @@ class ResellerService:
             )
             await session.flush()
             return assignment
+
+    async def change_seller_bot_panel(
+        self,
+        *,
+        seller_bot_id: str,
+        panel_id: str,
+        marzban_admin_username: str | None = None,
+        actor_telegram_id: int | None = None,
+    ) -> ResellerPanelSummary:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            if not panel.is_active:
+                raise ValueError("panel_disabled")
+            primary = await get_primary_panel_assignment(session, reseller_id=seller_bot.reseller_id)
+            if primary is not None and primary[1].id == panel.id:
+                raise ValueError("panel_already_assigned")
+            await deactivate_reseller_panel_assignments(session, reseller_id=seller_bot.reseller_id)
+            assignment = await assign_panel_to_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                panel_id=panel.id,
+                marzban_admin_username=marzban_admin_username,
+                priority=10,
+                weight=1,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.panel_change",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "panel_id": panel.id,
+                    "panel_name": panel.name,
+                    "marzban_admin_username": marzban_admin_username,
+                },
+            )
+            await session.flush()
+            return ResellerPanelSummary(assignment=assignment, panel=panel)
 
     async def update_panel_assignment_routing(
         self,

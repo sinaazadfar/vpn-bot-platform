@@ -250,6 +250,24 @@ async def update_panel_assignment_routing(
     return assignment
 
 
+async def deactivate_reseller_panel_assignments(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+) -> int:
+    result = await session.execute(
+        select(ResellerPanelAssignment).where(
+            ResellerPanelAssignment.reseller_id == reseller_id,
+            ResellerPanelAssignment.is_active.is_(True),
+        )
+    )
+    deactivated = 0
+    for assignment in result.scalars():
+        assignment.is_active = False
+        deactivated += 1
+    return deactivated
+
+
 async def create_seller_bot(
     session: AsyncSession,
     *,

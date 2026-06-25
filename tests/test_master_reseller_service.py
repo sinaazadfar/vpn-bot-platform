@@ -652,6 +652,79 @@ async def test_simple_seller_admin_ids_include_super_user() -> None:
     assert admin_ids == "33333,88888"
 
 
+@pytest.mark.asyncio
+async def test_change_seller_bot_panel_replaces_primary_assignment() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+    token = _valid_bot_token()
+
+    try:
+        result = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=88881,
+            reseller_display_name="Panel Change Owner",
+            reseller_username="panel_owner",
+            bot_name="panel-change-bot",
+            bot_token=token,
+            panel_name="old-panel",
+            panel_base_url="https://old-panel.example.com",
+            panel_token="old-token",
+            ui_profile=SellerBotUiProfile.PLATFORM,
+            actor_telegram_id=999,
+        )
+        new_panel = await service.register_marzban_panel(
+            name="new-panel",
+            base_url="https://new-panel.example.com",
+            token="new-token",
+        )
+        summary = await service.change_seller_bot_panel(
+            seller_bot_id=result.seller_bot.id,
+            panel_id=new_panel.id,
+            marzban_admin_username="new_admin",
+            actor_telegram_id=999,
+        )
+        assignments = await service.list_panel_assignments_for_reseller(
+            reseller_id=result.reseller.id,
+        )
+        audit_logs = await service.recent_audit_logs(limit=10)
+    finally:
+        await dispose_engine()
+
+    assert summary.panel.id == new_panel.id
+    assert summary.assignment.marzban_admin_username == "new_admin"
+    assert len(assignments) == 1
+    assert assignments[0].panel.id == new_panel.id
+    assert any(log.action == "seller_bot.panel_change" for log in audit_logs)
+
+
+@pytest.mark.asyncio
+async def test_change_seller_bot_panel_rejects_same_panel() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+
+    try:
+        result = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=88882,
+            reseller_display_name="Same Panel Owner",
+            reseller_username="same_panel",
+            bot_name="same-panel-bot",
+            bot_token=_valid_bot_token(),
+            panel_name="only-panel",
+            panel_base_url="https://only-panel.example.com",
+            panel_token="only-token",
+            actor_telegram_id=999,
+        )
+        with pytest.raises(ValueError, match="panel_already_assigned"):
+            await service.change_seller_bot_panel(
+                seller_bot_id=result.seller_bot.id,
+                panel_id=result.panel.id,
+                actor_telegram_id=999,
+            )
+    finally:
+        await dispose_engine()
+
+
 def _settings(fernet_key: str, *, super_user_telegram_id: int | None = 999) -> Settings:
     return Settings(
         DATABASE_URL="sqlite+aiosqlite:///:memory:",

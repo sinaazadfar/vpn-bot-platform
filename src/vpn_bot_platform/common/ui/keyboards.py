@@ -293,6 +293,21 @@ def seller_bot_config_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def seller_bot_panel_menu(*, seller_bot_id: str, panel_id: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [
+        [("🔄 تغییر پنل", build_callback("m", "seller_change_panel", seller_bot_id))],
+    ]
+    if panel_id:
+        rows.append([("📡 تست پنل", build_callback("m", "panel_test", panel_id))])
+    rows.append(
+        [
+            ("🔙 بازگشت", build_callback("m", "seller_select", seller_bot_id)),
+            ("🏠 خانه", build_callback("m", "home")),
+        ]
+    )
+    return inline_keyboard(rows)
+
+
 def seller_bot_more_menu(seller_bot_id: str) -> InlineKeyboardMarkup:
     return inline_keyboard(
         [

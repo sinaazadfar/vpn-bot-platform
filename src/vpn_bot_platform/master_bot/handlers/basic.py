@@ -32,6 +32,7 @@ from vpn_bot_platform.common.ui.keyboards import (
     reseller_list_menu,
     reseller_detail_actions,
     reseller_actions,
+    seller_bot_panel_menu,
     seller_bot_more_menu,
     seller_bot_list_menu,
     seller_bot_provision_success_menu,
@@ -150,6 +151,11 @@ class PanelAssignmentCreateStates(StatesGroup):
 class PanelAssignmentRoutingStates(StatesGroup):
     priority = State()
     weight = State()
+    confirm = State()
+
+
+class SellerBotPanelChangeStates(StatesGroup):
+    admin_username = State()
     confirm = State()
 
 
@@ -693,19 +699,166 @@ async def master_menu_callback(
     elif action.action in {"seller_config_panel", "seller_config_pricing", "seller_config_admins"}:
         seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
         if seller_bot is None:
-            await callback.answer("Seller bot not found.", show_alert=True)
+            await callback.answer("ربات پیدا نشد.", show_alert=True)
             return
         reseller = await _find_reseller_by_id(reseller_service, reseller_id=seller_bot.reseller_id)
         if reseller is None:
-            await callback.answer("Seller bot owner not found.", show_alert=True)
+            await callback.answer("مالک ربات پیدا نشد.", show_alert=True)
             return
         if action.action == "seller_config_panel":
-            text = await _reseller_panels_text(reseller_service, reseller)
-        elif action.action == "seller_config_pricing":
+            text, panel_id = await _seller_bot_panel_text(reseller_service, seller_bot, reseller)
+            await callback.message.edit_text(
+                text,
+                reply_markup=seller_bot_panel_menu(seller_bot_id=seller_bot.id, panel_id=panel_id),
+            )
+            await callback.answer()
+            return
+        if action.action == "seller_config_pricing":
             text = await _reseller_plans_text(reseller_service, reseller)
         else:
             text = _seller_bot_admins_text(seller_bot, reseller)
         await callback.message.edit_text(text, reply_markup=master_seller_bot_actions(seller_bot.id))
+    elif action.action == "seller_change_panel":
+        seller_bot_id = action.value or ""
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+        if seller_bot is None:
+            await callback.answer("ربات پیدا نشد.", show_alert=True)
+            return
+        panels = [panel for panel in await reseller_service.list_marzban_panels() if panel.is_active]
+        if not panels:
+            await callback.answer("پنل فعالی ثبت نشده.", show_alert=True)
+            return
+        await state.clear()
+        await state.update_data(seller_panel_change_bot_id=seller_bot_id)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("تغییر پنل"),
+                    f"ربات: {seller_bot.name}",
+                    "",
+                    "پنل جدید را انتخاب کنید:",
+                ]
+            ),
+            reply_markup=_panel_select_keyboard(
+                panels[:15],
+                action_name="seller_change_panel_pick",
+                cancel_action="seller_change_panel_cancel",
+            ),
+        )
+        await callback.answer()
+    elif action.action == "seller_change_panel_pick":
+        data = await state.get_data()
+        seller_bot_id = str(data.get("seller_panel_change_bot_id") or "").strip()
+        panel_id = action.value or ""
+        if not seller_bot_id or not panel_id:
+            await callback.answer("اطلاعات ناقص است.", show_alert=True)
+            await state.clear()
+            return
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+        if seller_bot is None:
+            await callback.answer("ربات پیدا نشد.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            panel_detail = await reseller_service.get_panel_detail(panel_id=panel_id)
+        except ValueError:
+            await callback.answer("پنل پیدا نشد.", show_alert=True)
+            return
+        await state.update_data(
+            seller_panel_change_bot_id=seller_bot_id,
+            seller_panel_change_panel_id=panel_id,
+        )
+        await state.set_state(SellerBotPanelChangeStates.admin_username)
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("تغییر پنل"),
+                    f"ربات: {seller_bot.name}",
+                    f"پنل جدید: {panel_detail.panel.name}",
+                    "",
+                    "یوزرنیم ادمین مرزبان را بفرستید (اختیاری).",
+                    "برای رد کردن، خط تیره (-) بفرستید.",
+                ]
+            ),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="seller_change_panel_cancel"),
+        )
+        await callback.answer()
+    elif action.action == "seller_change_panel_apply":
+        data = await state.get_data()
+        seller_bot_id = str(data.get("seller_panel_change_bot_id") or "").strip()
+        panel_id = str(data.get("seller_panel_change_panel_id") or "").strip()
+        admin_username = str(data.get("seller_panel_change_admin_username") or "").strip() or None
+        if not seller_bot_id or not panel_id:
+            await callback.answer("اطلاعات ناقص است.", show_alert=True)
+            await state.clear()
+            return
+        try:
+            summary = await reseller_service.change_seller_bot_panel(
+                seller_bot_id=seller_bot_id,
+                panel_id=panel_id,
+                marzban_admin_username=admin_username,
+                actor_telegram_id=callback.from_user.id,
+            )
+        except ValueError as exc:
+            error_messages = {
+                "seller_bot_not_found": "ربات پیدا نشد.",
+                "panel_not_found": "پنل پیدا نشد.",
+                "panel_disabled": "این پنل غیرفعال است.",
+                "panel_already_assigned": "این پنل از قبل برای این ربات فعال است.",
+            }
+            await callback.answer(error_messages.get(str(exc), str(exc)), show_alert=True)
+            return
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+        reseller = (
+            await _find_reseller_by_id(reseller_service, reseller_id=seller_bot.reseller_id)
+            if seller_bot is not None
+            else None
+        )
+        await state.clear()
+        restart_note = ""
+        if seller_bot is not None and seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value:
+            restart_note = "\n\nاگر ربات در حال اجراست، یک‌بار ری‌استارت کنید تا پنل جدید اعمال شود."
+        await callback.message.edit_text(
+            "\n".join(
+                [
+                    title("پنل تغییر کرد"),
+                    f"ربات: {seller_bot.name if seller_bot else seller_bot_id}",
+                    f"پنل جدید: {summary.panel.name}",
+                    f"URL: {summary.panel.base_url}",
+                    f"ادمین مرزبان: {summary.assignment.marzban_admin_username or '-'}",
+                    restart_note,
+                ]
+            ),
+            reply_markup=seller_bot_panel_menu(
+                seller_bot_id=seller_bot_id,
+                panel_id=summary.panel.id,
+            ),
+        )
+        await callback.answer()
+    elif action.action == "seller_change_panel_cancel":
+        data = await state.get_data()
+        seller_bot_id = action.value or str(data.get("seller_panel_change_bot_id") or "")
+        await state.clear()
+        if not seller_bot_id:
+            await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
+            await callback.answer()
+            return
+        seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+        if seller_bot is None:
+            await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
+            await callback.answer()
+            return
+        reseller = await _find_reseller_by_id(reseller_service, reseller_id=seller_bot.reseller_id)
+        if reseller is None:
+            await callback.message.edit_text(_master_dashboard_text(), reply_markup=master_main_menu())
+            await callback.answer()
+            return
+        text, panel_id = await _seller_bot_panel_text(reseller_service, seller_bot, reseller)
+        await callback.message.edit_text(
+            text,
+            reply_markup=seller_bot_panel_menu(seller_bot_id=seller_bot.id, panel_id=panel_id),
+        )
+        await callback.answer()
     elif action.action == "seller_delete_confirm":
         seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=action.value or "")
         if seller_bot is None:
@@ -3373,6 +3526,61 @@ async def panel_assignment_waiting_for_reseller(message: Message) -> None:
     )
 
 
+@router.message(SellerBotPanelChangeStates.admin_username)
+async def seller_change_panel_admin_username(
+    message: Message,
+    state: FSMContext,
+    reseller_service: ResellerService,
+) -> None:
+    raw_value = (message.text or "").strip()
+    if raw_value.startswith("/"):
+        await message.answer(
+            "\n".join([title("تغییر پنل"), "یوزرنیم ادمین مرزبان را بفرستید یا - برای رد کردن."]),
+            reply_markup=cancel_only_keyboard(scope="m", cancel_action="seller_change_panel_cancel"),
+        )
+        return
+    admin_username = None if raw_value in {"", "-"} else raw_value[:128]
+    data = await state.get_data()
+    seller_bot_id = str(data.get("seller_panel_change_bot_id") or "").strip()
+    panel_id = str(data.get("seller_panel_change_panel_id") or "").strip()
+    if not seller_bot_id or not panel_id:
+        await state.clear()
+        await message.answer("جریان تغییر پنل منقضی شد.", reply_markup=master_main_menu())
+        return
+    try:
+        panel_detail = await reseller_service.get_panel_detail(panel_id=panel_id)
+    except ValueError:
+        await state.clear()
+        await message.answer("پنل پیدا نشد.", reply_markup=master_main_menu())
+        return
+    seller_bot = await _find_seller_bot(reseller_service, seller_bot_id=seller_bot_id)
+    await state.update_data(seller_panel_change_admin_username=admin_username)
+    await state.set_state(SellerBotPanelChangeStates.confirm)
+    await message.answer(
+        "\n".join(
+            [
+                title("تأیید تغییر پنل"),
+                f"ربات: {seller_bot.name if seller_bot else seller_bot_id}",
+                f"پنل جدید: {panel_detail.panel.name}",
+                f"URL: {panel_detail.panel.base_url}",
+                f"ادمین مرزبان: {admin_username or '-'}",
+                "",
+                "پنل قبلی غیرفعال می‌شود و پنل جدید جایگزین می‌شود.",
+            ]
+        ),
+        reply_markup=confirm_keyboard(
+            scope="m",
+            confirm_action="seller_change_panel_apply",
+            cancel_action="seller_change_panel_cancel",
+        ),
+    )
+
+
+@router.message(SellerBotPanelChangeStates.confirm)
+async def seller_change_panel_waiting_for_confirmation(message: Message) -> None:
+    await message.answer("\n".join([title("تغییر پنل"), "از دکمه‌های تأیید یا لغو استفاده کنید."]))
+
+
 @router.message(PanelAssignmentCreateStates.panel)
 async def panel_assignment_waiting_for_panel(message: Message) -> None:
     await message.answer(
@@ -4316,6 +4524,40 @@ async def _reseller_panels_text(reseller_service: ResellerService, reseller) -> 
     return "\n".join([title("Panel Assignments"), section("Assignments", rows)])
 
 
+async def _seller_bot_panel_text(
+    reseller_service: ResellerService,
+    seller_bot,
+    reseller,
+) -> tuple[str, str | None]:
+    assignments = await reseller_service.list_panel_assignments_for_reseller(reseller_id=reseller.id)
+    if not assignments:
+        text = "\n".join(
+            [
+                title("پنل ربات"),
+                f"ربات: {seller_bot.name}",
+                f"مالک: {reseller.display_name}",
+                "",
+                "پنلی برای این ربات تنظیم نشده.",
+                "از «تغییر پنل» یک پنل انتخاب کنید.",
+            ]
+        )
+        return text, None
+    primary = assignments[0]
+    text = "\n".join(
+        [
+            title("پنل ربات"),
+            f"ربات: {seller_bot.name}",
+            f"مالک: {reseller.display_name}",
+            "",
+            f"پنل فعال: {primary.panel.name}",
+            f"URL: {primary.panel.base_url}",
+            f"ادمین مرزبان: {primary.assignment.marzban_admin_username or '-'}",
+            f"اولویت: {primary.assignment.priority}",
+        ]
+    )
+    return text, primary.panel.id
+
+
 def _reseller_seller_bots_keyboard(seller_bots) -> InlineKeyboardMarkup:
     rows = [
         [(seller_bot.name[:32], build_callback("m", "seller_select", seller_bot.id))]
@@ -4347,13 +4589,13 @@ def _external_template_select_keyboard(templates):
 
 def _panel_select_keyboard(panels, *, action_name: str, cancel_action: str):
     rows = [
-        [(panel.name, f"m:{action_name}:{panel.id}")]
+        [(panel.name[:28], build_callback("m", action_name, panel.id))]
         for panel in panels
     ]
     rows.append(
         [
-            ("Cancel", f"m:{cancel_action}"),
-            ("Home", "m:home"),
+            ("❌ انصراف", build_callback("m", cancel_action)),
+            ("🏠 خانه", build_callback("m", "home")),
         ]
     )
     return inline_keyboard(rows)
