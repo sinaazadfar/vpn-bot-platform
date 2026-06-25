@@ -4,7 +4,6 @@ import datetime as dt
 from unittest.mock import AsyncMock
 
 import pytest
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Chat, Message, User
 from aiogram.enums import ChatMemberStatus
 from aiogram.types import ChatMemberLeft, ChatMemberMember
@@ -75,6 +74,7 @@ async def test_forced_join_blocks_start_when_not_member(tmp_path) -> None:
         from_user = User(id=1001, is_bot=False, first_name="Test")
         text = "/start"
         bot = AsyncMock()
+        bot.me = AsyncMock(return_value=AsyncMock(username="testbot"))
 
         async def answer(self, *args, **kwargs):
             return None
@@ -111,6 +111,7 @@ async def test_forced_join_allows_member(tmp_path) -> None:
         from_user = User(id=1001, is_bot=False, first_name="Test")
         text = "/start"
         bot = AsyncMock()
+        bot.me = AsyncMock(return_value=AsyncMock(username="testbot"))
 
     message = FakeMessage()
     message.bot.get_chat_member = AsyncMock(
@@ -127,47 +128,6 @@ async def test_forced_join_allows_member(tmp_path) -> None:
     result = await middleware(handler, message, {"ctx": ctx})
     assert result == "ok"
     assert called is True
-
-
-@pytest.mark.asyncio
-async def test_join_recheck_sends_menu_when_edit_fails(tmp_path) -> None:
-    database = Database(tmp_path / "join4.sqlite3")
-    await database.init()
-    async with database.session() as db:
-        await Repository(db).add_required_chat(-100111, "Test Channel", "https://t.me/testchannel")
-
-    middleware = ForcedJoinMiddleware()
-    ctx = _ctx({999}, database)
-
-    class FakeCallback:
-        from_user = User(id=1001, is_bot=False, first_name="Test")
-        data = "join:recheck"
-        bot = AsyncMock()
-        message = AsyncMock()
-
-        async def answer(self, *args, **kwargs):
-            return None
-
-    callback = FakeCallback()
-    callback.bot.get_chat_member = AsyncMock(
-        return_value=ChatMemberMember(status=ChatMemberStatus.MEMBER, user=User(id=1001, is_bot=False, first_name="Test"))
-    )
-    callback.message.edit_text = AsyncMock(
-        side_effect=TelegramBadRequest(method=None, message="Bad Request: message can't be edited")
-    )
-    callback.bot.send_message = AsyncMock()
-
-    called = False
-
-    async def handler(event, data):
-        nonlocal called
-        called = True
-        return "ok"
-
-    result = await middleware(handler, callback, {"ctx": ctx})
-    assert result is None
-    assert called is False
-    callback.bot.send_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio

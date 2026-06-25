@@ -131,7 +131,7 @@ def forced_join_text(chats: list[RequiredChat]) -> str:
             "سلام! 👋\n\n"
             f"برای استفاده از ربات، لطفاً اول در کانال «{label}» عضو شو "
             "تا از آخرین اخبار، آموزش‌ها و تخفیف‌ها با خبر بشی.\n\n"
-            "روی دکمه زیر بزن، عضو شو و بعد «عضو شدم» رو انتخاب کن."
+            "روی دکمه زیر بزن، عضو شو و بعد «عضو شدم» رو بزن تا وارد ربات بشی."
         )
 
     lines = [
@@ -146,7 +146,7 @@ def forced_join_text(chats: list[RequiredChat]) -> str:
     lines.extend(
         [
             "",
-            "از دکمه‌های زیر وارد هر کانال شو و بعد از عضویت، «عضو شدم» رو بزن.",
+            "از دکمه‌های زیر وارد هر کانال شو و بعد از عضویت، «عضو شدم» رو بزن تا وارد ربات بشی.",
         ]
     )
     return "\n".join(lines)
@@ -161,15 +161,22 @@ def forced_join_recheck_failed_alert(reason: str | None = None) -> str:
     return "هنوز در همه کانال‌ها عضو نشدی 🙏\nلطفاً اول عضو شو و دوباره «عضو شدم» رو بزن."
 
 
-def forced_join_success_text() -> str:
-    return "عالی! عضویتت تأیید شد ✅\n\nخوش اومدی — از منوی زیر می‌تونی شروع کنی."
+def forced_join_start_url(bot_username: str) -> str:
+    return f"https://t.me/{bot_username.removeprefix('@')}?start=joined"
 
 
-def forced_join_keyboard(chats: list[RequiredChat]) -> InlineKeyboardMarkup:
+def forced_join_keyboard(chats: list[RequiredChat], bot_username: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for chat in chats:
         label = chat.title or "کانال"
         url = chat.invite_link or f"https://t.me/c/{str(chat.chat_id).removeprefix('-100')}"
         rows.append([InlineKeyboardButton(text=f"📢 عضویت در {label}", url=url)])
-    rows.append([InlineKeyboardButton(text="✅ عضو شدم، ادامه بده", callback_data="join:recheck")])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ عضو شدم، ادامه بده",
+                url=forced_join_start_url(bot_username),
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
