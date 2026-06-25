@@ -11,6 +11,7 @@ class Base(DeclarativeBase):
     pass
 
 
+
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
@@ -53,4 +54,3 @@ async def dispose_engine() -> None:
         await _engine.dispose()
     _engine = None
     _sessionmaker = None
-
