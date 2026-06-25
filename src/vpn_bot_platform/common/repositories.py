@@ -408,6 +408,19 @@ async def get_seller_bot_quota_usage(
     seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
     if seller_bot is None:
         raise ValueError("seller_bot_not_found")
+    if seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value:
+        from vpn_bot_platform.common.config import get_settings
+        from vpn_bot_platform.common.simple_seller_quota import read_simple_seller_used_gb
+
+        used_gb = await read_simple_seller_used_gb(
+            seller_bot_id=seller_bot_id,
+            seller_data_host_path=get_settings().seller_data_host_path,
+        )
+        return SellerBotQuotaUsage(
+            limit_gb=seller_bot.volume_limit_gb or 0,
+            used_gb=used_gb,
+            reserved_gb=0,
+        )
     now = utcnow()
     used_gb = await session.scalar(
         select(func.coalesce(func.sum(VpnService.data_limit_gb), 0)).where(
