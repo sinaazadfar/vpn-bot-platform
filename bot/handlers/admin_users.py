@@ -100,7 +100,7 @@ async def users_search_start(callback: CallbackQuery, state: FSMContext, ctx: Ap
                 [
                     "جستجوی کاربر",
                     "",
-                    "آیدی تلگرام، یوزرنیم، نام یا کد دعوت را بفرستید.",
+                    "نام، نام خانوادگی، یوزرنیم (@username) یا آیدی تلگرام را بفرستید.",
                     "برای انصراف /cancel بزنید.",
                 ]
             )

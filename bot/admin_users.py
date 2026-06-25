@@ -30,6 +30,15 @@ def user_display_name(user: User) -> str:
     return str(user.telegram_id)
 
 
+def user_button_title(user: User) -> str:
+    name = user_full_name(user)
+    if name:
+        return name
+    if user.username:
+        return f"@{user.username}"
+    return str(user.telegram_id)
+
+
 def user_username_line(user: User) -> str | None:
     if user.username:
         return f"@{user.username}"
@@ -47,7 +56,7 @@ def users_list_text(*, users: list[User], page: int, total_users: int, search_qu
         lines.extend([f"جستجو: {search_query}", f"نتایج: {total_users}", ""])
     else:
         lines.extend([f"تعداد کل: {total_users}", f"صفحه {page} از {total_pages}", ""])
-    lines.append("روی هر کاربر بزنید تا جزئیات و عملیات را ببینید.")
+    lines.append("برای جستجو: نام، نام خانوادگی، یوزرنیم یا آیدی تلگرام.")
     return "\n".join(lines)
 
 
@@ -92,7 +101,7 @@ def user_subscriptions_text(*, user: User, subscriptions: list[Subscription]) ->
 def _user_button_label(user: User) -> str:
     status = "🚫" if user.is_blocked else "✅"
     role = "👑" if user.role == "admin" else "👤"
-    text = f"{status}{role} {user_display_name(user)} · {user.wallet_balance:,}"
+    text = f"{status}{role} {user_button_title(user)} · {user.wallet_balance:,}"
     return text if len(text) <= 64 else f"{text[:61]}…"
 
 

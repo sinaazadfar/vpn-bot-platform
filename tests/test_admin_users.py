@@ -1,7 +1,7 @@
 import pytest
 import pytest_asyncio
 
-from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, user_display_name, users_total_pages
+from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, user_button_title, user_display_name, users_total_pages
 from bot.db import Database, Repository
 
 
@@ -54,6 +54,42 @@ async def test_search_users_by_first_name(repository):
     results = await repository.search_users("sina")
     assert len(results) == 1
     assert results[0].first_name == "Sina"
+
+
+@pytest.mark.asyncio
+async def test_search_users_by_last_name(repository):
+    await repository.ensure_user(10006, set(), first_name="Sina", last_name="Azadfar")
+    results = await repository.search_users("Azadfar")
+    assert len(results) == 1
+    assert results[0].last_name == "Azadfar"
+
+
+@pytest.mark.asyncio
+async def test_search_users_by_full_name(repository):
+    user = await repository.ensure_user(10007, set(), first_name="Ali", last_name="Karimi")
+    results = await repository.search_users("Ali Karimi")
+    assert len(results) == 1
+    assert results[0].id == user.id
+
+
+def test_user_button_title_shows_full_name():
+    from bot.admin_users import _user_button_label
+    from bot.db import User
+
+    user = User(
+        id=1,
+        telegram_id=12345,
+        role="buyer",
+        wallet_balance=50_000,
+        referral_code="abc",
+        referred_by=None,
+        first_name="Ali",
+        last_name="Reza",
+        username="alireza",
+    )
+    assert user_button_title(user) == "Ali Reza"
+    assert "@alireza" not in _user_button_label(user)
+    assert "Ali Reza" in _user_button_label(user)
 
 
 def test_user_display_name_prefers_name_and_username():

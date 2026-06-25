@@ -370,6 +370,7 @@ class Repository:
         if not raw:
             return []
         username_query = raw.lstrip("@").lower()
+        name_query = raw.lower()
         referral_query = normalize_referral_code(raw) or raw.lower()
         rows = await self._fetchall(
             """
@@ -378,6 +379,7 @@ class Repository:
                OR LOWER(COALESCE(username, '')) LIKE ?
                OR LOWER(COALESCE(first_name, '')) LIKE ?
                OR LOWER(COALESCE(last_name, '')) LIKE ?
+               OR LOWER(TRIM(COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))) LIKE ?
                OR LOWER(referral_code) LIKE ?
             ORDER BY id DESC
             LIMIT ?
@@ -385,8 +387,9 @@ class Repository:
             (
                 f"%{raw}%",
                 f"%{username_query}%",
-                f"%{raw.lower()}%",
-                f"%{raw.lower()}%",
+                f"%{name_query}%",
+                f"%{name_query}%",
+                f"%{name_query}%",
                 f"%{referral_query}%",
                 limit,
             ),
