@@ -8,7 +8,13 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot.context import AppContext
 from bot.db import Repository
-from bot.forced_join import check_forced_join, forced_join_keyboard, forced_join_text
+from bot.forced_join import (
+    check_forced_join,
+    forced_join_keyboard,
+    forced_join_recheck_failed_alert,
+    forced_join_success_text,
+    forced_join_text,
+)
 from bot.formatting import with_footer
 from bot.menu_helpers import main_menu_for_user
 from bot.middleware.block_check import _is_admin_event, _telegram_user_id
@@ -48,7 +54,7 @@ class ForcedJoinMiddleware(BaseMiddleware):
         keyboard = forced_join_keyboard(chats)
         if isinstance(event, CallbackQuery):
             if is_recheck:
-                await event.answer("هنوز عضو همه کانال‌ها نشده‌اید.", show_alert=True)
+                await event.answer(forced_join_recheck_failed_alert(), show_alert=True)
             else:
                 await event.answer()
             await event.message.edit_text(text, reply_markup=keyboard)
@@ -66,7 +72,7 @@ class ForcedJoinMiddleware(BaseMiddleware):
             repository = Repository(db)
             user = await repository.ensure_user_from_telegram(from_user, ctx.settings.admin_ids)
             keyboard = await main_menu_for_user(repository, user, ctx)
-        text = with_footer("عضویت تأیید شد.\n\nبه ربات فروش VPN خوش آمدید.")
+        text = with_footer(forced_join_success_text())
         if isinstance(event, CallbackQuery):
             await event.answer()
             await event.message.edit_text(text, reply_markup=keyboard)

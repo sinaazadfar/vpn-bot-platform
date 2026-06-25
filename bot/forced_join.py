@@ -59,12 +59,39 @@ async def check_forced_join(bot: Bot, user_id: int, chats: list[RequiredChat]) -
 
 
 def forced_join_text(chats: list[RequiredChat]) -> str:
-    lines = ["عضویت اجباری", "", "برای استفاده از ربات ابتدا در کانال‌های زیر عضو شوید:", ""]
+    if len(chats) == 1:
+        label = chats[0].title or "کانال ما"
+        return (
+            "سلام! 👋\n\n"
+            f"برای استفاده از ربات، لطفاً اول در کانال «{label}» عضو شو "
+            "تا از آخرین اخبار، آموزش‌ها و تخفیف‌ها با خبر بشی.\n\n"
+            "روی دکمه زیر بزن، عضو شو و بعد «عضو شدم» رو انتخاب کن."
+        )
+
+    lines = [
+        "سلام! 👋",
+        "",
+        "برای ادامه، لطفاً در کانال‌های زیر عضو شو:",
+        "",
+    ]
     for chat in chats:
-        label = chat.title or str(chat.chat_id)
-        lines.append(f"• {label}")
-    lines.extend(["", "بعد از عضویت روی «بررسی مجدد» بزنید."])
+        label = chat.title or "کانال"
+        lines.append(f"📢 {label}")
+    lines.extend(
+        [
+            "",
+            "از دکمه‌های زیر وارد هر کانال شو و بعد از عضویت، «عضو شدم» رو بزن.",
+        ]
+    )
     return "\n".join(lines)
+
+
+def forced_join_recheck_failed_alert() -> str:
+    return "هنوز در همه کانال‌ها عضو نشدی 🙏\nلطفاً اول عضو شو و دوباره «عضو شدم» رو بزن."
+
+
+def forced_join_success_text() -> str:
+    return "عالی! عضویتت تأیید شد ✅\n\nخوش اومدی — از منوی زیر می‌تونی شروع کنی."
 
 
 def forced_join_keyboard(chats: list[RequiredChat]) -> InlineKeyboardMarkup:
@@ -72,6 +99,6 @@ def forced_join_keyboard(chats: list[RequiredChat]) -> InlineKeyboardMarkup:
     for chat in chats:
         label = chat.title or "کانال"
         url = chat.invite_link or f"https://t.me/c/{str(chat.chat_id).removeprefix('-100')}"
-        rows.append([InlineKeyboardButton(text=f"📢 {label}", url=url)])
-    rows.append([InlineKeyboardButton(text="بررسی مجدد", callback_data="join:recheck")])
+        rows.append([InlineKeyboardButton(text=f"📢 عضویت در {label}", url=url)])
+    rows.append([InlineKeyboardButton(text="✅ عضو شدم، ادامه بده", callback_data="join:recheck")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
