@@ -4,7 +4,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware, Dispatcher
-from aiogram.types import CallbackQuery, Message, TelegramObject
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, TelegramObject
 
 from bot.context import AppContext
 from bot.db import Repository
@@ -12,12 +13,26 @@ from bot.forced_join import (
     evaluate_forced_join,
     forced_join_keyboard,
     forced_join_recheck_failed_alert,
-    forced_join_success_text,
     forced_join_text,
 )
 from bot.formatting import with_footer
 from bot.menu_helpers import main_menu_for_user
 from bot.middleware.block_check import _is_admin_event, _telegram_user_id
+
+_JOIN_SUCCESS_TOAST = "عضویت تأیید شد ✅"
+_WELCOME_TEXT = "به ربات فروش VPN خوش آمدید."
+
+
+async def _safe_edit_text(message: Message | None, text: str, reply_markup: InlineKeyboardMarkup) -> bool:
+    if message is None:
+        return False
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+        return True
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return True
+        return False
 
 
 class ForcedJoinMiddleware(BaseMiddleware):
@@ -35,7 +50,7 @@ class ForcedJoinMiddleware(BaseMiddleware):
         if user_id is None or _is_admin_event(event, ctx.settings.admin_ids):
             return await handler(event, data)
 
-        is_recheck = isinstance(event, CallbackQuery) and event.data == "join:recheck"
+        is_recheck = getattr(event, "data", None) == "join:recheck"
 
         async with ctx.database.session() as db:
             repository = Repository(db)
@@ -46,7 +61,7 @@ class ForcedJoinMiddleware(BaseMiddleware):
 
         if allowed:
             if is_recheck:
-                await self._show_main_menu(event, ctx)
+                await self._complete_join_recheck(event, ctx)
                 return None
             return await handler(event, data)
 
@@ -57,27 +72,35 @@ class ForcedJoinMiddleware(BaseMiddleware):
                 await event.answer(forced_join_recheck_failed_alert(block_reason), show_alert=True)
             else:
                 await event.answer()
-            await event.message.edit_text(text, reply_markup=keyboard)
+            await _safe_edit_text(event.message, text, keyboard)
             return None
         if isinstance(event, Message):
             await event.answer(text, reply_markup=keyboard)
             return None
         return None
 
-    async def _show_main_menu(self, event: CallbackQuery | Message, ctx: AppContext) -> None:
-        from_user = event.from_user
+    async def _complete_join_recheck(self, event: TelegramObject, ctx: AppContext) -> None:
+        from_user = getattr(event, "from_user", None)
         if from_user is None:
+            answer = getattr(event, "answer", None)
+            if callable(answer):
+                await answer()
             return
+
+        answer = getattr(event, "answer", None)
+        if callable(answer):
+            await answer(_JOIN_SUCCESS_TOAST)
         async with ctx.database.session() as db:
             repository = Repository(db)
             user = await repository.ensure_user_from_telegram(from_user, ctx.settings.admin_ids)
             keyboard = await main_menu_for_user(repository, user, ctx)
-        text = with_footer(forced_join_success_text())
-        if isinstance(event, CallbackQuery):
-            await event.answer()
-            await event.message.edit_text(text, reply_markup=keyboard)
-        else:
-            await event.answer(text, reply_markup=keyboard)
+        text = with_footer(_WELCOME_TEXT)
+        message = getattr(event, "message", None)
+        edited = await _safe_edit_text(message, text, keyboard)
+        if not edited:
+            bot = getattr(event, "bot", None)
+            if bot is not None:
+                await bot.send_message(from_user.id, text, reply_markup=keyboard)
 
 
 def register_user_middlewares(dp: Dispatcher) -> None:
