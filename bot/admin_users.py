@@ -11,6 +11,31 @@ USERS_PER_PAGE = 8
 WALLET_QUICK_AMOUNTS = (50_000, 100_000, 250_000, 500_000)
 
 
+def user_full_name(user: User) -> str:
+    parts: list[str] = []
+    if user.first_name:
+        parts.append(user.first_name.strip())
+    if user.last_name:
+        parts.append(user.last_name.strip())
+    return " ".join(parts).strip()
+
+
+def user_display_name(user: User) -> str:
+    name = user_full_name(user)
+    if user.username:
+        handle = f"@{user.username}"
+        return f"{name} · {handle}" if name else handle
+    if name:
+        return name
+    return str(user.telegram_id)
+
+
+def user_username_line(user: User) -> str | None:
+    if user.username:
+        return f"@{user.username}"
+    return None
+
+
 def users_total_pages(total_users: int) -> int:
     return max(1, ceil(total_users / USERS_PER_PAGE))
 
@@ -32,20 +57,28 @@ def user_detail_text(*, user: User, subscription_count: int) -> str:
     lines = [
         "جزئیات کاربر",
         "",
-        f"شناسه تلگرام: {user.telegram_id}",
-        f"نقش: {role}",
-        f"وضعیت: {status}",
-        f"کیف پول: {user.wallet_balance:,} تومان",
-        f"کد دعوت: {user.referral_code.upper()}",
-        f"تعداد اشتراک: {subscription_count}",
+        f"نام: {user_full_name(user) or '—'}",
     ]
+    username_line = user_username_line(user)
+    if username_line:
+        lines.append(f"یوزرنیم: {username_line}")
+    lines.extend(
+        [
+            f"شناسه تلگرام: {user.telegram_id}",
+            f"نقش: {role}",
+            f"وضعیت: {status}",
+            f"کیف پول: {user.wallet_balance:,} تومان",
+            f"کد دعوت: {user.referral_code.upper()}",
+            f"تعداد اشتراک: {subscription_count}",
+        ]
+    )
     if user.referred_by:
         lines.append(f"دعوت‌شده توسط user_id: {user.referred_by}")
     return "\n".join(lines)
 
 
 def user_subscriptions_text(*, user: User, subscriptions: list[Subscription]) -> str:
-    lines = [f"اشتراک‌های {user.telegram_id}", ""]
+    lines = [f"اشتراک‌های {user_display_name(user)}", ""]
     if not subscriptions:
         lines.append("اشتراکی ثبت نشده است.")
         return "\n".join(lines)
@@ -59,7 +92,8 @@ def user_subscriptions_text(*, user: User, subscriptions: list[Subscription]) ->
 def _user_button_label(user: User) -> str:
     status = "🚫" if user.is_blocked else "✅"
     role = "👑" if user.role == "admin" else "👤"
-    return f"{status}{role} {user.telegram_id} · {user.wallet_balance:,}"
+    text = f"{status}{role} {user_display_name(user)} · {user.wallet_balance:,}"
+    return text if len(text) <= 64 else f"{text[:61]}…"
 
 
 def admin_users_list_keyboard(

@@ -401,7 +401,7 @@ async def review_payment(callback: CallbackQuery, ctx: AppContext) -> None:
     approved = action == "pay_ok"
     async with ctx.database.session() as db:
         repository = Repository(db)
-        admin_user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        admin_user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         payment = await repository.review_payment(int(raw_id), admin_user.id, approved)
         buyer = await repository.get_user(payment.user_id) if payment else None
     if not payment:

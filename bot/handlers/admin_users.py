@@ -10,6 +10,7 @@ from bot.admin_users import (
     admin_user_wallet_keyboard,
     admin_users_list_keyboard,
     user_detail_text,
+    user_display_name,
     user_subscriptions_text,
     users_list_text,
 )
@@ -99,7 +100,7 @@ async def users_search_start(callback: CallbackQuery, state: FSMContext, ctx: Ap
                 [
                     "جستجوی کاربر",
                     "",
-                    "آیدی تلگرام یا کد دعوت را بفرستید.",
+                    "آیدی تلگرام، یوزرنیم، نام یا کد دعوت را بفرستید.",
                     "برای انصراف /cancel بزنید.",
                 ]
             )
@@ -154,7 +155,7 @@ async def user_wallet_menu(callback: CallbackQuery, ctx: AppContext) -> None:
             "\n".join(
                 [
                     "شارژ کیف پول",
-                    f"کاربر: {user.telegram_id}",
+                    f"کاربر: {user_display_name(user)}",
                     f"موجودی فعلی: {user.wallet_balance:,} تومان",
                     "",
                     "یک مبلغ را انتخاب کنید یا مبلغ دلخواه بفرستید.",
@@ -300,7 +301,7 @@ async def user_message_start(callback: CallbackQuery, state: FSMContext, ctx: Ap
     await state.update_data(admin_message_user_id=user_id)
     await _edit_callback_message(
         callback,
-        with_footer(f"متن پیام برای کاربر {user.telegram_id} را بفرستید."),
+        with_footer(f"متن پیام برای {user_display_name(user)} را بفرستید."),
         reply_markup=admin_user_detail_keyboard(user=user),
     )
     await callback.answer()
@@ -332,6 +333,6 @@ async def user_message_send(message: Message, state: FSMContext, ctx: AppContext
     async with ctx.database.session() as db:
         subscription_count = await Repository(db).count_user_subscriptions(user.id)
     await message.answer(
-        with_footer(f"پیام برای {user.telegram_id} ارسال شد.\n\n{user_detail_text(user=user, subscription_count=subscription_count)}"),
+        with_footer(f"پیام برای {user_display_name(user)} ارسال شد.\n\n{user_detail_text(user=user, subscription_count=subscription_count)}"),
         reply_markup=admin_user_detail_keyboard(user=user),
     )

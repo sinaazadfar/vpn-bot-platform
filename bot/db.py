@@ -52,6 +52,9 @@ class User:
     referral_code: str
     referred_by: int | None
     is_blocked: bool = False
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
 
 
 @dataclass(slots=True)
@@ -209,6 +212,10 @@ class Database:
         user_columns = {row["name"] for row in user_info}
         if "is_blocked" not in user_columns:
             await db.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0")
+        if "first_name" not in user_columns:
+            await db.execute("ALTER TABLE users ADD COLUMN first_name TEXT")
+            await db.execute("ALTER TABLE users ADD COLUMN last_name TEXT")
+            await db.execute("ALTER TABLE users ADD COLUMN username TEXT")
 
     async def _normalize_existing_referral_codes(self, db: aiosqlite.Connection) -> None:
         rows = await db.execute_fetchall("SELECT id, referral_code FROM users ORDER BY id ASC")
@@ -237,12 +244,40 @@ class Repository:
     def __init__(self, db: aiosqlite.Connection):
         self.db = db
 
-    async def ensure_user(self, telegram_id: int, admin_ids: set[int], referred_by: int | None = None) -> User:
+    async def ensure_user(
+        self,
+        telegram_id: int,
+        admin_ids: set[int],
+        *,
+        referred_by: int | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        username: str | None = None,
+    ) -> User:
         role = "admin" if telegram_id in admin_ids else "buyer"
         row = await self._fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
         if row:
+            updates: list[str] = []
+            params: list[object] = []
             if row["role"] != role:
-                await self.db.execute("UPDATE users SET role = ? WHERE telegram_id = ?", (role, telegram_id))
+                updates.append("role = ?")
+                params.append(role)
+            for column, value in (
+                ("first_name", first_name),
+                ("last_name", last_name),
+                ("username", username),
+            ):
+                if value is not None and row[column] != value:
+                    updates.append(f"{column} = ?")
+                    params.append(value)
+            if updates:
+                updates.append("updated_at = ?")
+                params.append(utcnow())
+                params.append(telegram_id)
+                await self.db.execute(
+                    f"UPDATE users SET {', '.join(updates)} WHERE telegram_id = ?",
+                    tuple(params),
+                )
                 await self.db.commit()
                 row = await self._fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
             return self._user(row)
@@ -252,10 +287,13 @@ class Repository:
             try:
                 await self.db.execute(
                     """
-                    INSERT INTO users (telegram_id, role, wallet_balance, referral_code, referred_by, created_at, updated_at)
-                    VALUES (?, ?, 0, ?, ?, ?, ?)
+                    INSERT INTO users (
+                        telegram_id, role, wallet_balance, referral_code, referred_by,
+                        first_name, last_name, username, created_at, updated_at
+                    )
+                    VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (telegram_id, role, referral_code, referred_by, utcnow(), utcnow()),
+                    (telegram_id, role, referral_code, referred_by, first_name, last_name, username, utcnow(), utcnow()),
                 )
                 break
             except aiosqlite.IntegrityError:
@@ -263,6 +301,22 @@ class Repository:
         await self.db.commit()
         row = await self._fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
         return self._user(row)
+
+    async def ensure_user_from_telegram(
+        self,
+        from_user,
+        admin_ids: set[int],
+        *,
+        referred_by: int | None = None,
+    ) -> User:
+        return await self.ensure_user(
+            from_user.id,
+            admin_ids,
+            referred_by=referred_by,
+            first_name=from_user.first_name,
+            last_name=from_user.last_name,
+            username=from_user.username,
+        )
 
     async def get_user_by_telegram_id(self, telegram_id: int) -> User | None:
         row = await self._fetchone("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
@@ -315,20 +369,29 @@ class Repository:
         raw = query.strip()
         if not raw:
             return []
-        if raw.isdigit():
-            rows = await self._fetchall(
-                "SELECT * FROM users WHERE CAST(telegram_id AS TEXT) LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{raw}%", limit),
-            )
-            return [self._user(row) for row in rows]
-        normalized = normalize_referral_code(raw)
-        if normalized:
-            rows = await self._fetchall(
-                "SELECT * FROM users WHERE referral_code LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{normalized}%", limit),
-            )
-            return [self._user(row) for row in rows]
-        return []
+        username_query = raw.lstrip("@").lower()
+        referral_query = normalize_referral_code(raw) or raw.lower()
+        rows = await self._fetchall(
+            """
+            SELECT * FROM users
+            WHERE CAST(telegram_id AS TEXT) LIKE ?
+               OR LOWER(COALESCE(username, '')) LIKE ?
+               OR LOWER(COALESCE(first_name, '')) LIKE ?
+               OR LOWER(COALESCE(last_name, '')) LIKE ?
+               OR LOWER(referral_code) LIKE ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (
+                f"%{raw}%",
+                f"%{username_query}%",
+                f"%{raw.lower()}%",
+                f"%{raw.lower()}%",
+                f"%{referral_query}%",
+                limit,
+            ),
+        )
+        return [self._user(row) for row in rows]
 
     async def set_user_blocked(self, user_id: int, *, blocked: bool) -> User | None:
         user = await self.get_user(user_id)
@@ -633,6 +696,9 @@ class Repository:
     def _user(self, row: aiosqlite.Row) -> User:
         keys = row.keys()
         is_blocked = bool(row["is_blocked"]) if "is_blocked" in keys else False
+        first_name = row["first_name"] if "first_name" in keys else None
+        last_name = row["last_name"] if "last_name" in keys else None
+        username = row["username"] if "username" in keys else None
         return User(
             row["id"],
             row["telegram_id"],
@@ -641,6 +707,9 @@ class Repository:
             row["referral_code"],
             row["referred_by"],
             is_blocked,
+            first_name,
+            last_name,
+            username,
         )
 
     def _pricing_settings(self, row: aiosqlite.Row) -> PricingSettings:

@@ -1,7 +1,7 @@
 import pytest
 import pytest_asyncio
 
-from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, users_total_pages
+from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, user_display_name, users_total_pages
 from bot.db import Database, Repository
 
 
@@ -41,6 +41,63 @@ async def test_search_users_by_referral_code(repository):
 
 
 @pytest.mark.asyncio
+async def test_search_users_by_username(repository):
+    user = await repository.ensure_user(10003, set(), first_name="Ali", username="alitest")
+    results = await repository.search_users("@alitest")
+    assert len(results) == 1
+    assert results[0].id == user.id
+
+
+@pytest.mark.asyncio
+async def test_search_users_by_first_name(repository):
+    await repository.ensure_user(10004, set(), first_name="Sina", last_name="Azad")
+    results = await repository.search_users("sina")
+    assert len(results) == 1
+    assert results[0].first_name == "Sina"
+
+
+def test_user_display_name_prefers_name_and_username():
+    from bot.db import User
+
+    user = User(
+        id=1,
+        telegram_id=12345,
+        role="buyer",
+        wallet_balance=0,
+        referral_code="abc",
+        referred_by=None,
+        first_name="Ali",
+        last_name="Reza",
+        username="alireza",
+    )
+    assert user_display_name(user) == "Ali Reza · @alireza"
+
+
+def test_user_display_name_username_only():
+    from bot.db import User
+
+    user = User(
+        id=1,
+        telegram_id=12345,
+        role="buyer",
+        wallet_balance=0,
+        referral_code="abc",
+        referred_by=None,
+        username="onlyuser",
+    )
+    assert user_display_name(user) == "@onlyuser"
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_updates_profile(repository):
+    user = await repository.ensure_user(10005, set(), first_name="Old")
+    updated = await repository.ensure_user(10005, set(), first_name="New", username="newuser")
+    assert updated.id == user.id
+    assert updated.first_name == "New"
+    assert updated.username == "newuser"
+
+
+@pytest.mark.asyncio
 async def test_set_user_blocked(repository):
     user = await repository.ensure_user(10002, set())
     blocked = await repository.set_user_blocked(user.id, blocked=True)
@@ -70,7 +127,16 @@ def test_admin_users_list_keyboard_callback_lengths():
     from bot.db import User
 
     users = [
-        User(id=index, telegram_id=10_000 + index, role="buyer", wallet_balance=1000, referral_code=f"code{index}", referred_by=None)
+        User(
+            id=index,
+            telegram_id=10_000 + index,
+            role="buyer",
+            wallet_balance=1000,
+            referral_code=f"code{index}",
+            referred_by=None,
+            first_name="User",
+            username=f"user{index}",
+        )
         for index in range(1, 4)
     ]
     keyboard = admin_users_list_keyboard(users=users, page=1, total_users=3)

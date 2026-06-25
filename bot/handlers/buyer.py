@@ -144,7 +144,7 @@ async def start(message: Message, ctx: AppContext) -> None:
                 else:
                     referral_feedback = "کد رفرال قبلا برای حساب شما ثبت شده است."
                     referred_by = None
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids, referred_by=referred_by)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids, referred_by=referred_by)
         if user.is_blocked and message.from_user.id not in ctx.settings.admin_ids:
             await message.answer("حساب شما توسط ادمین مسدود شده است.", reply_markup=back_to_main_keyboard())
             return
@@ -176,7 +176,7 @@ async def show_id(message: Message, ctx: AppContext) -> None:
 async def back(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         support_username = await repository.get_support_username()
         earning_enabled = await repository.get_earning_enabled()
     await message.answer(with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
@@ -186,7 +186,7 @@ async def back(message: Message, ctx: AppContext) -> None:
 async def back_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         if user.is_blocked and callback.from_user.id not in ctx.settings.admin_ids:
             await callback.answer("حساب شما مسدود شده است.", show_alert=True)
             return
@@ -205,7 +205,7 @@ async def noop(callback: CallbackQuery) -> None:
 async def wallet(message: Message, state: FSMContext, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         support_username = await repository.get_support_username()
     await message.answer(
         with_footer(f"موجودی کیف پول: {user.wallet_balance:,} تومان\nمبلغ شارژ را انتخاب کنید:"),
@@ -217,7 +217,7 @@ async def wallet(message: Message, state: FSMContext, ctx: AppContext) -> None:
 async def wallet_callback(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         support_username = await repository.get_support_username()
     await _edit_callback_message(
         callback,
@@ -288,7 +288,7 @@ async def wallet_screenshot(message: Message, state: FSMContext, ctx: AppContext
     photo_id = message.photo[-1].file_id
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         payment = await repository.create_payment(user.id, amount, photo_id)
     for admin_id in ctx.settings.admin_ids:
         await message.bot.send_photo(
@@ -310,7 +310,7 @@ async def wallet_screenshot_invalid(message: Message) -> None:
 async def buy_subscription(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         presets = await repository.list_traffic_presets()
     await message.answer(with_footer("حجم اشتراک را انتخاب کنید:"), reply_markup=traffic_presets_keyboard(presets))
 
@@ -319,7 +319,7 @@ async def buy_subscription(message: Message, ctx: AppContext) -> None:
 async def buy_subscription_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         presets = await repository.list_traffic_presets()
     await _edit_callback_message(callback, with_footer("حجم اشتراک را انتخاب کنید:"), reply_markup=traffic_presets_keyboard(presets))
     await callback.answer()
@@ -438,7 +438,7 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
     discount_percent = int(raw_discount)
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         subscription = await repository.get_user_subscription(user.id, subscription_id)
         settings = await repository.get_pricing_settings()
         if not subscription:
@@ -477,7 +477,7 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
         return
     async with ctx.database.session() as db:
         repository = Repository(db)
-        fresh_user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        fresh_user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         fresh_subscription = await repository.get_user_subscription(fresh_user.id, subscription_id)
         if not fresh_subscription:
             await callback.answer("اشتراک پیدا نشد.", show_alert=True)
@@ -507,7 +507,7 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext, ctx: AppC
     discount_percent = int(raw_discount)
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         settings = await repository.get_pricing_settings()
         try:
             offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
@@ -558,7 +558,7 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
     discount_percent = int(data["discount_percent"])
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         settings = await repository.get_pricing_settings()
         try:
             offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
@@ -587,7 +587,7 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
 
     async with ctx.database.session() as db:
         repository = Repository(db)
-        fresh_user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        fresh_user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         subscription = await repository.create_subscription_after_charge(
             fresh_user,
             offer,
@@ -613,7 +613,7 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
 async def my_subscriptions(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         total = await repository.count_user_subscriptions(user.id)
         subscriptions = await repository.list_user_subscriptions_page(user.id, 1, SUBS_PER_PAGE)
     if not subscriptions:
@@ -637,7 +637,7 @@ async def subscriptions_page_callback(callback: CallbackQuery, ctx: AppContext) 
 async def send_subscriptions_page(callback: CallbackQuery, ctx: AppContext, page: int) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         total = await repository.count_user_subscriptions(user.id)
         total_pages = max((total + SUBS_PER_PAGE - 1) // SUBS_PER_PAGE, 1)
         page = min(max(page, 1), total_pages)
@@ -794,7 +794,7 @@ async def subscription_extend_start(callback: CallbackQuery, ctx: AppContext) ->
 async def get_owned_subscription(callback: CallbackQuery, ctx: AppContext, subscription_id: int):
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         subscription = await repository.get_user_subscription(user.id, subscription_id)
     if not subscription:
         await callback.answer("اشتراک پیدا نشد.", show_alert=True)
@@ -806,7 +806,7 @@ async def get_owned_subscription(callback: CallbackQuery, ctx: AppContext, subsc
 async def profile(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         subscription_count = await repository.count_user_subscriptions(user.id)
         earning_enabled = await repository.get_earning_enabled()
         referral_total = await repository.get_referral_earnings_total(user.id) if earning_enabled else 0
@@ -822,7 +822,7 @@ async def profile(message: Message, ctx: AppContext) -> None:
 async def profile_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         subscription_count = await repository.count_user_subscriptions(user.id)
         earning_enabled = await repository.get_earning_enabled()
         referral_total = await repository.get_referral_earnings_total(user.id) if earning_enabled else 0
@@ -907,7 +907,7 @@ async def support_callback(callback: CallbackQuery, ctx: AppContext) -> None:
 async def earn(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
     if not earning_enabled:
         await message.answer(with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
@@ -925,7 +925,7 @@ async def earn(message: Message, ctx: AppContext) -> None:
 async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
     if not earning_enabled:
         await _edit_callback_message(callback, with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
@@ -946,7 +946,7 @@ async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
 async def earn_details_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
         percent = await repository.get_earning_percent()
         total_earned = await repository.get_referral_earnings_total(user.id)
