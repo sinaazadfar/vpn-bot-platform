@@ -1,9 +1,8 @@
 import pytest
+import pytest_asyncio
 
 from bot.admin_users import USERS_PER_PAGE, admin_users_list_keyboard, users_total_pages
 from bot.db import Database, Repository
-
-pytestmark = pytest.mark.asyncio
 
 
 @pytest_asyncio.fixture
