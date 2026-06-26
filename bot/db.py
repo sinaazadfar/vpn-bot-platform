@@ -871,6 +871,63 @@ class Repository:
         row = await self._fetchone("SELECT * FROM discount_codes WHERE id = ?", (cur.lastrowid,))
         return self._discount_code(row)
 
+    async def get_discount_code_by_id(self, code_id: int) -> DiscountCode | None:
+        row = await self._fetchone("SELECT * FROM discount_codes WHERE id = ?", (code_id,))
+        return self._discount_code(row) if row else None
+
+    async def update_discount_code(
+        self,
+        code_id: int,
+        *,
+        discount_percent: int | None = None,
+        max_uses: int | None = None,
+        valid_days: int | None = None,
+    ) -> DiscountCode | None:
+        existing = await self.get_discount_code_by_id(code_id)
+        if existing is None:
+            return None
+        if discount_percent is not None:
+            if discount_percent < 0 or discount_percent > 100:
+                raise ValueError("invalid_discount_percent")
+        if max_uses is not None:
+            if max_uses < 0:
+                raise ValueError("invalid_discount_max_uses")
+            if max_uses > 0 and max_uses < existing.used_count:
+                raise ValueError("discount_max_uses_below_used_count")
+        expires_at = existing.expires_at
+        if valid_days is not None:
+            if valid_days < 0:
+                raise ValueError("invalid_discount_valid_days")
+            expires_at = None if valid_days == 0 else (datetime.now(UTC) + timedelta(days=valid_days)).isoformat()
+        await self.db.execute(
+            """
+            UPDATE discount_codes
+            SET discount_percent = COALESCE(?, discount_percent),
+                max_uses = COALESCE(?, max_uses),
+                expires_at = ?,
+                active = 1,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                discount_percent,
+                max_uses,
+                expires_at,
+                utcnow(),
+                code_id,
+            ),
+        )
+        await self.db.commit()
+        return await self.get_discount_code_by_id(code_id)
+
+    async def deactivate_discount_code(self, code_id: int) -> bool:
+        cur = await self.db.execute(
+            "UPDATE discount_codes SET active = 0, updated_at = ? WHERE id = ?",
+            (utcnow(), code_id),
+        )
+        await self.db.commit()
+        return cur.rowcount > 0
+
     async def get_discount_code(self, code: str) -> DiscountCode | None:
         row = await self._fetchone("SELECT * FROM discount_codes WHERE code = ? AND active = 1", (code.strip().lower(),))
         return self._discount_code(row) if row else None

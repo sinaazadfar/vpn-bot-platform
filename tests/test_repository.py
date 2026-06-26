@@ -390,6 +390,40 @@ async def test_discount_code_valid_days_and_max_uses(repository):
 
 
 @pytest.mark.asyncio
+async def test_update_discount_code_changes_percent_and_max_uses(repository):
+    discount = await repository.create_discount_code("editme", 10, max_uses=5, valid_days=0)
+    updated = await repository.update_discount_code(discount.id, discount_percent=25, max_uses=10)
+
+    assert updated is not None
+    assert updated.discount_percent == 25
+    assert updated.max_uses == 10
+    assert updated.active is True
+
+
+@pytest.mark.asyncio
+async def test_update_discount_code_rejects_max_uses_below_used_count(repository):
+    discount = await repository.create_discount_code("limited", 10, max_uses=3, valid_days=0)
+    user_a = await repository.ensure_user(5010, set())
+    user_b = await repository.ensure_user(5012, set())
+    await repository._redeem_discount_code_in_tx(user_a.id, discount.id)
+    await repository._redeem_discount_code_in_tx(user_b.id, discount.id)
+    await repository.db.commit()
+
+    with pytest.raises(ValueError, match="discount_max_uses_below_used_count"):
+        await repository.update_discount_code(discount.id, max_uses=1)
+
+
+@pytest.mark.asyncio
+async def test_deactivate_discount_code_blocks_validation(repository):
+    discount = await repository.create_discount_code("gone", 15, max_uses=0, valid_days=0)
+    user = await repository.ensure_user(5011, set())
+    assert await repository.deactivate_discount_code(discount.id)
+
+    with pytest.raises(ValueError, match="discount_not_found"):
+        await repository.validate_discount_for_user("gone", user.id)
+
+
+@pytest.mark.asyncio
 async def test_discount_code_one_use_per_user(repository):
     user_a = await repository.ensure_user(5001, set())
     user_b = await repository.ensure_user(5002, set())

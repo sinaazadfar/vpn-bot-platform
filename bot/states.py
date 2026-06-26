@@ -45,6 +45,12 @@ class DiscountCreate(StatesGroup):
     valid_days = State()
 
 
+class DiscountEdit(StatesGroup):
+    percent = State()
+    max_uses = State()
+    valid_days = State()
+
+
 class PurchaseCoupon(StatesGroup):
     code = State()
 
