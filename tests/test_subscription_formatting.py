@@ -77,13 +77,13 @@ def test_configs_text_chunks_include_all_configs_without_qr_content():
 def test_earn_invite_instructions_explains_flow_with_example():
     text = _earn_invite_instructions(15)
 
-    assert "دعوت دوستان و کسب درآمد" in text
-    assert "چطور کار می‌کند؟" in text
+    assert "دوستاتو دعوت کن" in text
+    assert "خلاصه‌ش اینه" in text
     assert "15٪" in text
     assert "۲۰۰,۰۰۰" in text
-    assert "30,000 تومان" in text
-    assert "این متن را برای دوستانت بفرست" in text
-    assert "تمدید اشتراک" in text
+    assert "30,000 تومن" in text
+    assert "این متن رو بفرست" in text
+    assert "تمدید" not in text
     assert "https://t.me/" not in text
 
 
@@ -91,8 +91,8 @@ def test_earn_share_message_includes_bot_name_and_plain_referral_link():
     invite_url = _referral_invite_url("abc123xy", "sellerbot")
     text = _earn_share_message("فروشگاه VPN", invite_url)
 
-    assert text.startswith("سلام و احترام")
-    assert "از ربات فروشگاه VPN میتونید" in text
+    assert text.startswith("سلام!")
+    assert "از ربات فروشگاه VPN می‌تونی" in text
     assert "👌👌" in text
     assert invite_url in text
     assert "<a href=" not in text
@@ -103,10 +103,10 @@ def test_earn_details_text_contains_personal_stats_and_rules():
 
     assert "<code>ABC123XY</code>" in text
     assert "پورسانت فعلی: 15٪" in text
-    assert "درآمد ثبت‌شده شما: 250,000 تومان" in text
-    assert "یک‌سطحی" in text
-    assert "کیف پول" in text
-    assert "تمدید اشتراک شامل پورسانت نیست" in text
+    assert "تا الان دراوردی: 250,000 تومن" in text
+    assert "لینک دعوت تو" in text
+    assert "کیف پولت" in text
+    assert "تمدید" not in text
 
 
 def test_profile_text_shows_core_fields_and_hides_referral_when_earning_disabled():
