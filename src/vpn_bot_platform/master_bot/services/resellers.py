@@ -9,7 +9,7 @@ import subprocess
 from aiogram.utils.token import TokenValidationError, validate_token
 
 from vpn_bot_platform.common.config import Settings
-from vpn_bot_platform.common.crypto import SecretBox
+from vpn_bot_platform.common.crypto import SecretBox, hash_secret
 from vpn_bot_platform.common.db import session_scope
 from vpn_bot_platform.common.forced_join import (
     FORCED_JOIN_CHATS_KEY,
@@ -42,6 +42,7 @@ from vpn_bot_platform.common.repositories import (
     global_sales_report,
     get_reseller_by_telegram_id,
     get_seller_bot,
+    get_seller_bot_by_token_hash,
     list_external_bot_templates,
     list_all_plans,
     list_active_panel_assignments,
@@ -178,6 +179,38 @@ class ResellerService:
         self.secret_box = secret_box
         self.settings = settings
         self.runtime_controller = runtime_controller
+
+    async def _resolve_seller_bot_for_provision(
+        self,
+        session,
+        *,
+        reseller_id: str,
+        bot_name: str,
+        bot_token: str,
+        volume_limit_gb: int | None,
+        ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
+    ) -> tuple[SellerBot, bool]:
+        existing = await get_seller_bot_by_token_hash(
+            session,
+            token_hash=hash_secret(bot_token),
+        )
+        if existing is not None:
+            existing.reseller_id = reseller_id
+            existing.name = bot_name
+            existing.volume_limit_gb = volume_limit_gb or 0
+            existing.ui_profile = ui_profile.value
+            existing.token_encrypted = self.secret_box.encrypt(bot_token) or existing.token_encrypted
+            return existing, True
+        seller_bot = await create_seller_bot(
+            session,
+            reseller_id=reseller_id,
+            name=bot_name,
+            token=bot_token,
+            secret_box=self.secret_box,
+            volume_limit_gb=volume_limit_gb,
+            ui_profile=ui_profile,
+        )
+        return seller_bot, False
 
     async def register_reseller(
         self,
@@ -361,24 +394,25 @@ class ResellerService:
                     },
                 )
                 await session.flush()
-            panel = await create_marzban_panel(
-                session,
-                name=panel_name,
-                base_url=panel_base_url,
-                username=panel_username,
-                password=panel_password,
-                secret_box=self.secret_box,
-            )
-            await session.flush()
-            seller_bot = await create_seller_bot(
+            normalized_panel_url = panel_base_url.rstrip("/")
+            panel = await get_marzban_panel_by_base_url(session, base_url=normalized_panel_url)
+            if panel is None:
+                panel = await create_marzban_panel(
+                    session,
+                    name=panel_name,
+                    base_url=normalized_panel_url,
+                    username=panel_username,
+                    password=panel_password,
+                    secret_box=self.secret_box,
+                )
+                await session.flush()
+            seller_bot, seller_bot_existed = await self._resolve_seller_bot_for_provision(
                 session,
                 reseller_id=reseller.id,
-                name=bot_name,
-                token=bot_token,
-                secret_box=self.secret_box,
+                bot_name=bot_name,
+                bot_token=bot_token,
                 volume_limit_gb=volume_limit_gb,
             )
-            await session.flush()
             assignment = await assign_panel_to_reseller(
                 session,
                 reseller_id=reseller.id,
@@ -400,6 +434,7 @@ class ResellerService:
                     "panel_name": panel_name,
                     "marzban_admin_username": assignment.marzban_admin_username,
                     "volume_limit_gb": volume_limit_gb,
+                    "seller_bot_existed": seller_bot_existed,
                 },
             )
             await session.flush()
@@ -479,12 +514,11 @@ class ResellerService:
                     secret_box=self.secret_box,
                 )
                 await session.flush()
-            seller_bot = await create_seller_bot(
+            seller_bot, seller_bot_existed = await self._resolve_seller_bot_for_provision(
                 session,
                 reseller_id=reseller.id,
-                name=bot_name,
-                token=bot_token,
-                secret_box=self.secret_box,
+                bot_name=bot_name,
+                bot_token=bot_token,
                 volume_limit_gb=volume_limit_gb,
                 ui_profile=ui_profile,
             )
@@ -512,6 +546,7 @@ class ResellerService:
                     "volume_limit_gb": volume_limit_gb,
                     "reseller_existed": reseller_existed,
                     "panel_existed": panel_existed,
+                    "seller_bot_existed": seller_bot_existed,
                 },
             )
             await session.flush()

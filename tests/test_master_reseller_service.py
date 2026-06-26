@@ -625,6 +625,44 @@ async def test_provision_seller_bot_bundle_reuses_existing_panel_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provision_seller_bot_bundle_reuses_existing_bot_token() -> None:
+    init_engine("sqlite+aiosqlite:///:memory:")
+    await create_all()
+    service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
+    token = _valid_bot_token()
+
+    try:
+        first = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=88881,
+            reseller_display_name="Owner One",
+            bot_name="bot-one",
+            bot_token=token,
+            panel_name="panel-one",
+            panel_base_url="https://panel-one.example.com",
+            panel_token="panel-token",
+            actor_telegram_id=999,
+        )
+        second = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=88882,
+            reseller_display_name="Owner Two",
+            bot_name="bot-two",
+            bot_token=token,
+            panel_name="panel-two",
+            panel_base_url="https://panel-two.example.com",
+            panel_token="panel-token-2",
+            actor_telegram_id=999,
+        )
+        seller_bots = await service.list_seller_bots()
+    finally:
+        await dispose_engine()
+
+    assert first.seller_bot.id == second.seller_bot.id
+    assert len(seller_bots) == 1
+    assert second.seller_bot.name == "bot-two"
+    assert second.seller_bot.reseller_id == second.reseller.id
+
+
+@pytest.mark.asyncio
 async def test_platform_seller_super_user_passes_admin_check() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
