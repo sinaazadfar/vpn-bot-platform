@@ -75,9 +75,18 @@ def _bot_display_name(*, first_name: str | None, username: str | None) -> str:
     return "ربات"
 
 
-def _earn_invite_instructions() -> str:
+def _earn_invite_instructions(earning_percent: int) -> str:
+    example_purchase = 200_000
+    example_commission = example_purchase * earning_percent // 100
     return (
         "دعوت دوستان و کسب درآمد\n\n"
+        "چطور کار می‌کند؟\n"
+        "۱) پیام پایین را برای دوستانت بفرست (یا فقط لینک داخلش را).\n"
+        "۲) دوست با لینک تو وارد ربات می‌شود و زیرمجموعه تو ثبت می‌شود.\n"
+        f"۳) وقتی اولین‌بار اشتراک جدید بخرد، {earning_percent}٪ مبلغ خریدش به کیف پول تو اضافه می‌شود.\n\n"
+        "مثال:\n"
+        f"دوستت اشتراک ۲۰۰,۰۰۰ تومانی بخرد → {example_commission:,} تومان پورسانت برای تو.\n\n"
+        "نکته: فقط خرید اشتراک جدید پورسانت دارد؛ تمدید اشتراک شامل پورسانت نیست.\n\n"
         "این متن را برای دوستانت بفرست:"
     )
 
@@ -90,9 +99,9 @@ def _earn_share_message(bot_name: str, invite_url: str) -> str:
     )
 
 
-async def _send_earn_invite(message: Message, *, bot_name: str, invite_url: str) -> None:
+async def _send_earn_invite(message: Message, *, bot_name: str, invite_url: str, earning_percent: int) -> None:
     await message.answer(
-        with_footer(_earn_invite_instructions()),
+        with_footer(_earn_invite_instructions(earning_percent)),
         reply_markup=earn_keyboard(),
         parse_mode="HTML",
     )
@@ -1091,13 +1100,14 @@ async def earn(message: Message, ctx: AppContext) -> None:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
+        earning_percent = await repository.get_earning_percent()
     if not earning_enabled:
         await message.answer(with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
         return
     bot = await message.bot.me()
     bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
     invite_url = _referral_invite_url(user.referral_code, bot.username)
-    await _send_earn_invite(message, bot_name=bot_name, invite_url=invite_url)
+    await _send_earn_invite(message, bot_name=bot_name, invite_url=invite_url, earning_percent=earning_percent)
 
 
 @router.callback_query(F.data == "menu:earn")
@@ -1106,6 +1116,7 @@ async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
+        earning_percent = await repository.get_earning_percent()
     if not earning_enabled:
         await _edit_callback_message(callback, with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
         await callback.answer()
@@ -1115,7 +1126,7 @@ async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     invite_url = _referral_invite_url(user.referral_code, bot.username)
     await _edit_callback_message(
         callback,
-        with_footer(_earn_invite_instructions()),
+        with_footer(_earn_invite_instructions(earning_percent)),
         reply_markup=earn_keyboard(),
         parse_mode="HTML",
     )

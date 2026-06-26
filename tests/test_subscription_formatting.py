@@ -74,12 +74,16 @@ def test_configs_text_chunks_include_all_configs_without_qr_content():
     assert "<code>vless://one</code>" not in text
 
 
-def test_earn_invite_instructions_prompt_user_to_forward_message():
-    text = _earn_invite_instructions()
+def test_earn_invite_instructions_explains_flow_with_example():
+    text = _earn_invite_instructions(15)
 
     assert "دعوت دوستان و کسب درآمد" in text
+    assert "چطور کار می‌کند؟" in text
+    assert "15٪" in text
+    assert "۲۰۰,۰۰۰" in text
+    assert "30,000 تومان" in text
     assert "این متن را برای دوستانت بفرست" in text
-    assert "سلام" not in text
+    assert "تمدید اشتراک" in text
     assert "https://t.me/" not in text
 
 
