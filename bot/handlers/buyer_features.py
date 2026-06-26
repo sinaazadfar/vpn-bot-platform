@@ -3,6 +3,7 @@ from __future__ import annotations
 from math import ceil
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -15,6 +16,7 @@ from bot.marzban import MarzbanError
 from bot.menu_helpers import main_menu_for_user
 from bot.notifications import wallet_reason_label
 from bot.states import BuyerTicketReply, TicketCreate, TicketReply
+from bot.trial_flow import activate_trial, trial_error_message
 from bot.handlers.buyer import (
     _edit_callback_message,
     get_owned_subscription,
@@ -147,35 +149,39 @@ async def trial_start(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
-        if not await repository.get_trial_enabled():
-            await callback.answer("تست رایگان فعال نیست.", show_alert=True)
-            return
-        if await repository.has_trial_grant(user.id):
-            await callback.answer("قبلاً تست رایگان دریافت کرده‌اید.", show_alert=True)
-            return
-        gb = await repository.get_trial_traffic_gb()
-        days = await repository.get_trial_days()
-        offer = repository.build_offer(await repository.get_pricing_settings(), gb, days, "trial", 100)
-        subscription = None
-        marzban_sub = None
         try:
-            await ctx.quota.ensure_available(repository, requested_gb=gb)
-            marzban_sub = await ctx.marzban.create_subscription(f"trial_{user.telegram_id}", gb, days)
-            await repository.grant_trial(user.id)
-            subscription = await repository.create_subscription_after_charge(user, offer, marzban_sub.username, marzban_sub.subscription_url, marzban_sub.expires_at)
+            result = await activate_trial(repository, user, ctx)
             await db.commit()
         except (MarzbanError, ValueError) as exc:
-            await callback.answer(str(exc)[:180], show_alert=True)
+            await callback.answer(trial_error_message(exc), show_alert=True)
             return
-    if subscription is None or marzban_sub is None:
-        await callback.answer("خطا در فعال‌سازی تست.", show_alert=True)
-        return
     await _edit_callback_message(
         callback,
-        with_footer(f"تست رایگان فعال شد.\n{gb}GB / {days} روز\n\n{marzban_sub.subscription_url}"),
-        reply_markup=subscription_detail_keyboard(subscription.id),
+        with_footer(
+            f"تست رایگان فعال شد.\n{result.traffic_mb}MB / {result.days} روز\n\n{result.marzban_sub.subscription_url}"
+        ),
+        reply_markup=subscription_detail_keyboard(result.subscription.id),
     )
     await callback.answer()
+
+
+@router.message(Command("trial"))
+async def trial_command(message: Message, ctx: AppContext) -> None:
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        try:
+            result = await activate_trial(repository, user, ctx)
+            await db.commit()
+        except (MarzbanError, ValueError) as exc:
+            await message.answer(with_footer(trial_error_message(exc)), reply_markup=back_to_main_keyboard())
+            return
+    await message.answer(
+        with_footer(
+            f"تست رایگان فعال شد.\n{result.traffic_mb}MB / {result.days} روز\n\n{result.marzban_sub.subscription_url}"
+        ),
+        reply_markup=subscription_detail_keyboard(result.subscription.id),
+    )
 
 
 @router.callback_query(F.data == "menu:support")

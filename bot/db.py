@@ -15,8 +15,10 @@ SUPPORT_USERNAME_KEY = "support_username"
 EARNING_ENABLED_KEY = "earning_enabled"
 EARNING_PERCENT_KEY = "earning_percent"
 TRIAL_ENABLED_KEY = "trial_enabled"
+TRIAL_TRAFFIC_MB_KEY = "trial_traffic_mb"
 TRIAL_TRAFFIC_GB_KEY = "trial_traffic_gb"
 TRIAL_DAYS_KEY = "trial_days"
+DEFAULT_TRIAL_TRAFFIC_MB = 512
 
 
 def utcnow() -> str:
@@ -724,14 +726,29 @@ class Repository:
     async def set_trial_enabled(self, enabled: bool) -> None:
         await self.set_setting(TRIAL_ENABLED_KEY, "1" if enabled else "0")
 
+    async def get_trial_traffic_mb(self) -> int:
+        raw = await self.get_setting(TRIAL_TRAFFIC_MB_KEY, "")
+        if raw:
+            try:
+                return max(int(raw), 1)
+            except ValueError:
+                pass
+        legacy_gb = await self.get_setting(TRIAL_TRAFFIC_GB_KEY, "")
+        if legacy_gb:
+            try:
+                return max(int(legacy_gb), 1) * 1024
+            except ValueError:
+                pass
+        return DEFAULT_TRIAL_TRAFFIC_MB
+
+    async def set_trial_traffic_mb(self, mb: int) -> None:
+        await self.set_setting(TRIAL_TRAFFIC_MB_KEY, str(max(mb, 1)))
+
     async def get_trial_traffic_gb(self) -> int:
-        try:
-            return max(int(await self.get_setting(TRIAL_TRAFFIC_GB_KEY, "1")), 1)
-        except ValueError:
-            return 1
+        return max((await self.get_trial_traffic_mb() + 1023) // 1024, 1)
 
     async def set_trial_traffic_gb(self, gb: int) -> None:
-        await self.set_setting(TRIAL_TRAFFIC_GB_KEY, str(max(gb, 1)))
+        await self.set_trial_traffic_mb(max(gb, 1) * 1024)
 
     async def get_trial_days(self) -> int:
         try:
@@ -970,9 +987,7 @@ class Repository:
 
     def build_offer(self, settings: PricingSettings, traffic_gb: int, duration_days: int, source: str, discount_percent: int = 0) -> PurchaseOffer:
         if source == "trial":
-            if traffic_gb < 1:
-                raise ValueError("invalid_traffic")
-            return PurchaseOffer(traffic_gb, max(duration_days, 1), source, 100, 0, 0, 0)
+            return PurchaseOffer(0, max(duration_days, 1), source, 100, 0, 0, 0)
         if traffic_gb < 1 or traffic_gb > 200:
             raise ValueError("invalid_traffic")
         if duration_days == 30:

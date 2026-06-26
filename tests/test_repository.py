@@ -322,3 +322,24 @@ async def test_extension_does_not_credit_referrer(repository):
 
     assert referrer_after_purchase.wallet_balance == 10_000
     assert referrer_after_extension.wallet_balance == 10_000
+
+
+@pytest.mark.asyncio
+async def test_trial_traffic_mb_defaults_to_512(repository):
+    assert await repository.get_trial_traffic_mb() == 512
+
+
+@pytest.mark.asyncio
+async def test_trial_traffic_mb_can_be_set(repository):
+    await repository.set_trial_traffic_mb(256)
+    assert await repository.get_trial_traffic_mb() == 256
+
+
+@pytest.mark.asyncio
+async def test_trial_grant_is_one_time(repository):
+    user = await repository.ensure_user(4001, set())
+    assert not await repository.has_trial_grant(user.id)
+    await repository.grant_trial(user.id)
+    assert await repository.has_trial_grant(user.id)
+    await repository.grant_trial(user.id)
+    assert await repository.has_trial_grant(user.id)

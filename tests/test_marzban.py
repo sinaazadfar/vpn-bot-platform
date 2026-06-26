@@ -161,3 +161,30 @@ async def test_marzban_falls_back_to_default_proxies_when_inbounds_fails(monkeyp
     )
 
     assert result.subscription_url == "https://panel.example/sub/user"
+
+
+@pytest.mark.asyncio
+async def test_marzban_create_trial_subscription_uses_mb_limit(monkeypatch):
+    async_client = httpx.AsyncClient
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/user":
+            payload = __import__("json").loads(request.content)
+            assert payload["data_limit"] == 512 * 1024 * 1024
+            assert payload["status"] == "active"
+            return httpx.Response(
+                200,
+                json={
+                    "username": payload["username"],
+                    "subscription_url": "https://panel.example/sub/trial",
+                    "expire": payload["expire"],
+                },
+            )
+        return httpx.Response(404)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: async_client(transport=httpx.MockTransport(handler)))
+    client = MarzbanClient("https://panel.example", token="token", default_proxies_json='{"vless":{}}')
+
+    result = await client.create_trial_subscription("trial_123", data_limit_mb=512, duration_days=1)
+
+    assert result.subscription_url == "https://panel.example/sub/trial"

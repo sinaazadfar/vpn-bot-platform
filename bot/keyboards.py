@@ -176,7 +176,12 @@ def subscription_back_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=c.BACK, callback_data=f"sub:detail:{subscription_id}")]])
 
 
-def traffic_presets_keyboard(presets: list[TrafficPreset], prefix: str = "traffic") -> InlineKeyboardMarkup:
+def traffic_presets_keyboard(
+    presets: list[TrafficPreset],
+    prefix: str = "traffic",
+    *,
+    show_trial: bool = False,
+) -> InlineKeyboardMarkup:
     preset_buttons = []
     for preset in presets:
         if not preset.active:
@@ -186,6 +191,8 @@ def traffic_presets_keyboard(presets: list[TrafficPreset], prefix: str = "traffi
             text += f" - {preset.discount_percent}٪ تخفیف"
         preset_buttons.append(InlineKeyboardButton(text=text, callback_data=f"{prefix}:preset:{preset.gb}"))
     buttons = [preset_buttons[index:index + 2] for index in range(0, len(preset_buttons), 2)]
+    if show_trial:
+        buttons.insert(0, [InlineKeyboardButton(text="🎁 تست رایگان", callback_data="menu:trial")])
     buttons.append([InlineKeyboardButton(text=c.BACK, callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

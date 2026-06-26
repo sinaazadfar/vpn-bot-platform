@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from bot.commands import sync_bot_commands
 from bot.context import AppContext
 from bot.db import Repository
 from bot.formatting import with_footer
@@ -143,14 +144,14 @@ async def admin_trial_settings(callback: CallbackQuery, ctx: AppContext) -> None
     async with ctx.database.session() as db:
         repository = Repository(db)
         enabled = await repository.get_trial_enabled()
-        gb = await repository.get_trial_traffic_gb()
+        traffic_mb = await repository.get_trial_traffic_mb()
         days = await repository.get_trial_days()
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=f"وضعیت: {'فعال' if enabled else 'غیرفعال'}", callback_data="admin:trial:toggle")],
-            [InlineKeyboardButton(text=f"حجم: {gb} GB", callback_data="admin:trial:gb")],
+            [InlineKeyboardButton(text=f"حجم: {traffic_mb} MB", callback_data="admin:trial:gb")],
             [InlineKeyboardButton(text=f"مدت: {days} روز", callback_data="admin:trial:days")],
             [InlineKeyboardButton(text="بازگشت", callback_data="admin:settings")],
         ]
@@ -168,6 +169,7 @@ async def admin_trial_toggle(callback: CallbackQuery, ctx: AppContext) -> None:
         repository = Repository(db)
         enabled = await repository.get_trial_enabled()
         await repository.set_trial_enabled(not enabled)
+        await sync_bot_commands(callback.bot, repository)
     await admin_trial_settings(callback, ctx)
 
 

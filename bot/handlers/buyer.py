@@ -4,6 +4,7 @@ import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
@@ -24,9 +25,11 @@ from bot.db import User, Repository, normalize_referral_code
 from bot.formatting import html_code, html_link, html_pre, with_footer
 from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
+from bot.menu_helpers import main_menu_for_user
 from bot.quota import VolumeQuotaError
 from bot.qr import make_qr_png
 from bot.states import PurchaseUsername, WalletTopUp
+from bot.trial_flow import should_show_trial_button
 
 router = Router()
 SUBS_PER_PAGE = 10
@@ -121,7 +124,7 @@ async def _edit_callback_message(callback: CallbackQuery, text: str, **kwargs) -
             raise
 
 
-@router.message(F.text.startswith("/start"))
+@router.message(CommandStart())
 async def start(message: Message, ctx: AppContext) -> None:
     referred_by = None
     referral_feedback = ""
@@ -150,13 +153,15 @@ async def start(message: Message, ctx: AppContext) -> None:
             return
         if referred_by:
             referral_feedback = "کد رفرال با موفقیت برای حساب شما ثبت شد."
-        support_username = await repository.get_support_username()
-        earning_enabled = await repository.get_earning_enabled()
     if referral_feedback:
         await message.answer(referral_feedback, reply_markup=back_to_main_keyboard())
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        keyboard = await main_menu_for_user(repository, user, ctx)
     await message.answer(
         with_footer("به ربات فروش VPN خوش آمدید."),
-        reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled),
+        reply_markup=keyboard,
     )
 
 
@@ -177,9 +182,8 @@ async def back(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
-        support_username = await repository.get_support_username()
-        earning_enabled = await repository.get_earning_enabled()
-    await message.answer(with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
+        keyboard = await main_menu_for_user(repository, user, ctx)
+    await message.answer(with_footer("منوی اصلی"), reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "menu:home")
@@ -187,9 +191,8 @@ async def back_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
-        support_username = await repository.get_support_username()
-        earning_enabled = await repository.get_earning_enabled()
-    await _edit_callback_message(callback, with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
+        keyboard = await main_menu_for_user(repository, user, ctx)
+    await _edit_callback_message(callback, with_footer("منوی اصلی"), reply_markup=keyboard)
     await callback.answer()
 
 
@@ -307,18 +310,27 @@ async def wallet_screenshot_invalid(message: Message) -> None:
 async def buy_subscription(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         presets = await repository.list_traffic_presets()
-    await message.answer(with_footer("حجم اشتراک را انتخاب کنید:"), reply_markup=traffic_presets_keyboard(presets))
+        show_trial = await should_show_trial_button(repository, user.id)
+    await message.answer(
+        with_footer("حجم اشتراک را انتخاب کنید:"),
+        reply_markup=traffic_presets_keyboard(presets, show_trial=show_trial),
+    )
 
 
 @router.callback_query(F.data == "menu:buy")
 async def buy_subscription_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         presets = await repository.list_traffic_presets()
-    await _edit_callback_message(callback, with_footer("حجم اشتراک را انتخاب کنید:"), reply_markup=traffic_presets_keyboard(presets))
+        show_trial = await should_show_trial_button(repository, user.id)
+    await _edit_callback_message(
+        callback,
+        with_footer("حجم اشتراک را انتخاب کنید:"),
+        reply_markup=traffic_presets_keyboard(presets, show_trial=show_trial),
+    )
     await callback.answer()
 
 

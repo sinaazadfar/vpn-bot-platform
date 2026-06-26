@@ -1,9 +1,10 @@
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
+from bot.commands import sync_bot_commands
 from bot.config import get_settings
 from bot.context import AppContext
-from bot.db import Database
+from bot.db import Database, Repository
 from bot.formatting import MESSAGE_FOOTER
 from bot.handlers import setup_routers
 from bot.marzban import MarzbanClient
@@ -55,4 +56,6 @@ async def main() -> None:
     )
     dp.include_router(setup_routers())
     register_user_middlewares(dp)
+    async with database.session() as db:
+        await sync_bot_commands(bot, Repository(db))
     await dp.start_polling(bot)

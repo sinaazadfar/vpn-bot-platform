@@ -1,5 +1,6 @@
 from bot import constants as c
-from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, WALLET_TOP_UP_AMOUNTS, admin_back_keyboard, admin_earning_keyboard, admin_menu, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, WALLET_TOP_UP_AMOUNTS, admin_back_keyboard, admin_earning_keyboard, admin_menu, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.db import TrafficPreset
 
 
 def test_wallet_top_up_keyboard_has_two_column_presets():
@@ -161,3 +162,17 @@ def test_profile_keyboard_shows_earn_and_support_url_when_configured():
     assert c.EARN in labels
     assert support_button.url == "https://t.me/Support_User"
     assert support_button.callback_data is None
+
+
+def test_traffic_presets_keyboard_shows_trial_button_when_enabled():
+    presets = [TrafficPreset(id=1, gb=10, discount_percent=0, active=True)]
+    without_trial = traffic_presets_keyboard(presets)
+    with_trial = traffic_presets_keyboard(presets, show_trial=True)
+
+    without_callbacks = [button.callback_data for row in without_trial.inline_keyboard for button in row]
+    with_callbacks = [button.callback_data for row in with_trial.inline_keyboard for button in row]
+
+    assert "menu:trial" not in without_callbacks
+    assert with_trial.inline_keyboard[0][0].text == "🎁 تست رایگان"
+    assert with_trial.inline_keyboard[0][0].callback_data == "menu:trial"
+    assert "menu:trial" in with_callbacks
