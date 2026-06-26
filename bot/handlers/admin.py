@@ -29,8 +29,8 @@ def _earning_settings_text(enabled: bool, percent: int) -> str:
     return (
         "تنظیمات کسب درآمد\n"
         f"وضعیت: {'فعال' if enabled else 'غیرفعال'}\n"
-        f"پورسانت خرید جدید: {percent}٪\n\n"
-        "پورسانت فقط برای خرید اشتراک جدید محاسبه می‌شود و تمدید اشتراک پورسانت ندارد."
+        f"پورسانت هر پرداخت: {percent}٪\n\n"
+        "با هر خرید یا تمدید اشتراک زیرمجموعه، پورسانت به کیف پول دعوت‌کننده اضافه می‌شود."
     )
 
 
@@ -155,7 +155,7 @@ async def earning_percent_start(callback: CallbackQuery, state: FSMContext, ctx:
         await callback.answer("دسترسی ندارید.", show_alert=True)
         return
     await state.set_state(EarningEdit.percent)
-    await _edit_callback_message(callback, "درصد پورسانت خرید جدید را از 0 تا 100 وارد کنید.", reply_markup=admin_back_keyboard())
+    await _edit_callback_message(callback, "درصد پورسانت هر پرداخت را از 0 تا 100 وارد کنید.", reply_markup=admin_back_keyboard())
     await callback.answer()
 
 

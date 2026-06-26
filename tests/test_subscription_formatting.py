@@ -79,7 +79,9 @@ def test_earn_invite_instructions_explains_flow_with_example():
 
     assert "دوستاتو دعوت کن" in text
     assert "خلاصه‌ش اینه" in text
+    assert "هر بار که پرداخت کنن" in text
     assert "15٪" in text
+    assert "اولین" not in text
     assert "۲۰۰,۰۰۰" in text
     assert "30,000 تومن" in text
     assert "این متن رو بفرست" in text
@@ -102,7 +104,7 @@ def test_earn_details_text_contains_personal_stats_and_rules():
     text = _earn_details_text("abc123xy", 15, 250_000)
 
     assert "<code>ABC123XY</code>" in text
-    assert "پورسانت فعلی: 15٪" in text
+    assert "پورسانت فعلی: 15٪ از هر پرداخت" in text
     assert "تا الان دراوردی: 250,000 تومن" in text
     assert "لینک دعوت تو" in text
     assert "کیف پولت" in text

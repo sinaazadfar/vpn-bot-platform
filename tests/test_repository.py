@@ -291,7 +291,7 @@ async def test_disabled_earning_creates_no_commission(repository):
 
 
 @pytest.mark.asyncio
-async def test_extension_does_not_credit_referrer(repository):
+async def test_extension_also_credits_referrer(repository):
     referrer = await repository.ensure_user(3005, set())
     buyer = await repository.ensure_user(3006, set(), referred_by=referrer.id)
     await repository.adjust_wallet(buyer.id, 500_000, "seed")
@@ -319,9 +319,15 @@ async def test_extension_does_not_credit_referrer(repository):
         "2026-08-19T00:00:00+00:00",
     )
     referrer_after_extension = await repository.get_user_by_telegram_id(3005)
+    commission_rows = await repository._fetchall(
+        "SELECT * FROM wallet_transactions WHERE reason = 'referral_commission' AND user_id = ?",
+        (referrer.id,),
+    )
 
     assert referrer_after_purchase.wallet_balance == 10_000
-    assert referrer_after_extension.wallet_balance == 10_000
+    assert referrer_after_extension.wallet_balance == 15_000
+    assert await repository.get_referral_earnings_total(referrer.id) == 15_000
+    assert len(commission_rows) == 2
 
 
 @pytest.mark.asyncio

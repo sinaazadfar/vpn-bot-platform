@@ -1096,6 +1096,15 @@ class Repository:
         final_price = before_discount * (100 - discount_percent) // 100
         return PurchaseOffer(traffic_gb, duration_days, source, discount_percent, base_price, duration_extra, final_price)
 
+    async def _credit_referral_commission(self, user: User, final_price: int, linked_subscription_id: int) -> int:
+        if not await self.get_earning_enabled() or not user.referred_by:
+            return 0
+        earning_percent = await self.get_earning_percent()
+        commission = final_price * earning_percent // 100
+        if commission > 0:
+            await self.adjust_wallet(user.referred_by, commission, "referral_commission", linked_subscription_id=linked_subscription_id)
+        return commission
+
     async def create_subscription_after_charge(
         self,
         user: User,
@@ -1138,11 +1147,7 @@ class Repository:
         )
         subscription_id = cur.lastrowid
         await self.adjust_wallet(user.id, -offer.final_price, "subscription_purchase", linked_subscription_id=subscription_id)
-        if await self.get_earning_enabled() and user.referred_by:
-            earning_percent = await self.get_earning_percent()
-            commission = offer.final_price * earning_percent // 100
-            if commission > 0:
-                await self.adjust_wallet(user.referred_by, commission, "referral_commission", linked_subscription_id=subscription_id)
+        await self._credit_referral_commission(user, offer.final_price, subscription_id)
         await self.db.commit()
         row = await self._fetchone("SELECT * FROM subscriptions WHERE id = ?", (subscription_id,))
         return self._subscription(row)
@@ -1205,6 +1210,7 @@ class Repository:
             (expires_at, offer.traffic_gb, offer.duration_days, offer.final_price, utcnow(), subscription.id, user.id),
         )
         await self.adjust_wallet(user.id, -offer.final_price, "subscription_extend", linked_subscription_id=subscription.id)
+        await self._credit_referral_commission(user, offer.final_price, subscription.id)
         await self.db.commit()
         row = await self._fetchone("SELECT * FROM subscriptions WHERE id = ?", (subscription.id,))
         return self._subscription(row)
