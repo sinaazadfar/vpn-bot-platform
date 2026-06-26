@@ -1,6 +1,6 @@
 from bot.formatting import html_code, html_link, html_pre
 from bot.db import User
-from bot.handlers.buyer import _config_text, _configs_text_chunks, _earn_details_text, _earn_invite_text, _insufficient_wallet_text, _profile_text, _referral_invite_url, _subscription_link_text
+from bot.handlers.buyer import _config_text, _configs_text_chunks, _earn_details_text, _earn_invite_text, _insufficient_wallet_text, _profile_text, _subscription_link_text
 
 
 def test_html_code_escapes_and_wraps_value():
@@ -47,17 +47,20 @@ def test_configs_text_chunks_include_all_configs_without_qr_content():
     assert "<code>vless://one</code>" not in text
 
 
-def test_earn_invite_text_uses_uppercase_monospace_code_and_link():
-    invite_url = _referral_invite_url("abc123xy", "sellerbot")
-    text = _earn_invite_text(invite_url)
+def test_earn_invite_text_is_user_to_friend_message_without_embedded_link():
+    text = _earn_invite_text("وی‌پی‌ان من")
 
     assert "دعوت دوستان و کسب درآمد" in text
+    assert "این متن را برای دوستانت بفرست" in text
+    assert "سلام!" in text
+    assert "من از ربات وی‌پی‌ان من برای VPN استفاده می‌کنم" in text
+    assert "وارد وی‌پی‌ان من بشی" in text
     assert "درآمد ثبت‌شده" not in text
     assert "پورسانت شما" not in text
     assert "کد دعوت" not in text
-    assert "<code>ABC123XY</code>" not in text
-    assert '<a href="https://t.me/sellerbot?start=ABC123XY">ورود با لینک رفرال</a>' in text
-    assert "<code>https://t.me/sellerbot?start=ABC123XY</code>" not in text
+    assert "لینک رفرال" not in text
+    assert "https://t.me/" not in text
+    assert "<a href=" not in text
 
 
 def test_earn_details_text_contains_personal_stats_and_rules():

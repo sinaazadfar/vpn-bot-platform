@@ -109,13 +109,18 @@ def wallet_after_approval_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def earn_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def earn_keyboard(invite_url: str = "", bot_name: str = "") -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if invite_url:
+        label = f"ورود به {bot_name}" if bot_name else "ورود به ربات"
+        rows.append([InlineKeyboardButton(text=label, url=invite_url)])
+    rows.extend(
+        [
             [InlineKeyboardButton(text="جزئیات درآمد", callback_data="earn:details")],
             [InlineKeyboardButton(text=c.BACK, callback_data="menu:home")],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def earn_details_keyboard() -> InlineKeyboardMarkup:

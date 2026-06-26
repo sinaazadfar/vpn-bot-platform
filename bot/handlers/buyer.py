@@ -22,7 +22,7 @@ from bot.connection_guides import (
 from bot.configs import build_configs_txt, parse_v2ray_configs
 from bot.context import AppContext
 from bot.db import User, Repository, normalize_referral_code
-from bot.formatting import html_code, html_link, html_pre, with_footer
+from bot.formatting import html_code, html_pre, with_footer
 from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
 from bot.menu_helpers import main_menu_for_user
@@ -66,11 +66,21 @@ def _referral_invite_url(referral_code: str, bot_username: str) -> str:
     return f"https://t.me/{bot_username}?start={display_code}"
 
 
-def _earn_invite_text(invite_url: str) -> str:
+def _bot_display_name(*, first_name: str | None, username: str | None) -> str:
+    if first_name and first_name.strip():
+        return first_name.strip()
+    if username:
+        return f"@{username.lstrip('@')}"
+    return "ربات"
+
+
+def _earn_invite_text(bot_name: str) -> str:
     return (
         "دعوت دوستان و کسب درآمد\n\n"
-        "این لینک را برای دوستانت بفرست تا وارد ربات شوند و از خدمات VPN استفاده کنند.\n\n"
-        f"لینک رفرال: {html_link('ورود با لینک رفرال', invite_url)}"
+        "این متن را برای دوستانت بفرست:\n\n"
+        f"سلام!\n"
+        f"من از ربات {bot_name} برای VPN استفاده می‌کنم و راضی‌ام.\n"
+        f"تو هم می‌تونی با دکمه زیر وارد {bot_name} بشی و امتحانش کنی."
     )
 
 
@@ -910,11 +920,12 @@ async def earn(message: Message, ctx: AppContext) -> None:
     if not earning_enabled:
         await message.answer(with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
         return
-    bot_username = (await message.bot.me()).username
-    invite_url = _referral_invite_url(user.referral_code, bot_username)
+    bot = await message.bot.me()
+    bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
+    invite_url = _referral_invite_url(user.referral_code, bot.username)
     await message.answer(
-        with_footer(_earn_invite_text(invite_url)),
-        reply_markup=earn_keyboard(),
+        with_footer(_earn_invite_text(bot_name)),
+        reply_markup=earn_keyboard(invite_url, bot_name),
         parse_mode="HTML",
     )
 
@@ -929,12 +940,14 @@ async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
         await _edit_callback_message(callback, with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
         await callback.answer()
         return
-    bot_username = (await callback.bot.me()).username
+    bot = await callback.bot.me()
+    bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
+    bot_username = bot.username
     invite_url = _referral_invite_url(user.referral_code, bot_username)
     await _edit_callback_message(
         callback,
-        with_footer(_earn_invite_text(invite_url)),
-        reply_markup=earn_keyboard(),
+        with_footer(_earn_invite_text(bot_name)),
+        reply_markup=earn_keyboard(invite_url, bot_name),
         parse_mode="HTML",
     )
     await callback.answer()
