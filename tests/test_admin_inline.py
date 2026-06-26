@@ -1,5 +1,12 @@
-from bot.admin_inline import build_empty_inline_article, build_user_inline_articles, inline_user_share_text
-from bot.db import User
+from bot.admin_inline import (
+    SUBS_PREFIX,
+    USERS_PREFIX,
+    build_empty_inline_article,
+    build_subscription_inline_articles,
+    build_user_inline_articles,
+    parse_inline_query,
+)
+from bot.db import Subscription, User
 
 
 def _user(user_id: int = 1, **kwargs) -> User:
@@ -17,31 +24,70 @@ def _user(user_id: int = 1, **kwargs) -> User:
     return User(id=user_id, **defaults)
 
 
-def test_inline_user_share_text_includes_status_and_wallet():
-    text = inline_user_share_text(_user(), subscription_count=2)
+def _subscription(subscription_id: int = 1, **kwargs) -> Subscription:
+    defaults = {
+        "user_id": 1,
+        "plan_id": None,
+        "marzban_username": "sub_user_abc",
+        "subscription_url": "https://panel.example/sub/abc",
+        "expires_at": "2026-07-20T00:00:00+00:00",
+        "traffic_gb": 20,
+        "duration_days": 30,
+        "discount_percent": 0,
+        "base_price": 100_000,
+        "duration_extra": 0,
+        "final_price": 100_000,
+        "purchase_source": "manual",
+        "status": "active",
+    }
+    defaults.update(kwargs)
+    return Subscription(id=subscription_id, **defaults)
 
-    assert "Ali Karimi" in text
-    assert "123456" in text
-    assert "✅ فعال" in text
-    assert "150,000" in text
-    assert "اشتراک‌ها: 2" in text
+
+def test_parse_inline_query_users_prefix():
+    mode, query = parse_inline_query("users: ali test")
+
+    assert mode == "users"
+    assert query == "ali test"
 
 
-def test_build_user_inline_articles_uses_emoji_and_counts():
-    users = [_user(1), _user(2, is_blocked=True, first_name="Blocked", last_name=None, username=None, telegram_id=999)]
-    articles = build_user_inline_articles(users, subscription_counts={1: 3, 2: 0})
+def test_parse_inline_query_subs_prefix():
+    mode, query = parse_inline_query("subs:my_sub")
 
-    assert len(articles) == 2
+    assert mode == "subs"
+    assert query == "my_sub"
+
+
+def test_parse_inline_query_without_prefix_returns_none_mode():
+    mode, query = parse_inline_query("plain text")
+
+    assert mode is None
+    assert query == "plain text"
+
+
+def test_build_user_inline_articles_uses_placeholder_and_ids():
+    users = [_user(1)]
+    articles = build_user_inline_articles(users, subscription_counts={1: 2})
+
     assert articles[0].id == "user:1"
-    assert "اشتراک: 3" in articles[0].description
-    assert "🚫" in articles[1].description
-    assert articles[1].input_message_content.message_text is not None
-    assert "Blocked" in articles[1].input_message_content.message_text
+    assert articles[0].input_message_content.message_text == "—"
 
 
-def test_build_empty_inline_article_mentions_query():
-    article = build_empty_inline_article("sub_abc")
+def test_build_subscription_inline_articles_uses_status_emoji():
+    articles = build_subscription_inline_articles([_subscription()])
 
-    assert "sub_abc" in article.title or "sub_abc" in article.description
-    assert article.input_message_content.message_text is not None
-    assert "sub_abc" in article.input_message_content.message_text
+    assert articles[0].id == "sub:1"
+    assert "sub_user_abc" in articles[0].title
+    assert "20GB" in articles[0].description
+    assert articles[0].input_message_content.message_text == "—"
+
+
+def test_build_empty_inline_article_supports_subscription_label():
+    article = build_empty_inline_article("missing", entity_label="اشتراکی")
+
+    assert "اشتراکی" in article.description
+
+
+def test_inline_prefix_constants():
+    assert USERS_PREFIX == "users:"
+    assert SUBS_PREFIX == "subs:"

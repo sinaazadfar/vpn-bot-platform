@@ -283,6 +283,28 @@ def test_admin_user_subscriptions_keyboard_callback_lengths():
                 assert len(button.callback_data.encode("utf-8")) <= 64
 
 
+def test_admin_users_list_keyboard_has_inline_search():
+    from bot.db import User
+
+    users = [
+        User(
+            id=1,
+            telegram_id=10_001,
+            role="buyer",
+            wallet_balance=1000,
+            referral_code="code1",
+            referred_by=None,
+            first_name="User",
+            username="user1",
+        )
+    ]
+    keyboard = admin_users_list_keyboard(users=users, page=1, total_users=1)
+    search_button = keyboard.inline_keyboard[2][0]
+
+    assert search_button.text == "🔎 جستجو"
+    assert search_button.switch_inline_query_current_chat == "users:"
+
+
 def test_admin_users_list_keyboard_callback_lengths():
     from bot.db import User
 

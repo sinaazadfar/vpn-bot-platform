@@ -21,11 +21,6 @@ class WalletAdjust(StatesGroup):
     amount = State()
 
 
-class AdminUserSearch(StatesGroup):
-    query = State()
-    active_query = State()
-
-
 class ForcedJoinAdd(StatesGroup):
     ref = State()
 

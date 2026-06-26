@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from bot import constants as c
+from bot.admin_users import subscription_status_emoji
 from bot.db import PricingSettings, PurchaseOffer, Subscription, TrafficPreset
 
 WALLET_TOP_UP_AMOUNTS = (100_000, 250_000, 500_000, 1_000_000)
@@ -265,11 +266,18 @@ def confirm_extension_keyboard(subscription_id: int, offer: PurchaseOffer) -> In
     )
 
 
+def _subscription_list_button_label(sub: Subscription) -> str:
+    emoji = subscription_status_emoji(sub.status)
+    text = f"{emoji} {sub.marzban_username} · {sub.traffic_gb}GB · {sub.duration_days} روز"
+    return text if len(text) <= 64 else f"{text[:61]}…"
+
+
 def subscriptions_page_keyboard(subscriptions: list[Subscription], page: int, total_pages: int) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=f"{sub.marzban_username} | {sub.status} | {sub.traffic_gb}GB | {sub.duration_days} روز", callback_data=f"sub:detail:{sub.id}")]
+        [InlineKeyboardButton(text=_subscription_list_button_label(sub), callback_data=f"sub:detail:{sub.id}")]
         for sub in subscriptions
     ]
+    rows.append([InlineKeyboardButton(text="🔎 جستجو", switch_inline_query_current_chat="subs:")])
     prev_page = max(page - 1, 1)
     next_page = min(page + 1, total_pages)
     rows.append(

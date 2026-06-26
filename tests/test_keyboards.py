@@ -65,6 +65,35 @@ def test_subscription_detail_keyboard_uses_persian_labels_and_configs_submenu():
     assert "menu:tutorial" in callbacks
 
 
+def test_subscriptions_page_keyboard_has_inline_search_and_status_emoji():
+    from bot.db import Subscription
+    from bot.keyboards import subscriptions_page_keyboard
+
+    subscriptions = [
+        Subscription(
+            id=1,
+            user_id=1,
+            plan_id=None,
+            marzban_username="sub_alpha",
+            subscription_url="https://panel.example/sub/alpha",
+            expires_at="2026-07-20T00:00:00+00:00",
+            traffic_gb=10,
+            duration_days=30,
+            discount_percent=0,
+            base_price=100_000,
+            duration_extra=0,
+            final_price=100_000,
+            purchase_source="manual",
+            status="active",
+        )
+    ]
+    keyboard = subscriptions_page_keyboard(subscriptions, page=1, total_pages=1)
+    search_button = next(button for row in keyboard.inline_keyboard for button in row if button.text == "🔎 جستجو")
+
+    assert search_button.switch_inline_query_current_chat == "subs:"
+    assert keyboard.inline_keyboard[0][0].text.startswith("🟢")
+
+
 def test_subscription_configs_keyboard_lists_config_actions():
     keyboard = subscription_configs_keyboard(42)
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]

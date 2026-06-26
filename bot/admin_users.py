@@ -97,14 +97,11 @@ def users_total_pages(total_users: int) -> int:
     return max(1, ceil(total_users / USERS_PER_PAGE))
 
 
-def users_list_text(*, users: list[User], page: int, total_users: int, search_query: str | None = None) -> str:
+def users_list_text(*, users: list[User], page: int, total_users: int) -> str:
     total_pages = users_total_pages(total_users)
     lines = ["مدیریت کاربران", ""]
-    if search_query:
-        lines.extend([f"جستجو: {search_query}", f"نتایج: {total_users}", ""])
-    else:
-        lines.extend([f"تعداد کل: {total_users}", f"صفحه {page} از {total_pages}", ""])
-    lines.append("برای جستجو: نام، یوزرنیم، آیدی تلگرام یا نام کاربری Marzban.")
+    lines.extend([f"تعداد کل: {total_users}", f"صفحه {page} از {total_pages}", ""])
+    lines.append("برای جستجو روی 🔎 بزنید؛ نام، یوزرنیم، آیدی یا Marzban.")
     return "\n".join(lines)
 
 
@@ -233,7 +230,6 @@ def admin_users_list_keyboard(
     users: list[User],
     page: int,
     total_users: int,
-    search_query: str | None = None,
     filter_type: str = "all",
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
@@ -246,7 +242,7 @@ def admin_users_list_keyboard(
             InlineKeyboardButton(text="دارای اشتراک", callback_data="adm:users:filter:with_subs:1"),
         ],
         [
-            InlineKeyboardButton(text="🔎 جستجو", callback_data="adm:users:search"),
+            InlineKeyboardButton(text="🔎 جستجو", switch_inline_query_current_chat="users:"),
             InlineKeyboardButton(text="🔄 نام‌ها", callback_data="adm:users:sync"),
         ],
     ]
@@ -256,10 +252,7 @@ def admin_users_list_keyboard(
     if total_pages > 1:
         prev_page = max(page - 1, 1)
         next_page = min(page + 1, total_pages)
-        if search_query:
-            page_cb = f"adm:users:search:page:{next_page}"
-            prev_cb = f"adm:users:search:page:{prev_page}"
-        elif filter_type != "all":
+        if filter_type != "all":
             page_cb = f"adm:users:filter:{filter_type}:{next_page}"
             prev_cb = f"adm:users:filter:{filter_type}:{prev_page}"
         else:
@@ -272,8 +265,6 @@ def admin_users_list_keyboard(
                 InlineKeyboardButton(text="▶️", callback_data=page_cb),
             ]
         )
-    if search_query:
-        rows.append([InlineKeyboardButton(text="پاک کردن جستجو", callback_data="adm:users:page:1")])
     rows.append([InlineKeyboardButton(text=c.BACK, callback_data="admin:panel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

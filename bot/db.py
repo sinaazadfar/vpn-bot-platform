@@ -1182,6 +1182,25 @@ class Repository:
         )
         return [self._subscription(row) for row in rows]
 
+    async def search_user_subscriptions(self, user_id: int, query: str, *, limit: int = 20) -> list[Subscription]:
+        raw = query.strip().lower()
+        if not raw:
+            rows = await self._fetchall(
+                "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                (user_id, limit),
+            )
+            return [self._subscription(row) for row in rows]
+        rows = await self._fetchall(
+            """
+            SELECT * FROM subscriptions
+            WHERE user_id = ? AND LOWER(marzban_username) LIKE ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, f"%{raw}%", limit),
+        )
+        return [self._subscription(row) for row in rows]
+
     async def get_user_subscription(self, user_id: int, subscription_id: int) -> Subscription | None:
         row = await self._fetchone(
             "SELECT * FROM subscriptions WHERE id = ? AND user_id = ?",

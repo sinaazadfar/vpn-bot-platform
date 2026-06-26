@@ -183,6 +183,37 @@ async def test_subscription_pagination_returns_latest_ten(repository):
 
 
 @pytest.mark.asyncio
+async def test_search_user_subscriptions_filters_by_marzban_username(repository):
+    user = await repository.ensure_user(2010, set())
+    await repository.adjust_wallet(user.id, 1_000_000, "seed")
+    await repository.db.commit()
+    user = await repository.get_user_by_telegram_id(2010)
+    settings = await repository.update_pricing_settings(per_gb_price=1_000)
+    offer = repository.build_offer(settings, 1, 30, "manual")
+    await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "alpha_sub",
+        "https://panel.example/sub/alpha_sub",
+        "2026-07-20T00:00:00+00:00",
+    )
+    await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "beta_sub",
+        "https://panel.example/sub/beta_sub",
+        "2026-07-20T00:00:00+00:00",
+    )
+
+    results = await repository.search_user_subscriptions(user.id, "alpha")
+    all_results = await repository.search_user_subscriptions(user.id, "")
+
+    assert len(results) == 1
+    assert results[0].marzban_username == "alpha_sub"
+    assert len(all_results) == 2
+
+
+@pytest.mark.asyncio
 async def test_extend_subscription_updates_same_row_and_charges_wallet(repository):
     user = await repository.ensure_user(2002, set())
     await repository.adjust_wallet(user.id, 1_000_000, "seed")

@@ -229,6 +229,15 @@ async def _show_subscription_detail(callback: CallbackQuery, subscription: Subsc
         await callback.message.answer(text, **kwargs)
 
 
+async def send_subscription_detail_message(bot, chat_id: int, subscription: Subscription) -> None:
+    await bot.send_message(
+        chat_id,
+        _subscription_detail_text(subscription),
+        reply_markup=subscription_detail_keyboard(subscription.id),
+        parse_mode="HTML",
+    )
+
+
 @router.message(CommandStart())
 async def start(message: Message, ctx: AppContext) -> None:
     referred_by = None
@@ -834,7 +843,7 @@ async def my_subscriptions(message: Message, ctx: AppContext) -> None:
         await message.answer("شما هنوز اشتراکی ندارید.", reply_markup=back_to_main_keyboard())
         return
     total_pages = max((total + SUBS_PER_PAGE - 1) // SUBS_PER_PAGE, 1)
-    await message.answer(with_footer("اشتراک های من"), reply_markup=subscriptions_page_keyboard(subscriptions, 1, total_pages))
+    await message.answer(with_footer("اشتراک‌های من\n\nبرای جستجو روی 🔎 بزنید."), reply_markup=subscriptions_page_keyboard(subscriptions, 1, total_pages))
 
 
 @router.callback_query(F.data == "menu:subs")
@@ -860,7 +869,7 @@ async def send_subscriptions_page(callback: CallbackQuery, ctx: AppContext, page
         await _edit_callback_message(callback, "شما هنوز اشتراکی ندارید.", reply_markup=back_to_main_keyboard())
         await callback.answer()
         return
-    await _edit_callback_message(callback, with_footer("اشتراک های من"), reply_markup=subscriptions_page_keyboard(subscriptions, page, total_pages))
+    await _edit_callback_message(callback, with_footer("اشتراک‌های من\n\nبرای جستجو روی 🔎 بزنید."), reply_markup=subscriptions_page_keyboard(subscriptions, page, total_pages))
     await callback.answer()
 
 

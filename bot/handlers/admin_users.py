@@ -25,7 +25,7 @@ from bot.formatting import with_footer
 from bot.handlers.admin import _edit_callback_message, require_admin
 from bot.keyboards import admin_back_keyboard, wallet_ledger_keyboard
 from bot.notifications import wallet_reason_label
-from bot.states import AdminUserMessage, AdminUserSearch, AdminUserWallet
+from bot.states import AdminUserMessage, AdminUserWallet
 from bot.user_profile import refresh_user_profile_from_telegram, refresh_users_profiles_from_telegram
 
 router = Router()
@@ -41,17 +41,12 @@ async def _render_users_list(
     ctx: AppContext,
     *,
     page: int = 1,
-    search_query: str | None = None,
     filter_type: str = "all",
 ) -> None:
     bot = target.bot
     async with ctx.database.session() as db:
         repository = Repository(db)
-        if search_query is not None:
-            total_users = await repository.count_search_users(search_query)
-            users = await repository.search_users_page(search_query, page=page, per_page=USERS_PER_PAGE)
-            display_page = page
-        elif filter_type != "all":
+        if filter_type != "all":
             total_users = await repository.count_users_filtered(filter_type)
             users = await repository.list_users_filtered_page(filter_type=filter_type, page=page, per_page=USERS_PER_PAGE)
             display_page = page
@@ -60,12 +55,11 @@ async def _render_users_list(
             display_page = page
             users = await repository.list_users_page(page=page, per_page=USERS_PER_PAGE)
         users = await refresh_users_profiles_from_telegram(bot, repository, users)
-    text = with_footer(users_list_text(users=users, page=display_page, total_users=total_users, search_query=search_query))
+    text = with_footer(users_list_text(users=users, page=display_page, total_users=total_users))
     markup = admin_users_list_keyboard(
         users=users,
         page=display_page,
         total_users=total_users,
-        search_query=search_query,
         filter_type=filter_type,
     )
     if isinstance(target, CallbackQuery):
@@ -107,29 +101,6 @@ async def users_list_callback(callback: CallbackQuery, state: FSMContext, ctx: A
     await callback.answer()
 
 
-@router.callback_query(F.data == "adm:users:search")
-async def users_search_start(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
-    if not _is_admin(callback, ctx):
-        await callback.answer("دسترسی ندارید.", show_alert=True)
-        return
-    await state.set_state(AdminUserSearch.query)
-    await _edit_callback_message(
-        callback,
-        with_footer(
-            "\n".join(
-                [
-                    "جستجوی کاربر",
-                    "",
-                    "نام، یوزرنیم، آیدی تلگرام یا نام کاربری Marzban را بفرستید.",
-                    "برای انصراف /cancel بزنید.",
-                ]
-            )
-        ),
-        reply_markup=admin_back_keyboard(),
-    )
-    await callback.answer()
-
-
 @router.callback_query(F.data.startswith("adm:users:filter:"))
 async def users_filter_callback(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
     if not _is_admin(callback, ctx):
@@ -139,21 +110,6 @@ async def users_filter_callback(callback: CallbackQuery, state: FSMContext, ctx:
     _, _, _, filter_type, raw_page = callback.data.split(":", 4)
     page = max(int(raw_page), 1)
     await _render_users_list(callback, ctx, page=page, filter_type=filter_type)
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("adm:users:search:page:"))
-async def users_search_page_callback(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
-    if not _is_admin(callback, ctx):
-        await callback.answer("دسترسی ندارید.", show_alert=True)
-        return
-    page = max(int(callback.data.rsplit(":", 1)[-1]), 1)
-    data = await state.get_data()
-    query = str(data.get("admin_users_search_query") or "")
-    if not query:
-        await callback.answer("جستجو منقضی شده.", show_alert=True)
-        return
-    await _render_users_list(callback, ctx, page=page, search_query=query)
     await callback.answer()
 
 
@@ -168,24 +124,6 @@ async def users_sync_profiles(callback: CallbackQuery, ctx: AppContext) -> None:
         await refresh_users_profiles_from_telegram(callback.bot, repository, users)
     await callback.answer("نام‌ها به‌روز شد.")
     await _render_users_list(callback, ctx, page=1)
-
-
-@router.message(AdminUserSearch.query)
-async def users_search_finish(message: Message, state: FSMContext, ctx: AppContext) -> None:
-    if not await require_admin(message, ctx):
-        return
-    query = (message.text or "").strip()
-    if not query:
-        await message.answer("عبارت جستجو خالی است.", reply_markup=admin_back_keyboard())
-        return
-    async with ctx.database.session() as db:
-        total = await Repository(db).count_search_users(query)
-    if total == 0:
-        await message.answer(with_footer(f"نتیجه‌ای برای «{query}» پیدا نشد."), reply_markup=admin_back_keyboard())
-        return
-    await state.update_data(admin_users_search_query=query)
-    await state.set_state(AdminUserSearch.active_query)
-    await _render_users_list(message, ctx, page=1, search_query=query)
 
 
 @router.callback_query(F.data.regexp(r"^adm:user:\d+$"))
