@@ -82,7 +82,7 @@ def test_earn_invite_instructions_explains_flow_with_example():
     assert "هر بار که پرداخت کنن" in text
     assert "15٪" in text
     assert "اولین" not in text
-    assert "۲۰۰,۰۰۰" in text
+    assert "200,000" in text
     assert "30,000 تومن" in text
     assert "این متن رو بفرست" in text
     assert "تمدید" not in text
