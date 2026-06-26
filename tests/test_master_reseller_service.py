@@ -164,7 +164,7 @@ async def test_master_confirm_creates_simple_seller_as_native_platform_bot() -> 
 
 
 @pytest.mark.asyncio
-async def test_master_confirm_shows_error_when_reseller_already_exists() -> None:
+async def test_master_confirm_reuses_existing_reseller() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
@@ -195,15 +195,16 @@ async def test_master_confirm_shows_error_when_reseller_already_exists() -> None
         await master_menu_callback(callback, state, service)  # type: ignore[arg-type]
 
         seller_bots = await service.list_seller_bots()
+        resellers = await service.list_resellers()
     finally:
         await dispose_engine()
 
-    assert state.cleared is False
-    assert callback.alerts == ["This Telegram ID already owns a reseller account."]
+    assert state.cleared is True
+    assert callback.alerts == []
     assert callback.message.edited_text is not None
-    assert "تأیید ربات جدید" in callback.message.edited_text
-    assert "Could not create seller bot:" in callback.message.edited_text
-    assert len(seller_bots) == 1
+    assert "Seller Bot Provisioned" in callback.message.edited_text
+    assert len(seller_bots) == 2
+    assert len(resellers) == 1
 
 
 @pytest.mark.asyncio
@@ -549,13 +550,13 @@ async def test_provision_seller_bot_bundle_creates_all_entities() -> None:
 
 
 @pytest.mark.asyncio
-async def test_provision_seller_bot_bundle_rejects_duplicate_reseller() -> None:
+async def test_provision_seller_bot_bundle_reuses_existing_reseller() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
 
     try:
-        await service.provision_seller_bot_bundle(
+        first = await service.provision_seller_bot_bundle(
             reseller_telegram_id=55555,
             reseller_display_name="First Owner",
             bot_name="first-bot",
@@ -565,29 +566,35 @@ async def test_provision_seller_bot_bundle_rejects_duplicate_reseller() -> None:
             panel_token="panel-token",
             actor_telegram_id=999,
         )
-        with pytest.raises(ValueError, match="reseller_already_exists"):
-            await service.provision_seller_bot_bundle(
-                reseller_telegram_id=55555,
-                reseller_display_name="Second Owner",
-                bot_name="second-bot",
-                bot_token=_valid_bot_token() + "C",
-                panel_name="second-panel",
-                panel_base_url="https://second-panel.example.com",
-                panel_token="panel-token-2",
-                actor_telegram_id=999,
-            )
+        second = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=55555,
+            reseller_display_name="Second Owner",
+            bot_name="second-bot",
+            bot_token=_valid_bot_token() + "C",
+            panel_name="second-panel",
+            panel_base_url="https://second-panel.example.com",
+            panel_token="panel-token-2",
+            actor_telegram_id=999,
+        )
+        resellers = await service.list_resellers()
+        seller_bots = await service.list_seller_bots()
     finally:
         await dispose_engine()
 
+    assert first.reseller.id == second.reseller.id
+    assert second.reseller_existed is True
+    assert len(resellers) == 1
+    assert len(seller_bots) == 2
+
 
 @pytest.mark.asyncio
-async def test_provision_seller_bot_bundle_rejects_duplicate_panel_url() -> None:
+async def test_provision_seller_bot_bundle_reuses_existing_panel_url() -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     await create_all()
     service = ResellerService(SecretBox(Fernet.generate_key().decode("utf-8")))
 
     try:
-        await service.provision_seller_bot_bundle(
+        first = await service.provision_seller_bot_bundle(
             reseller_telegram_id=66666,
             reseller_display_name="Owner A",
             bot_name="bot-a",
@@ -597,19 +604,24 @@ async def test_provision_seller_bot_bundle_rejects_duplicate_panel_url() -> None
             panel_token="panel-token",
             actor_telegram_id=999,
         )
-        with pytest.raises(ValueError, match="panel_base_url_exists"):
-            await service.provision_seller_bot_bundle(
-                reseller_telegram_id=77777,
-                reseller_display_name="Owner B",
-                bot_name="bot-b",
-                bot_token=_valid_bot_token() + "D",
-                panel_name="shared-panel-copy",
-                panel_base_url="https://shared-panel.example.com",
-                panel_token="panel-token-2",
-                actor_telegram_id=999,
-            )
+        second = await service.provision_seller_bot_bundle(
+            reseller_telegram_id=77777,
+            reseller_display_name="Owner B",
+            bot_name="bot-b",
+            bot_token=_valid_bot_token() + "D",
+            panel_name="shared-panel-copy",
+            panel_base_url="https://shared-panel.example.com",
+            panel_token="panel-token-2",
+            actor_telegram_id=999,
+        )
+        panels = await service.list_marzban_panels()
+        seller_bots = await service.list_seller_bots()
     finally:
         await dispose_engine()
+
+    assert first.panel.id == second.panel.id
+    assert len(panels) == 1
+    assert len(seller_bots) == 2
 
 
 @pytest.mark.asyncio

@@ -441,43 +441,44 @@ class ResellerService:
                 username=reseller_username,
                 first_name=reseller_display_name,
             )
-            existing_reseller = await get_reseller_by_telegram_id(
+            reseller = await get_reseller_by_telegram_id(
                 session,
                 telegram_id=reseller_telegram_id,
             )
-            if existing_reseller is not None:
-                raise ValueError("reseller_already_exists")
-            existing_panel = await get_marzban_panel_by_base_url(session, base_url=normalized_url)
-            if existing_panel is not None:
-                raise ValueError("panel_base_url_exists")
-            reseller = await create_reseller(
-                session,
-                telegram_user_id=reseller_telegram_id,
-                display_name=reseller_display_name,
-            )
-            await session.flush()
-            await record_audit_log(
-                session,
-                action="reseller.create",
-                actor_type=AuditActorType.SUPER_USER,
-                actor_telegram_id=actor_telegram_id,
-                reseller_id=reseller.id,
-                target_type="reseller",
-                target_id=reseller.id,
-                metadata={
-                    "telegram_user_id": reseller_telegram_id,
-                    "display_name": reseller_display_name,
-                },
-            )
-            panel = await create_marzban_panel(
-                session,
-                name=panel_name,
-                base_url=normalized_url,
-                username=panel_username,
-                password=panel_password,
-                token=panel_token,
-                secret_box=self.secret_box,
-            )
+            reseller_existed = reseller is not None
+            if reseller is None:
+                reseller = await create_reseller(
+                    session,
+                    telegram_user_id=reseller_telegram_id,
+                    display_name=reseller_display_name,
+                )
+                await record_audit_log(
+                    session,
+                    action="reseller.create",
+                    actor_type=AuditActorType.SUPER_USER,
+                    actor_telegram_id=actor_telegram_id,
+                    reseller_id=reseller.id,
+                    target_type="reseller",
+                    target_id=reseller.id,
+                    metadata={
+                        "telegram_user_id": reseller_telegram_id,
+                        "display_name": reseller_display_name,
+                    },
+                )
+                await session.flush()
+            panel = await get_marzban_panel_by_base_url(session, base_url=normalized_url)
+            panel_existed = panel is not None
+            if panel is None:
+                panel = await create_marzban_panel(
+                    session,
+                    name=panel_name,
+                    base_url=normalized_url,
+                    username=panel_username,
+                    password=panel_password,
+                    token=panel_token,
+                    secret_box=self.secret_box,
+                )
+                await session.flush()
             seller_bot = await create_seller_bot(
                 session,
                 reseller_id=reseller.id,
@@ -509,12 +510,14 @@ class ResellerService:
                     "ui_profile": ui_profile.value,
                     "marzban_admin_username": assignment.marzban_admin_username,
                     "volume_limit_gb": volume_limit_gb,
+                    "reseller_existed": reseller_existed,
+                    "panel_existed": panel_existed,
                 },
             )
             await session.flush()
             return SellerBotProvisionResult(
                 reseller=reseller,
-                reseller_existed=False,
+                reseller_existed=reseller_existed,
                 panel=panel,
                 seller_bot=seller_bot,
                 assignment=assignment,
