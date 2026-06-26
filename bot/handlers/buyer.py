@@ -24,7 +24,7 @@ from bot.discount_flow import discount_error_message, purchase_confirm_text
 from bot.context import AppContext
 from bot.db import User, Repository, Subscription, normalize_referral_code
 from bot.formatting import html_code, html_pre, with_footer
-from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, purchase_coupon_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, purchase_coupon_keyboard, subscription_back_keyboard, subscription_configs_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
 from bot.menu_helpers import main_menu_for_user
 from bot.quota import VolumeQuotaError
@@ -872,6 +872,20 @@ async def subscription_detail(callback: CallbackQuery, ctx: AppContext) -> None:
     if not subscription:
         return
     await _show_subscription_detail(callback, subscription)
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^sub:configs:\d+$"))
+async def subscription_configs_menu(callback: CallbackQuery, ctx: AppContext) -> None:
+    subscription_id = int(callback.data.rsplit(":", 1)[-1])
+    subscription = await get_owned_subscription(callback, ctx, subscription_id)
+    if not subscription:
+        return
+    await _edit_callback_message(
+        callback,
+        with_footer("نوع دریافت کانفیگ را انتخاب کنید."),
+        reply_markup=subscription_configs_keyboard(subscription.id),
+    )
     await callback.answer()
 
 

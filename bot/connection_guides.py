@@ -340,15 +340,12 @@ def guides_platforms_keyboard() -> InlineKeyboardMarkup:
 
 
 def guides_apps_keyboard(platform: PlatformGuide) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(text=app.name, callback_data=f"guide:a:{platform.key}:{app.key}")]
+    app_buttons = [
+        InlineKeyboardButton(text=app.name, callback_data=f"guide:a:{platform.key}:{app.key}")
         for app in platform.apps
     ]
-    rows.append(
-        [
-            InlineKeyboardButton(text=c.BACK, callback_data="menu:tutorial"),
-        ]
-    )
+    rows = [app_buttons[index:index + 2] for index in range(0, len(app_buttons), 2)]
+    rows.append([InlineKeyboardButton(text=c.BACK, callback_data="menu:tutorial")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

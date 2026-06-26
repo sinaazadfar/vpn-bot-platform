@@ -8,29 +8,30 @@ MIN_WALLET_TOP_UP = 50_000
 MAX_WALLET_TOP_UP = 3_000_000
 
 
-def main_menu(is_admin: bool, web_app_url: str = "", support_username: str = "", earning_enabled: bool = False, trial_enabled: bool = False) -> InlineKeyboardMarkup:
-    support_button = (
-        InlineKeyboardButton(text=c.SUPPORT, url=f"https://t.me/{support_username}")
-        if support_username
-        else InlineKeyboardButton(text=c.SUPPORT, callback_data="menu:support")
-    )
+def main_menu(is_admin: bool, web_app_url: str = "", support_username: str = "", earning_enabled: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=c.BUY_SUBSCRIPTION, callback_data="menu:buy")],
         [
-            InlineKeyboardButton(text=c.MY_SUBSCRIPTIONS, callback_data="menu:subs"),
             InlineKeyboardButton(text=c.WALLET, callback_data="menu:wallet"),
+            InlineKeyboardButton(text=c.PROFILE, callback_data="menu:profile"),
         ],
-        [InlineKeyboardButton(text=c.PROFILE, callback_data="menu:profile")],
-        [
-            InlineKeyboardButton(text=c.TUTORIAL, callback_data="menu:tutorial"),
-            support_button,
-        ],
+        [InlineKeyboardButton(text=c.MY_SUBSCRIPTIONS, callback_data="menu:subs")],
     ]
     if earning_enabled:
-        rows.append([InlineKeyboardButton(text=c.EARN, callback_data="menu:earn")])
-    if trial_enabled:
-        rows.append([InlineKeyboardButton(text="تست رایگان", callback_data="menu:trial")])
-    rows.append([InlineKeyboardButton(text="پشتیبانی / تیکت", callback_data="menu:tickets")])
+        rows.append(
+            [
+                InlineKeyboardButton(text=c.EARN, callback_data="menu:earn"),
+                InlineKeyboardButton(text=c.TUTORIAL, callback_data="menu:tutorial"),
+            ]
+        )
+    else:
+        rows.append([InlineKeyboardButton(text=c.TUTORIAL, callback_data="menu:tutorial")])
+    rows.append(
+        [
+            InlineKeyboardButton(text=c.SUPPORT, callback_data="menu:support"),
+            InlineKeyboardButton(text="تیکت", callback_data="menu:tickets"),
+        ]
+    )
     if is_admin:
         rows.append([InlineKeyboardButton(text=c.ADMIN_PANEL, callback_data="admin:panel")])
     if web_app_url:
@@ -41,22 +42,26 @@ def main_menu(is_admin: bool, web_app_url: str = "", support_username: str = "",
 def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=c.ADMIN_PLANS, callback_data="admin:plans")],
-            [InlineKeyboardButton(text=c.ADMIN_QUOTA, callback_data="admin:quota")],
             [
-                InlineKeyboardButton(text=c.ADMIN_USERS, callback_data="admin:users"),
                 InlineKeyboardButton(text=c.ADMIN_PAYMENTS, callback_data="admin:payments"),
+                InlineKeyboardButton(text="تیکت‌ها", callback_data="admin:tickets"),
             ],
             [
-                InlineKeyboardButton(text="تیکت‌ها", callback_data="admin:tickets"),
+                InlineKeyboardButton(text=c.ADMIN_USERS, callback_data="admin:users"),
                 InlineKeyboardButton(text="گزارش فروش", callback_data="admin:sales"),
+            ],
+            [
+                InlineKeyboardButton(text=c.ADMIN_PLANS, callback_data="admin:plans"),
+                InlineKeyboardButton(text=c.ADMIN_QUOTA, callback_data="admin:quota"),
             ],
             [
                 InlineKeyboardButton(text="تنظیمات پیشرفته", callback_data="admin:settings"),
                 InlineKeyboardButton(text=c.ADMIN_BROADCAST, callback_data="admin:broadcast"),
             ],
-            [InlineKeyboardButton(text="تنظیم پشتیبانی", callback_data="admin:support")],
-            [InlineKeyboardButton(text="تنظیمات کسب درآمد", callback_data="admin:earning")],
+            [
+                InlineKeyboardButton(text="تنظیم پشتیبانی", callback_data="admin:support"),
+                InlineKeyboardButton(text="تنظیمات کسب درآمد", callback_data="admin:earning"),
+            ],
             [InlineKeyboardButton(text=c.BACK, callback_data="menu:home")],
         ],
     )
@@ -136,7 +141,12 @@ def profile_keyboard(support_username: str = "", earning_enabled: bool = False) 
     ]
     if earning_enabled:
         rows.append([InlineKeyboardButton(text=c.EARN, callback_data="menu:earn")])
-    rows.append([_support_button(support_username)])
+    rows.append(
+        [
+            InlineKeyboardButton(text=c.SUPPORT, callback_data="menu:support"),
+            InlineKeyboardButton(text="تیکت", callback_data="menu:tickets"),
+        ]
+    )
     rows.append([InlineKeyboardButton(text=c.BACK, callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -273,6 +283,17 @@ def subscriptions_page_keyboard(subscriptions: list[Subscription], page: int, to
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def subscription_configs_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="کانفیگ‌ها با QR", callback_data=f"sub:configs_link:{subscription_id}")],
+            [InlineKeyboardButton(text="همه کانفیگ‌ها", callback_data=f"sub:configs_all:{subscription_id}")],
+            [InlineKeyboardButton(text="فایل متنی کانفیگ‌ها", callback_data=f"sub:configs_txt:{subscription_id}")],
+            [InlineKeyboardButton(text=c.BACK, callback_data=f"sub:detail:{subscription_id}")],
+        ]
+    )
+
+
 def subscription_detail_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -280,13 +301,7 @@ def subscription_detail_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="QR اشتراک", callback_data=f"sub:qr:{subscription_id}"),
                 InlineKeyboardButton(text="لینک اشتراک", callback_data=f"sub:link:{subscription_id}"),
             ],
-            [
-                InlineKeyboardButton(text="کانفیگ‌ها با QR", callback_data=f"sub:configs_link:{subscription_id}"),
-                InlineKeyboardButton(text="همه کانفیگ‌ها", callback_data=f"sub:configs_all:{subscription_id}"),
-            ],
-            [
-                InlineKeyboardButton(text="فایل متنی کانفیگ‌ها", callback_data=f"sub:configs_txt:{subscription_id}"),
-            ],
+            [InlineKeyboardButton(text="دریافت کانفیگ‌ها", callback_data=f"sub:configs:{subscription_id}")],
             [
                 InlineKeyboardButton(text="تمدید اشتراک", callback_data=f"sub:extend:{subscription_id}"),
                 InlineKeyboardButton(text="تغییر لینک اشتراک", callback_data=f"sub:revoke:{subscription_id}"),

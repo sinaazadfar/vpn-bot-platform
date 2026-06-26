@@ -34,17 +34,21 @@ async def test_support_username_persists(repository):
     assert await repository.get_support_username() == "Support_User"
 
 
-def test_main_menu_support_button_uses_url_when_configured():
+def test_main_menu_support_and_ticket_use_callbacks():
     keyboard = main_menu(False, support_username="Support_User")
-    support_button = keyboard.inline_keyboard[3][1]
+    support_button = keyboard.inline_keyboard[4][0]
+    ticket_button = keyboard.inline_keyboard[4][1]
 
-    assert support_button.url == "https://t.me/Support_User"
-    assert support_button.callback_data is None
+    assert support_button.callback_data == "menu:support"
+    assert support_button.url is None
+    assert ticket_button.callback_data == "menu:tickets"
 
 
 def test_main_menu_support_button_falls_back_to_callback():
     keyboard = main_menu(False)
-    support_button = keyboard.inline_keyboard[3][1]
+    support_button = keyboard.inline_keyboard[4][0]
+    ticket_button = keyboard.inline_keyboard[4][1]
 
     assert support_button.callback_data == "menu:support"
     assert support_button.url is None
+    assert ticket_button.callback_data == "menu:tickets"
