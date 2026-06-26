@@ -5,14 +5,18 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot.admin_users import (
+    SUBS_PER_PAGE,
     USERS_PER_PAGE,
+    admin_subscription_detail_keyboard,
+    admin_subscription_detail_text,
     admin_user_detail_keyboard,
+    admin_user_subscriptions_keyboard,
     admin_user_wallet_keyboard,
     admin_users_list_keyboard,
     notify_wallet_admin_adjustment,
     user_detail_text,
     user_display_name,
-    user_subscriptions_text,
+    user_subscriptions_list_text,
     users_list_text,
 )
 from bot.context import AppContext
@@ -116,7 +120,7 @@ async def users_search_start(callback: CallbackQuery, state: FSMContext, ctx: Ap
                 [
                     "جستجوی کاربر",
                     "",
-                    "نام، نام خانوادگی، یوزرنیم (@username) یا آیدی تلگرام را بفرستید.",
+                    "نام، یوزرنیم، آیدی تلگرام یا نام کاربری Marzban را بفرستید.",
                     "برای انصراف /cancel بزنید.",
                 ]
             )
@@ -373,25 +377,70 @@ async def user_wallet_ledger(callback: CallbackQuery, ctx: AppContext) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.regexp(r"^adm:user:\d+:subs$"))
+@router.callback_query(F.data.regexp(r"^adm:user:\d+:subs(?::page:\d+)?$"))
 async def user_subscriptions_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     if not _is_admin(callback, ctx):
         await callback.answer("دسترسی ندارید.", show_alert=True)
         return
-    user_id = int(callback.data.split(":")[2])
+    parts = callback.data.split(":")
+    user_id = int(parts[2])
+    page = 1
+    if len(parts) >= 6 and parts[3] == "subs" and parts[4] == "page":
+        page = max(int(parts[5]), 1)
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.get_user(user_id)
         if user is None:
             await callback.answer("کاربر پیدا نشد.", show_alert=True)
             return
-        subscriptions = await repository.list_user_subscriptions(user.id)
+        total = await repository.count_user_subscriptions(user.id)
+        subscriptions = await repository.list_user_subscriptions_page(user.id, page, SUBS_PER_PAGE)
+    if not subscriptions:
+        await _edit_callback_message(
+            callback,
+            with_footer(f"📋 اشتراک‌های {user_display_name(user)}\n\nاشتراکی ثبت نشده است."),
+            reply_markup=admin_user_detail_keyboard(user=user),
+        )
+        await callback.answer()
+        return
     await _edit_callback_message(
         callback,
-        with_footer(user_subscriptions_text(user=user, subscriptions=subscriptions)),
-        reply_markup=admin_user_detail_keyboard(user=user),
+        with_footer(user_subscriptions_list_text(user=user, page=page, total_subscriptions=total)),
+        reply_markup=admin_user_subscriptions_keyboard(
+            user_id=user.id,
+            subscriptions=subscriptions,
+            page=page,
+            total_subscriptions=total,
+        ),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^adm:user:\d+:sub:\d+$"))
+async def user_subscription_detail_callback(callback: CallbackQuery, ctx: AppContext) -> None:
+    if not _is_admin(callback, ctx):
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    _, _, raw_user_id, _, raw_subscription_id = callback.data.split(":", 4)
+    user_id = int(raw_user_id)
+    subscription_id = int(raw_subscription_id)
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.get_user(user_id)
+        if user is None:
+            await callback.answer("کاربر پیدا نشد.", show_alert=True)
+            return
+        subscription = await repository.get_user_subscription(user.id, subscription_id)
+    if subscription is None:
+        await callback.answer("اشتراک پیدا نشد.", show_alert=True)
+        return
+    usage = await ctx.marzban.get_user_stats(subscription.marzban_username)
+    await _edit_callback_message(
+        callback,
+        with_footer(admin_subscription_detail_text(user=user, subscription=subscription, usage=usage)),
+        reply_markup=admin_subscription_detail_keyboard(user_id=user.id, subscription_id=subscription.id),
+    )
+    await callback.answer("آمار به‌روز شد." if usage else "آمار لحظه‌ای در دسترس نبود.")
 
 
 @router.callback_query(F.data.regexp(r"^adm:user:\d+:(ban|unban)$"))

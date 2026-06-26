@@ -26,6 +26,15 @@ class MarzbanSubscription:
     expires_at: str
 
 
+@dataclass(slots=True)
+class MarzbanUserStats:
+    username: str
+    status: str
+    used_traffic: int
+    data_limit: int
+    expire: int | None
+
+
 class MarzbanClient:
     def __init__(self, base_url: str, username: str = "", password: str = "", token: str = "", default_proxies_json: str = ""):
         self.base_url = base_url.rstrip("/")
@@ -196,6 +205,32 @@ class MarzbanClient:
             username=body.get("username", username),
             subscription_url=self._extract_subscription_url(body) or f"{self.base_url}/sub/{username}",
             expires_at=datetime.fromtimestamp(body.get("expire", expire), UTC).isoformat(),
+        )
+
+    async def get_user_stats(self, username: str) -> MarzbanUserStats | None:
+        if not self.base_url:
+            return None
+        access_token = self.token or await self._login()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await self._retry_request(
+                    lambda: client.get(
+                        f"{self.base_url}/api/user/{username}",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                )
+        except httpx.RequestError:
+            return None
+        if response.status_code >= 400:
+            return None
+        body = response.json()
+        expire = body.get("expire")
+        return MarzbanUserStats(
+            username=body.get("username", username),
+            status=str(body.get("status") or "unknown"),
+            used_traffic=int(body.get("used_traffic") or 0),
+            data_limit=int(body.get("data_limit") or 0),
+            expire=int(expire) if expire is not None else None,
         )
 
     async def fetch_subscription_text(self, subscription_url: str) -> str:

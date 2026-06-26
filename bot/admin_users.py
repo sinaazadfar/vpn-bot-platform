@@ -1,14 +1,62 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from math import ceil
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import constants as c
 from bot.db import Subscription, User
+from bot.marzban import MarzbanUserStats
 
 USERS_PER_PAGE = 8
+SUBS_PER_PAGE = 8
 WALLET_QUICK_AMOUNTS = (50_000, 100_000, 250_000, 500_000)
+
+
+def subscription_status_emoji(status: str) -> str:
+    normalized = status.strip().lower()
+    if normalized in {"active", "فعال"}:
+        return "🟢"
+    if normalized in {"expired", "منقضی"}:
+        return "🔴"
+    if normalized in {"disabled", "غیرفعال"}:
+        return "⚫"
+    if normalized in {"limited"}:
+        return "🟠"
+    return "⚪"
+
+
+def subscriptions_total_pages(total_subscriptions: int) -> int:
+    return max(1, ceil(total_subscriptions / SUBS_PER_PAGE))
+
+
+def format_expire_display(*, expire_ts: int | None = None, expires_at: str | None = None) -> str:
+    if expire_ts:
+        return datetime.fromtimestamp(expire_ts, UTC).strftime("%Y/%m/%d %H:%M")
+    if expires_at:
+        try:
+            parsed = datetime.fromisoformat(expires_at)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC).strftime("%Y/%m/%d %H:%M")
+        except ValueError:
+            return expires_at[:16]
+    return "—"
+
+
+def format_traffic_usage_block(*, usage: MarzbanUserStats | None, fallback_total_gb: int) -> list[str]:
+    if usage and usage.data_limit > 0:
+        remaining = max(usage.data_limit - usage.used_traffic, 0)
+        used_gb = usage.used_traffic / (1024**3)
+        limit_gb = usage.data_limit / (1024**3)
+        remaining_gb = remaining / (1024**3)
+        percent = min(100, int(usage.used_traffic * 100 / usage.data_limit))
+        return [
+            f"📊 مصرف: {used_gb:.2f} / {limit_gb:.1f} GB ({percent}%)",
+            f"💾 باقی‌مانده: {remaining_gb:.2f} GB",
+        ]
+    return [f"📦 حجم ثبت‌شده: {fallback_total_gb} GB"]
 
 
 def user_full_name(user: User) -> str:
@@ -56,13 +104,13 @@ def users_list_text(*, users: list[User], page: int, total_users: int, search_qu
         lines.extend([f"جستجو: {search_query}", f"نتایج: {total_users}", ""])
     else:
         lines.extend([f"تعداد کل: {total_users}", f"صفحه {page} از {total_pages}", ""])
-    lines.append("برای جستجو: نام، نام خانوادگی، یوزرنیم یا آیدی تلگرام.")
+    lines.append("برای جستجو: نام، یوزرنیم، آیدی تلگرام یا نام کاربری Marzban.")
     return "\n".join(lines)
 
 
 def user_detail_text(*, user: User, subscription_count: int) -> str:
-    status = "مسدود" if user.is_blocked else "فعال"
-    role = "ادمین" if user.role == "admin" else "کاربر"
+    status = "🚫 مسدود" if user.is_blocked else "✅ فعال"
+    role = "👑 ادمین" if user.role == "admin" else "👤 کاربر"
     lines = [
         "جزئیات کاربر",
         "",
@@ -76,14 +124,88 @@ def user_detail_text(*, user: User, subscription_count: int) -> str:
             f"شناسه تلگرام: {user.telegram_id}",
             f"نقش: {role}",
             f"وضعیت: {status}",
-            f"کیف پول: {user.wallet_balance:,} تومان",
+            f"کیف پول: 💰 {user.wallet_balance:,} تومان",
             f"کد دعوت: {user.referral_code.upper()}",
-            f"تعداد اشتراک: {subscription_count}",
+            f"تعداد اشتراک: 📋 {subscription_count}",
         ]
     )
     if user.referred_by:
         lines.append(f"دعوت‌شده توسط user_id: {user.referred_by}")
     return "\n".join(lines)
+
+
+def user_subscriptions_list_text(*, user: User, page: int, total_subscriptions: int) -> str:
+    total_pages = subscriptions_total_pages(total_subscriptions)
+    lines = [
+        f"📋 اشتراک‌های {user_display_name(user)}",
+        "",
+        f"تعداد: {total_subscriptions} · صفحه {page} از {total_pages}",
+        "",
+        "روی هر اشتراک بزن تا جزئیات و حجم باقی‌مانده رو ببینی.",
+    ]
+    return "\n".join(lines)
+
+
+def admin_subscription_detail_text(
+    *,
+    user: User,
+    subscription: Subscription,
+    usage: MarzbanUserStats | None,
+) -> str:
+    status = usage.status if usage else subscription.status
+    emoji = subscription_status_emoji(status)
+    lines = [
+        f"{emoji} جزئیات اشتراک",
+        "",
+        f"👤 کاربر: {user_display_name(user)}",
+        f"🔑 نام کاربری: {subscription.marzban_username}",
+        f"📌 وضعیت: {emoji} {status}",
+        "",
+        *format_traffic_usage_block(usage=usage, fallback_total_gb=subscription.traffic_gb),
+        f"⏳ انقضا: {format_expire_display(expire_ts=usage.expire if usage else None, expires_at=subscription.expires_at)}",
+        f"📅 مدت خریداری‌شده: {subscription.duration_days} روز",
+        f"💳 مبلغ پرداختی: {subscription.final_price:,} تومان",
+    ]
+    if usage is None:
+        lines.extend(["", "⚠️ آمار لحظه‌ای Marzban در دسترس نبود."])
+    return "\n".join(lines)
+
+
+def _subscription_button_label(sub: Subscription) -> str:
+    emoji = subscription_status_emoji(sub.status)
+    text = f"{emoji} {sub.marzban_username} · {sub.traffic_gb}GB"
+    return text if len(text) <= 64 else f"{text[:61]}…"
+
+
+def admin_user_subscriptions_keyboard(*, user_id: int, subscriptions: list[Subscription], page: int, total_subscriptions: int) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for sub in subscriptions:
+        rows.append(
+            [InlineKeyboardButton(text=_subscription_button_label(sub), callback_data=f"adm:user:{user_id}:sub:{sub.id}")]
+        )
+    total_pages = subscriptions_total_pages(total_subscriptions)
+    if total_pages > 1:
+        prev_page = max(page - 1, 1)
+        next_page = min(page + 1, total_pages)
+        rows.append(
+            [
+                InlineKeyboardButton(text="◀️", callback_data=f"adm:user:{user_id}:subs:page:{prev_page}"),
+                InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"),
+                InlineKeyboardButton(text="▶️", callback_data=f"adm:user:{user_id}:subs:page:{next_page}"),
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="🔙 بازگشت به کاربر", callback_data=f"adm:user:{user_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_subscription_detail_keyboard(*, user_id: int, subscription_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 به‌روزرسانی آمار", callback_data=f"adm:user:{user_id}:sub:{subscription_id}")],
+            [InlineKeyboardButton(text="🔙 لیست اشتراک‌ها", callback_data=f"adm:user:{user_id}:subs:page:1")],
+            [InlineKeyboardButton(text="👤 جزئیات کاربر", callback_data=f"adm:user:{user_id}")],
+        ]
+    )
 
 
 def user_subscriptions_text(*, user: User, subscriptions: list[Subscription]) -> str:
@@ -92,7 +214,8 @@ def user_subscriptions_text(*, user: User, subscriptions: list[Subscription]) ->
         lines.append("اشتراکی ثبت نشده است.")
         return "\n".join(lines)
     for sub in subscriptions[:15]:
-        lines.append(f"• {sub.marzban_username} | {sub.status} | {sub.traffic_gb}GB | {sub.duration_days}روز")
+        emoji = subscription_status_emoji(sub.status)
+        lines.append(f"• {emoji} {sub.marzban_username} | {sub.traffic_gb}GB | {sub.duration_days}روز")
     if len(subscriptions) > 15:
         lines.append(f"... و {len(subscriptions) - 15} مورد دیگر")
     return "\n".join(lines)

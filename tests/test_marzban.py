@@ -188,3 +188,33 @@ async def test_marzban_create_trial_subscription_uses_mb_limit(monkeypatch):
     result = await client.create_trial_subscription("trial_123", data_limit_mb=512, duration_days=1)
 
     assert result.subscription_url == "https://panel.example/sub/trial"
+
+
+@pytest.mark.asyncio
+async def test_marzban_get_user_stats_returns_usage(monkeypatch):
+    async_client = httpx.AsyncClient
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/user/sub_abc":
+            return httpx.Response(
+                200,
+                json={
+                    "username": "sub_abc",
+                    "status": "active",
+                    "used_traffic": 1 * 1024**3,
+                    "data_limit": 5 * 1024**3,
+                    "expire": 1_900_000_000,
+                },
+            )
+        return httpx.Response(404)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: async_client(transport=httpx.MockTransport(handler)))
+    client = MarzbanClient("https://panel.example", token="token")
+
+    stats = await client.get_user_stats("sub_abc")
+
+    assert stats is not None
+    assert stats.username == "sub_abc"
+    assert stats.status == "active"
+    assert stats.used_traffic == 1 * 1024**3
+    assert stats.data_limit == 5 * 1024**3

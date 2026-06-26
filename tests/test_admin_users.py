@@ -209,6 +209,80 @@ def test_users_total_pages():
     assert users_total_pages(USERS_PER_PAGE + 1) == 2
 
 
+@pytest.mark.asyncio
+async def test_search_users_by_marzban_username(repository):
+    user = await repository.ensure_user(10010, set())
+    settings = await repository.update_pricing_settings(per_gb_price=10_000)
+    offer = repository.build_offer(settings, 10, 30, "manual")
+    await repository.adjust_wallet(user.id, 500_000, "seed")
+    await repository.db.commit()
+    user = await repository.get_user_by_telegram_id(10010)
+    await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "searchable_sub",
+        "https://panel.example/sub/searchable_sub",
+        "2026-07-20T00:00:00+00:00",
+    )
+    results = await repository.search_users("searchable_sub")
+    assert any(item.id == user.id for item in results)
+
+
+def test_subscription_status_emoji_maps_known_states():
+    from bot.admin_users import subscription_status_emoji
+
+    assert subscription_status_emoji("active") == "🟢"
+    assert subscription_status_emoji("expired") == "🔴"
+    assert subscription_status_emoji("disabled") == "⚫"
+    assert subscription_status_emoji("limited") == "🟠"
+
+
+def test_format_traffic_usage_block_with_marzban_stats():
+    from bot.admin_users import format_traffic_usage_block
+    from bot.marzban import MarzbanUserStats
+
+    usage = MarzbanUserStats(
+        username="sub_abc",
+        status="active",
+        used_traffic=2 * 1024**3,
+        data_limit=10 * 1024**3,
+        expire=None,
+    )
+    lines = format_traffic_usage_block(usage=usage, fallback_total_gb=10)
+    assert any("باقی‌مانده" in line for line in lines)
+    assert any("2.00" in line for line in lines)
+
+
+def test_admin_user_subscriptions_keyboard_callback_lengths():
+    from bot.admin_users import admin_user_subscriptions_keyboard
+    from bot.db import Subscription
+
+    subscriptions = [
+        Subscription(
+            id=index,
+            user_id=1,
+            plan_id=None,
+            marzban_username=f"user_sub_{index}",
+            subscription_url=f"https://panel.example/sub/{index}",
+            expires_at="2026-07-20T00:00:00+00:00",
+            traffic_gb=10,
+            duration_days=30,
+            discount_percent=0,
+            base_price=100_000,
+            duration_extra=0,
+            final_price=100_000,
+            purchase_source="manual",
+            status="active",
+        )
+        for index in range(1, 4)
+    ]
+    keyboard = admin_user_subscriptions_keyboard(user_id=1, subscriptions=subscriptions, page=1, total_subscriptions=3)
+    for row in keyboard.inline_keyboard:
+        for button in row:
+            if button.callback_data:
+                assert len(button.callback_data.encode("utf-8")) <= 64
+
+
 def test_admin_users_list_keyboard_callback_lengths():
     from bot.db import User
 

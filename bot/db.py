@@ -530,6 +530,10 @@ class Repository:
                OR LOWER(COALESCE(last_name, '')) LIKE ?
                OR LOWER(TRIM(COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))) LIKE ?
                OR LOWER(referral_code) LIKE ?
+               OR EXISTS (
+                   SELECT 1 FROM subscriptions s
+                   WHERE s.user_id = users.id AND LOWER(s.marzban_username) LIKE ?
+               )
             ORDER BY id DESC
             LIMIT ?
             """,
@@ -540,6 +544,7 @@ class Repository:
                 f"%{name_query}%",
                 f"%{name_query}%",
                 f"%{referral_query}%",
+                f"%{name_query}%",
                 limit,
             ),
         )
@@ -557,6 +562,10 @@ class Repository:
                OR LOWER(COALESCE(last_name, '')) LIKE ?
                OR LOWER(TRIM(COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))) LIKE ?
                OR LOWER(referral_code) LIKE ?
+               OR EXISTS (
+                   SELECT 1 FROM subscriptions s
+                   WHERE s.user_id = users.id AND LOWER(s.marzban_username) LIKE ?
+               )
         """
         params = (
             f"%{raw}%",
@@ -565,6 +574,7 @@ class Repository:
             f"%{name_query}%",
             f"%{name_query}%",
             f"%{referral_query}%",
+            f"%{name_query}%",
         )
         return clause, params
 
