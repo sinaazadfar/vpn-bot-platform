@@ -30,6 +30,20 @@ PLATFORMS: tuple[PlatformGuide, ...] = (
         emoji="🤖",
         apps=(
             AppGuide(
+                key="happ",
+                name="Happ",
+                download_url="https://play.google.com/store/apps/details?id=com.happproxy",
+                steps=(
+                    "Happ را از Google Play یا لینک دانلود نصب کنید.",
+                    "در ربات به «اشتراک‌های من» بروید و «لینک اشتراک» را کپی کنید.",
+                    "Happ را باز کنید و دکمه + را بزنید.",
+                    "گزینه «افزودن اشتراک» یا Import from Clipboard را انتخاب کنید.",
+                    "لینک اشتراک را Paste کنید یا از کلیپ‌بورد وارد کنید.",
+                    "پس از لود سرورها، یکی را انتخاب کنید.",
+                    "دکمه اتصال را بزنید و مجوز VPN را تأیید کنید.",
+                ),
+            ),
+            AppGuide(
                 key="v2rayng",
                 name="v2rayNG",
                 download_url="https://github.com/2dust/v2rayNG/releases",
@@ -90,6 +104,20 @@ PLATFORMS: tuple[PlatformGuide, ...] = (
         emoji="🍎",
         apps=(
             AppGuide(
+                key="happ",
+                name="Happ",
+                download_url="https://apps.apple.com/app/happ-proxy-utility/id6504287215",
+                steps=(
+                    "Happ را از App Store نصب کنید.",
+                    "لینک اشتراک را از ربات در بخش «اشتراک‌های من» کپی کنید.",
+                    "Happ را باز کنید و دکمه + را بزنید.",
+                    "گزینه «افزودن اشتراک» یا Import from Clipboard را انتخاب کنید.",
+                    "لینک اشتراک را Paste کنید یا از کلیپ‌بورد وارد کنید.",
+                    "پس از لود سرورها، یکی را انتخاب کنید.",
+                    "دکمه اتصال را بزنید و اجازه نصب VPN Configuration را بدهید.",
+                ),
+            ),
+            AppGuide(
                 key="streisand",
                 name="Streisand",
                 download_url="https://apps.apple.com/app/streisand/id6450534064",
@@ -127,19 +155,6 @@ PLATFORMS: tuple[PlatformGuide, ...] = (
                     "Import v2ray uri from clipboard یا Add subscription URL را انتخاب کنید.",
                     "لینک را وارد و Subscribe/Update را بزنید.",
                     "یک کانفیگ را انتخاب و اتصال را فعال کنید.",
-                ),
-            ),
-            AppGuide(
-                key="shadowrocket",
-                name="Shadowrocket",
-                download_url="https://apps.apple.com/app/shadowrocket/id932747118",
-                steps=(
-                    "Shadowrocket را از App Store خریداری و نصب کنید (اپ پولی است).",
-                    "لینک اشتراک را از ربات کپی کنید.",
-                    "Shadowrocket را باز کنید و + بالای صفحه را بزنید.",
-                    "Type را روی Subscribe بگذارید و لینک را در URL وارد کنید.",
-                    "Done را بزنید و از منو Update را انتخاب کنید.",
-                    "یک نود را انتخاب و سوئیچ اتصال را روشن کنید.",
                 ),
             ),
         ),

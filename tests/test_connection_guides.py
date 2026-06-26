@@ -29,6 +29,13 @@ def test_get_app_returns_guide_steps():
     assert app.download_url.startswith("https://")
 
 
+def test_happ_is_first_app_on_android_and_ios():
+    android, ios = PLATFORMS[0], PLATFORMS[1]
+    assert android.apps[0].key == "happ"
+    assert ios.apps[0].key == "happ"
+    assert get_app("ios", "shadowrocket") is None
+
+
 def test_platforms_cover_android_ios_mac_windows():
     keys = {platform.key for platform in PLATFORMS}
     assert keys == {"and", "ios", "mac", "win"}
