@@ -1,5 +1,5 @@
 from bot import constants as c
-from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, WALLET_TOP_UP_AMOUNTS, admin_back_keyboard, admin_earning_keyboard, admin_menu, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, WALLET_TOP_UP_AMOUNTS, admin_back_keyboard, admin_discount_max_uses_keyboard, admin_discount_valid_days_keyboard, admin_earning_keyboard, admin_menu, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, purchase_coupon_keyboard, subscription_back_keyboard, subscription_detail_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.db import TrafficPreset
 
 
@@ -175,3 +175,22 @@ def test_traffic_presets_keyboard_shows_trial_button_when_enabled():
     assert with_trial.inline_keyboard[0][0].text == "🎁 تست رایگان"
     assert with_trial.inline_keyboard[0][0].callback_data == "menu:trial"
     assert "menu:trial" in with_callbacks
+
+
+def test_purchase_coupon_keyboard_has_enter_skip_and_back():
+    keyboard = purchase_coupon_keyboard(10, 30, "preset", 5)
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert "coupon:ask:30:10:preset:5" in callbacks
+    assert "coupon:skip:30:10:preset:5" in callbacks
+    assert "menu:buy" in callbacks
+
+
+def test_admin_discount_unlimited_keyboards():
+    max_uses = admin_discount_max_uses_keyboard()
+    valid_days = admin_discount_valid_days_keyboard()
+
+    assert max_uses.inline_keyboard[0][0].callback_data == "discount:max_uses:0"
+    assert max_uses.inline_keyboard[0][0].text == "♾️ نامحدود"
+    assert valid_days.inline_keyboard[0][0].callback_data == "discount:valid_days:0"
+    assert valid_days.inline_keyboard[0][0].text == "♾️ نامحدود"

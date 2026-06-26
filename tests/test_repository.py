@@ -343,3 +343,54 @@ async def test_trial_grant_is_one_time(repository):
     assert await repository.has_trial_grant(user.id)
     await repository.grant_trial(user.id)
     assert await repository.has_trial_grant(user.id)
+
+
+@pytest.mark.asyncio
+async def test_discount_code_valid_days_and_max_uses(repository):
+    discount = await repository.create_discount_code("save20", 20, max_uses=2, valid_days=7)
+    assert discount.max_uses == 2
+    assert discount.expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_discount_code_one_use_per_user(repository):
+    user_a = await repository.ensure_user(5001, set())
+    user_b = await repository.ensure_user(5002, set())
+    await repository.create_discount_code("once10", 10, max_uses=10, valid_days=0)
+    validated = await repository.validate_discount_for_user("once10", user_a.id)
+    assert validated.discount_percent == 10
+    assert await repository._redeem_discount_code_in_tx(user_a.id, validated.id)
+    await repository.db.commit()
+    with pytest.raises(ValueError, match="discount_already_used"):
+        await repository.validate_discount_for_user("once10", user_a.id)
+    await repository.validate_discount_for_user("once10", user_b.id)
+
+
+@pytest.mark.asyncio
+async def test_apply_coupon_to_offer_reduces_final_price(repository):
+    settings = await repository.update_pricing_settings(per_gb_price=10_000)
+    offer = repository.build_offer(settings, 10, 30, "manual")
+    discounted = repository.apply_coupon_to_offer(offer, 20)
+    assert discounted.final_price == offer.final_price * 80 // 100
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_redeems_coupon_once(repository):
+    user = await repository.ensure_user(5003, set())
+    await repository.adjust_wallet(user.id, 500_000, "seed")
+    await repository.db.commit()
+    user = await repository.get_user_by_telegram_id(5003)
+    discount = await repository.create_discount_code("buy15", 15, max_uses=1, valid_days=0)
+    settings = await repository.update_pricing_settings(per_gb_price=10_000)
+    offer = repository.apply_coupon_to_offer(repository.build_offer(settings, 5, 30, "manual"), 15)
+    subscription = await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "user_buy15",
+        "https://panel.example/sub/user_buy15",
+        "2026-07-20T00:00:00+00:00",
+        coupon_code_id=discount.id,
+    )
+    assert subscription.id > 0
+    with pytest.raises(ValueError, match="discount_already_used"):
+        await repository.validate_discount_for_user("buy15", user.id)

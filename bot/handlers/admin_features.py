@@ -12,13 +12,40 @@ from bot.context import AppContext
 from bot.db import Repository
 from bot.formatting import with_footer
 from bot.handlers.admin import _edit_callback_message, require_admin
-from bot.keyboards import admin_back_keyboard
+from bot.keyboards import admin_back_keyboard, admin_discount_max_uses_keyboard, admin_discount_valid_days_keyboard
 from bot.forced_join import resolve_required_chat
 from bot.states import DiscountCreate, ForcedJoinAdd, TicketReply
 
 router = Router()
 
 LEDGER_PER_PAGE = 8
+
+
+async def _prompt_discount_max_uses(message: Message) -> None:
+    await message.answer(
+        "حداکثر تعداد استفاده را بفرستید یا «نامحدود» را بزنید.",
+        reply_markup=admin_discount_max_uses_keyboard(),
+    )
+
+
+async def _prompt_discount_valid_days(message: Message) -> None:
+    await message.answer(
+        "مدت اعتبار به روز را بفرستید یا «نامحدود» را بزنید.",
+        reply_markup=admin_discount_valid_days_keyboard(),
+    )
+
+
+async def _create_discount_from_state(message: Message, state: FSMContext, ctx: AppContext, *, valid_days: int) -> None:
+    data = await state.get_data()
+    async with ctx.database.session() as db:
+        await Repository(db).create_discount_code(
+            str(data["discount_code"]),
+            int(data["discount_percent"]),
+            max_uses=int(data["discount_max_uses"]),
+            valid_days=valid_days,
+        )
+    await state.clear()
+    await message.answer("کد تخفیف ایجاد شد.", reply_markup=admin_back_keyboard())
 
 
 @router.callback_query(F.data == "admin:settings")
@@ -185,7 +212,11 @@ async def admin_discounts_list(callback: CallbackQuery, ctx: AppContext) -> None
         lines.append("کدی ثبت نشده است.")
     else:
         for code in codes[:20]:
-            lines.append(f"• {code.code.upper()} — {code.discount_percent}٪ — {code.used_count}/{code.max_uses or '∞'}")
+            uses = f"{code.used_count}/{code.max_uses}" if code.max_uses > 0 else f"{code.used_count}/∞"
+            expiry = "بدون محدودیت زمانی"
+            if code.expires_at:
+                expiry = f"تا {code.expires_at[:10]}"
+            lines.append(f"• {code.code.upper()} — {code.discount_percent}٪ — {uses} — {expiry}")
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     markup = InlineKeyboardMarkup(
@@ -221,16 +252,75 @@ async def admin_discount_code(message: Message, state: FSMContext, ctx: AppConte
 async def admin_discount_percent(message: Message, state: FSMContext, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
         return
-    data = await state.get_data()
     try:
         percent = int((message.text or "").strip())
     except ValueError:
         await message.answer("عدد معتبر نیست.")
         return
-    async with ctx.database.session() as db:
-        await Repository(db).create_discount_code(str(data["discount_code"]), percent)
-    await state.clear()
-    await message.answer("کد تخفیف ایجاد شد.", reply_markup=admin_back_keyboard())
+    if percent < 0 or percent > 100:
+        await message.answer("درصد باید بین ۰ تا ۱۰۰ باشد.")
+        return
+    await state.update_data(discount_percent=percent)
+    await state.set_state(DiscountCreate.max_uses)
+    await _prompt_discount_max_uses(message)
+
+
+@router.callback_query(F.data == "discount:max_uses:0")
+async def admin_discount_max_uses_unlimited(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    if callback.from_user.id not in ctx.settings.admin_ids:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    if await state.get_state() != DiscountCreate.max_uses.state:
+        await callback.answer()
+        return
+    await state.update_data(discount_max_uses=0)
+    await state.set_state(DiscountCreate.valid_days)
+    await callback.answer("تعداد استفاده نامحدود شد.")
+    await _prompt_discount_valid_days(callback.message)
+
+
+@router.message(DiscountCreate.max_uses)
+async def admin_discount_max_uses(message: Message, state: FSMContext, ctx: AppContext) -> None:
+    if not await require_admin(message, ctx):
+        return
+    try:
+        max_uses = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("عدد معتبر نیست.", reply_markup=admin_discount_max_uses_keyboard())
+        return
+    if max_uses < 0:
+        await message.answer("تعداد استفاده نمی‌تواند منفی باشد.", reply_markup=admin_discount_max_uses_keyboard())
+        return
+    await state.update_data(discount_max_uses=max_uses)
+    await state.set_state(DiscountCreate.valid_days)
+    await _prompt_discount_valid_days(message)
+
+
+@router.callback_query(F.data == "discount:valid_days:0")
+async def admin_discount_valid_days_unlimited(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    if callback.from_user.id not in ctx.settings.admin_ids:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    if await state.get_state() != DiscountCreate.valid_days.state:
+        await callback.answer()
+        return
+    await callback.answer("مدت اعتبار نامحدود شد.")
+    await _create_discount_from_state(callback.message, state, ctx, valid_days=0)
+
+
+@router.message(DiscountCreate.valid_days)
+async def admin_discount_valid_days(message: Message, state: FSMContext, ctx: AppContext) -> None:
+    if not await require_admin(message, ctx):
+        return
+    try:
+        valid_days = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("عدد معتبر نیست.", reply_markup=admin_discount_valid_days_keyboard())
+        return
+    if valid_days < 0:
+        await message.answer("تعداد روز نمی‌تواند منفی باشد.", reply_markup=admin_discount_valid_days_keyboard())
+        return
+    await _create_discount_from_state(message, state, ctx, valid_days=valid_days)
 
 
 @router.callback_query(F.data == "admin:tickets")

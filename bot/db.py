@@ -4,7 +4,7 @@ import secrets
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -321,6 +321,13 @@ class Database:
                 expires_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS discount_code_uses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                discount_code_id INTEGER NOT NULL REFERENCES discount_codes(id),
+                used_at TEXT NOT NULL,
+                UNIQUE(user_id, discount_code_id)
             );
             """
         )
@@ -827,14 +834,28 @@ class Repository:
         rows = await self._fetchall("SELECT * FROM discount_codes ORDER BY id DESC")
         return [self._discount_code(row) for row in rows]
 
-    async def create_discount_code(self, code: str, discount_percent: int, *, max_uses: int = 0) -> DiscountCode:
+    async def create_discount_code(
+        self,
+        code: str,
+        discount_percent: int,
+        *,
+        max_uses: int = 0,
+        valid_days: int = 0,
+    ) -> DiscountCode:
         normalized = code.strip().lower()
+        if not normalized:
+            raise ValueError("invalid_discount_code")
+        if discount_percent < 0 or discount_percent > 100:
+            raise ValueError("invalid_discount_percent")
+        expires_at = None
+        if valid_days > 0:
+            expires_at = (datetime.now(UTC) + timedelta(days=valid_days)).isoformat()
         cur = await self.db.execute(
             """
             INSERT INTO discount_codes (code, discount_percent, max_uses, used_count, active, expires_at, created_at, updated_at)
-            VALUES (?, ?, ?, 0, 1, NULL, ?, ?)
+            VALUES (?, ?, ?, 0, 1, ?, ?, ?)
             """,
-            (normalized, discount_percent, max_uses, utcnow(), utcnow()),
+            (normalized, discount_percent, max(0, max_uses), expires_at, utcnow(), utcnow()),
         )
         await self.db.commit()
         row = await self._fetchone("SELECT * FROM discount_codes WHERE id = ?", (cur.lastrowid,))
@@ -843,6 +864,33 @@ class Repository:
     async def get_discount_code(self, code: str) -> DiscountCode | None:
         row = await self._fetchone("SELECT * FROM discount_codes WHERE code = ? AND active = 1", (code.strip().lower(),))
         return self._discount_code(row) if row else None
+
+    def _discount_code_is_expired(self, discount: DiscountCode) -> bool:
+        if not discount.expires_at:
+            return False
+        return datetime.fromisoformat(discount.expires_at) <= datetime.now(UTC)
+
+    async def user_has_used_discount(self, user_id: int, code_id: int) -> bool:
+        row = await self._fetchone(
+            "SELECT 1 FROM discount_code_uses WHERE user_id = ? AND discount_code_id = ?",
+            (user_id, code_id),
+        )
+        return row is not None
+
+    async def validate_discount_for_user(self, code: str, user_id: int) -> DiscountCode:
+        normalized = code.strip().lower()
+        if not normalized:
+            raise ValueError("discount_empty")
+        discount = await self.get_discount_code(normalized)
+        if not discount:
+            raise ValueError("discount_not_found")
+        if self._discount_code_is_expired(discount):
+            raise ValueError("discount_expired")
+        if await self.user_has_used_discount(user_id, discount.id):
+            raise ValueError("discount_already_used")
+        if discount.max_uses > 0 and discount.used_count >= discount.max_uses:
+            raise ValueError("discount_exhausted")
+        return discount
 
     async def apply_discount_code(self, code_id: int) -> bool:
         cur = await self.db.execute(
@@ -856,6 +904,45 @@ class Repository:
         )
         await self.db.commit()
         return cur.rowcount > 0
+
+    async def _redeem_discount_code_in_tx(self, user_id: int, code_id: int) -> bool:
+        if await self.user_has_used_discount(user_id, code_id):
+            return False
+        cur = await self.db.execute(
+            """
+            UPDATE discount_codes
+            SET used_count = used_count + 1, updated_at = ?
+            WHERE id = ? AND active = 1
+              AND (max_uses = 0 OR used_count < max_uses)
+              AND (expires_at IS NULL OR expires_at > ?)
+            """,
+            (utcnow(), code_id, utcnow()),
+        )
+        if cur.rowcount == 0:
+            return False
+        cur = await self.db.execute(
+            """
+            INSERT INTO discount_code_uses (user_id, discount_code_id, used_at)
+            VALUES (?, ?, ?)
+            """,
+            (user_id, code_id, utcnow()),
+        )
+        return cur.rowcount > 0
+
+    def apply_coupon_to_offer(self, offer: PurchaseOffer, coupon_percent: int) -> PurchaseOffer:
+        if coupon_percent <= 0:
+            return offer
+        coupon_percent = min(coupon_percent, 100)
+        final_price = offer.final_price * (100 - coupon_percent) // 100
+        return PurchaseOffer(
+            offer.traffic_gb,
+            offer.duration_days,
+            offer.source,
+            offer.discount_percent,
+            offer.base_price,
+            offer.duration_extra,
+            final_price,
+        )
 
     async def sales_report(self, *, days: int) -> SalesReport:
         since = utcnow()  # simplified: use all time for MVP if date parsing heavy
@@ -1016,9 +1103,14 @@ class Repository:
         marzban_username: str,
         subscription_url: str,
         expires_at: str,
+        *,
+        coupon_code_id: int | None = None,
     ) -> Subscription:
         if user.wallet_balance < offer.final_price:
             raise ValueError("insufficient_balance")
+        if coupon_code_id:
+            if not await self._redeem_discount_code_in_tx(user.id, coupon_code_id):
+                raise ValueError("coupon_redeem_failed")
         cur = await self.db.execute(
             """
             INSERT INTO subscriptions (

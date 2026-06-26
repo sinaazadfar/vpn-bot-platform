@@ -46,6 +46,8 @@ class BuyerTicketReply(StatesGroup):
 class DiscountCreate(StatesGroup):
     code = State()
     percent = State()
+    max_uses = State()
+    valid_days = State()
 
 
 class PurchaseCoupon(StatesGroup):

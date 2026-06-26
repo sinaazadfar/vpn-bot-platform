@@ -20,15 +20,16 @@ from bot.connection_guides import (
     guides_platforms_keyboard,
 )
 from bot.configs import build_configs_txt, parse_v2ray_configs
+from bot.discount_flow import discount_error_message, purchase_confirm_text
 from bot.context import AppContext
 from bot.db import User, Repository, Subscription, normalize_referral_code
 from bot.formatting import html_code, html_pre, with_footer
-from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, purchase_coupon_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
 from bot.menu_helpers import main_menu_for_user
 from bot.quota import VolumeQuotaError
 from bot.qr import make_qr_png
-from bot.states import PurchaseUsername, WalletTopUp
+from bot.states import PurchaseCoupon, PurchaseUsername, WalletTopUp
 from bot.trial_flow import should_show_trial_button
 
 router = Router()
@@ -138,6 +139,56 @@ def _insufficient_wallet_text(wallet_balance: int, final_price: int) -> str:
         f"مبلغ پلن انتخابی: {final_price:,} تومان\n"
         f"مبلغ کسری: {shortage:,} تومان"
     )
+
+
+def _parse_coupon_offer_suffix(parts: list[str]) -> tuple[int, int, str, int]:
+    raw_duration, raw_gb, source, raw_discount = parts[2], parts[3], parts[4], parts[5]
+    return int(raw_duration), int(raw_gb), source, int(raw_discount)
+
+
+async def _show_purchase_confirm(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repository: Repository,
+    *,
+    traffic_gb: int,
+    duration_days: int,
+    source: str,
+    preset_discount: int,
+    coupon_code_id: int = 0,
+    coupon_percent: int = 0,
+    coupon_code: str = "",
+) -> None:
+    settings = await repository.get_pricing_settings()
+    offer = repository.build_offer(settings, traffic_gb, duration_days, source, preset_discount)
+    final_offer = repository.apply_coupon_to_offer(offer, coupon_percent) if coupon_percent else offer
+    await state.update_data(
+        traffic_gb=traffic_gb,
+        duration_days=duration_days,
+        source=source,
+        discount_percent=preset_discount,
+        coupon_code_id=coupon_code_id,
+        coupon_percent=coupon_percent,
+        coupon_code=coupon_code,
+    )
+    await _edit_callback_message(
+        callback,
+        purchase_confirm_text(final_offer, coupon_percent=coupon_percent, coupon_code=coupon_code),
+        reply_markup=confirm_purchase_keyboard(final_offer),
+        parse_mode="HTML",
+    )
+
+
+def _build_purchase_offer_from_state(repository: Repository, data: dict, settings) -> tuple:
+    traffic_gb = int(data["traffic_gb"])
+    duration_days = int(data["duration_days"])
+    source = str(data["source"])
+    preset_discount = int(data["discount_percent"])
+    coupon_percent = int(data.get("coupon_percent") or 0)
+    offer = repository.build_offer(settings, traffic_gb, duration_days, source, preset_discount)
+    if coupon_percent:
+        offer = repository.apply_coupon_to_offer(offer, coupon_percent)
+    return offer, int(data.get("coupon_code_id") or 0), str(data.get("coupon_code") or "")
 
 
 async def _edit_callback_message(callback: CallbackQuery, text: str, **kwargs) -> None:
@@ -434,22 +485,99 @@ async def choose_duration(callback: CallbackQuery, ctx: AppContext) -> None:
         repository = Repository(db)
         settings = await repository.get_pricing_settings()
         try:
-            offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
+            repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
         except ValueError:
             await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
             return
     await _edit_callback_message(
         callback,
-        with_footer("تایید خرید\n"
-        f"حجم: {offer.traffic_gb} GB\n"
-        f"مدت: {offer.duration_days} روز\n"
-        f"قیمت حجم: {offer.base_price:,} تومان\n"
-        f"هزینه مدت: {offer.duration_extra:,} تومان\n"
-        f"تخفیف: {offer.discount_percent}٪\n"
-        f"مبلغ نهایی: {offer.final_price:,} تومان"),
-        reply_markup=confirm_purchase_keyboard(offer),
+        with_footer(f"حجم انتخابی: {traffic_gb} GB\nمدت: {duration_days} روز\n\nکد تخفیف دارید؟"),
+        reply_markup=purchase_coupon_keyboard(traffic_gb, duration_days, source, discount_percent),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("coupon:skip:"))
+async def purchase_coupon_skip(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    duration_days, traffic_gb, source, preset_discount = _parse_coupon_offer_suffix(callback.data.split(":"))
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        settings = await repository.get_pricing_settings()
+        try:
+            repository.build_offer(settings, traffic_gb, duration_days, source, preset_discount)
+        except ValueError:
+            await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
+            return
+        await _show_purchase_confirm(
+            callback,
+            state,
+            repository,
+            traffic_gb=traffic_gb,
+            duration_days=duration_days,
+            source=source,
+            preset_discount=preset_discount,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("coupon:ask:"))
+async def purchase_coupon_ask(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    duration_days, traffic_gb, source, preset_discount = _parse_coupon_offer_suffix(callback.data.split(":"))
+    await state.update_data(
+        traffic_gb=traffic_gb,
+        duration_days=duration_days,
+        source=source,
+        discount_percent=preset_discount,
+        coupon_code_id=0,
+        coupon_percent=0,
+        coupon_code="",
+    )
+    await state.set_state(PurchaseCoupon.code)
+    await _edit_callback_message(
+        callback,
+        with_footer("کد تخفیف را ارسال کنید."),
+        reply_markup=back_to_main_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(PurchaseCoupon.code)
+async def purchase_coupon_entered(message: Message, state: FSMContext, ctx: AppContext) -> None:
+    code = (message.text or "").strip()
+    data = await state.get_data()
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        try:
+            discount = await repository.validate_discount_for_user(code, user.id)
+        except ValueError as exc:
+            await message.answer(with_footer(discount_error_message(exc)), reply_markup=back_to_main_keyboard())
+            return
+        settings = await repository.get_pricing_settings()
+        try:
+            offer = repository.build_offer(
+                settings,
+                int(data["traffic_gb"]),
+                int(data["duration_days"]),
+                str(data["source"]),
+                int(data["discount_percent"]),
+            )
+        except ValueError:
+            await message.answer("این انتخاب معتبر یا فعال نیست.", reply_markup=back_to_main_keyboard())
+            await state.clear()
+            return
+        final_offer = repository.apply_coupon_to_offer(offer, discount.discount_percent)
+    await state.update_data(
+        coupon_code_id=discount.id,
+        coupon_percent=discount.discount_percent,
+        coupon_code=discount.code,
+    )
+    await state.set_state(None)
+    await message.answer(
+        purchase_confirm_text(final_offer, coupon_percent=discount.discount_percent, coupon_code=discount.code),
+        reply_markup=confirm_purchase_keyboard(final_offer),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("extend_duration:"))
@@ -556,19 +684,27 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
 
 @router.callback_query(F.data.startswith("confirm:"))
 async def confirm_purchase(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
-    _, raw_gb, raw_duration, source, raw_discount = callback.data.split(":")
-    traffic_gb = int(raw_gb)
-    duration_days = int(raw_duration)
-    discount_percent = int(raw_discount)
+    data = await state.get_data()
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         settings = await repository.get_pricing_settings()
         try:
-            offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
-        except ValueError:
-            await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
-            return
+            offer, coupon_code_id, coupon_code = _build_purchase_offer_from_state(repository, data, settings)
+        except (ValueError, KeyError):
+            _, raw_gb, raw_duration, source, raw_discount = callback.data.split(":")
+            try:
+                offer = repository.build_offer(settings, int(raw_gb), int(raw_duration), source, int(raw_discount))
+                coupon_code_id, coupon_code = 0, ""
+            except ValueError:
+                await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
+                return
+        if coupon_code_id and coupon_code:
+            try:
+                await repository.validate_discount_for_user(coupon_code, user.id)
+            except ValueError as exc:
+                await callback.answer(discount_error_message(exc), show_alert=True)
+                return
         if user.wallet_balance < offer.final_price:
             await _edit_callback_message(
                 callback,
@@ -584,10 +720,13 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext, ctx: AppC
             return
 
     await state.update_data(
-        traffic_gb=traffic_gb,
-        duration_days=duration_days,
-        source=source,
-        discount_percent=discount_percent,
+        traffic_gb=offer.traffic_gb,
+        duration_days=offer.duration_days,
+        source=offer.source,
+        discount_percent=int(data.get("discount_percent") or 0),
+        coupon_code_id=coupon_code_id,
+        coupon_percent=int(data.get("coupon_percent") or 0),
+        coupon_code=coupon_code,
     )
     await state.set_state(PurchaseUsername.username)
     await _edit_callback_message(
@@ -607,20 +746,23 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
         await message.answer("نام کاربری معتبر نیست. فقط حروف انگلیسی، عدد و _ وارد کنید.", reply_markup=back_to_main_keyboard())
         return
     data = await state.get_data()
-    traffic_gb = int(data["traffic_gb"])
-    duration_days = int(data["duration_days"])
-    source = str(data["source"])
-    discount_percent = int(data["discount_percent"])
     async with ctx.database.session() as db:
         repository = Repository(db)
         user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         settings = await repository.get_pricing_settings()
         try:
-            offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
-        except ValueError:
+            offer, coupon_code_id, coupon_code = _build_purchase_offer_from_state(repository, data, settings)
+        except (ValueError, KeyError):
             await message.answer("این انتخاب معتبر یا فعال نیست.", reply_markup=back_to_main_keyboard())
             await state.clear()
             return
+        if coupon_code_id and coupon_code:
+            try:
+                await repository.validate_discount_for_user(coupon_code, user.id)
+            except ValueError as exc:
+                await message.answer(with_footer(discount_error_message(exc)), reply_markup=back_to_main_keyboard())
+                await state.clear()
+                return
         if user.wallet_balance < offer.final_price:
             await message.answer(with_footer(_insufficient_wallet_text(user.wallet_balance, offer.final_price)), reply_markup=back_to_main_keyboard())
             await state.clear()
@@ -643,13 +785,22 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
     async with ctx.database.session() as db:
         repository = Repository(db)
         fresh_user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
-        subscription = await repository.create_subscription_after_charge(
-            fresh_user,
-            offer,
-            marzban_sub.username,
-            marzban_sub.subscription_url,
-            marzban_sub.expires_at,
-        )
+        try:
+            subscription = await repository.create_subscription_after_charge(
+                fresh_user,
+                offer,
+                marzban_sub.username,
+                marzban_sub.subscription_url,
+                marzban_sub.expires_at,
+                coupon_code_id=coupon_code_id or None,
+            )
+        except ValueError as exc:
+            if str(exc) == "coupon_redeem_failed":
+                await message.answer(with_footer(discount_error_message(exc)), reply_markup=back_to_main_keyboard())
+            else:
+                await message.answer("خرید ناموفق بود.", reply_markup=back_to_main_keyboard())
+            await state.clear()
+            return
     await state.clear()
     await message.answer(
         "اشتراک ساخته شد.\n"

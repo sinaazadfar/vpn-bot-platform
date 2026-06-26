@@ -172,6 +172,24 @@ def admin_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=c.BACK, callback_data="admin:panel")]])
 
 
+def admin_discount_max_uses_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="♾️ نامحدود", callback_data="discount:max_uses:0")],
+            [InlineKeyboardButton(text=c.BACK, callback_data="admin:panel")],
+        ]
+    )
+
+
+def admin_discount_valid_days_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="♾️ نامحدود", callback_data="discount:valid_days:0")],
+            [InlineKeyboardButton(text=c.BACK, callback_data="admin:panel")],
+        ]
+    )
+
+
 def subscription_back_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=c.BACK, callback_data=f"sub:detail:{subscription_id}")]])
 
@@ -206,6 +224,17 @@ def duration_keyboard(settings: PricingSettings, traffic_gb: int, source: str, d
         buttons.append([InlineKeyboardButton(text=f"سه ماهه + {settings.three_month_extra_price:,} تومان", callback_data=f"{prefix}:90:{suffix}")])
     buttons.append([InlineKeyboardButton(text=c.BACK, callback_data="menu:buy")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def purchase_coupon_keyboard(traffic_gb: int, duration_days: int, source: str, discount_percent: int) -> InlineKeyboardMarkup:
+    suffix = f"{duration_days}:{traffic_gb}:{source}:{discount_percent}"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎁 کد تخفیف دارم", callback_data=f"coupon:ask:{suffix}")],
+            [InlineKeyboardButton(text="ادامه بدون کد تخفیف", callback_data=f"coupon:skip:{suffix}")],
+            [InlineKeyboardButton(text=c.BACK, callback_data="menu:buy")],
+        ]
+    )
 
 
 def confirm_purchase_keyboard(offer: PurchaseOffer) -> InlineKeyboardMarkup:
