@@ -68,15 +68,12 @@ def test_subscription_detail_keyboard_uses_persian_labels_and_all_configs_action
 
 
 def test_earn_keyboards_have_details_invite_and_back_actions():
-    invite_url = "https://t.me/sellerbot?start=ABC123XY"
-    invite_keyboard = earn_keyboard(invite_url, "فروشگاه VPN")
+    invite_keyboard = earn_keyboard()
     details_keyboard = earn_details_keyboard()
 
-    assert invite_keyboard.inline_keyboard[0][0].text == "ورود به فروشگاه VPN"
-    assert invite_keyboard.inline_keyboard[0][0].url == invite_url
-    assert invite_keyboard.inline_keyboard[1][0].text == "جزئیات درآمد"
-    assert invite_keyboard.inline_keyboard[1][0].callback_data == "earn:details"
-    assert invite_keyboard.inline_keyboard[2][0].callback_data == "menu:home"
+    assert invite_keyboard.inline_keyboard[0][0].text == "جزئیات درآمد"
+    assert invite_keyboard.inline_keyboard[0][0].callback_data == "earn:details"
+    assert invite_keyboard.inline_keyboard[1][0].callback_data == "menu:home"
     assert details_keyboard.inline_keyboard[0][0].callback_data == "menu:earn"
     assert details_keyboard.inline_keyboard[1][0].callback_data == "menu:home"
 

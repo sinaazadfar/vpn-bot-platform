@@ -21,7 +21,7 @@ from bot.connection_guides import (
 )
 from bot.configs import build_configs_txt, parse_v2ray_configs
 from bot.context import AppContext
-from bot.db import User, Repository, normalize_referral_code
+from bot.db import User, Repository, Subscription, normalize_referral_code
 from bot.formatting import html_code, html_pre, with_footer
 from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
@@ -74,14 +74,28 @@ def _bot_display_name(*, first_name: str | None, username: str | None) -> str:
     return "ربات"
 
 
-def _earn_invite_text(bot_name: str) -> str:
+def _earn_invite_instructions() -> str:
     return (
         "دعوت دوستان و کسب درآمد\n\n"
-        "این متن را برای دوستانت بفرست:\n\n"
-        f"سلام!\n"
-        f"من از ربات {bot_name} برای VPN استفاده می‌کنم و راضی‌ام.\n"
-        f"تو هم می‌تونی با دکمه زیر وارد {bot_name} بشی و امتحانش کنی."
+        "این متن را برای دوستانت بفرست:"
     )
+
+
+def _earn_share_message(bot_name: str, invite_url: str) -> str:
+    return (
+        "سلام و احترام\n"
+        f"از ربات {bot_name} میتونید به راحتی اشتراک وی‌پی‌ان تهیه کنید، پشتیبانیشون بسیار عالی و کیفیت خدماتشون خیلی خوبه 👌👌\n"
+        f"{invite_url}"
+    )
+
+
+async def _send_earn_invite(message: Message, *, bot_name: str, invite_url: str) -> None:
+    await message.answer(
+        with_footer(_earn_invite_instructions()),
+        reply_markup=earn_keyboard(),
+        parse_mode="HTML",
+    )
+    await message.answer(_earn_share_message(bot_name, invite_url))
 
 
 def _earn_details_text(referral_code: str, percent: int, total_earned: int) -> str:
@@ -132,6 +146,28 @@ async def _edit_callback_message(callback: CallbackQuery, text: str, **kwargs) -
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
             raise
+
+
+def _subscription_detail_text(subscription: Subscription) -> str:
+    return with_footer(
+        "جزئیات اشتراک\n"
+        f"نام کاربری: {html_code(subscription.marzban_username)}\n"
+        f"وضعیت: {subscription.status}\n"
+        f"حجم کل: {subscription.traffic_gb} GB\n"
+        f"روزهای کل خریداری شده: {subscription.duration_days}\n"
+        f"مبلغ کل پرداختی: {subscription.final_price:,} تومان\n"
+        f"{_subscription_link_text(subscription.subscription_url)}"
+    )
+
+
+async def _show_subscription_detail(callback: CallbackQuery, subscription: Subscription) -> None:
+    text = _subscription_detail_text(subscription)
+    markup = subscription_detail_keyboard(subscription.id)
+    kwargs = {"reply_markup": markup, "parse_mode": "HTML"}
+    if callback.message.text:
+        await _edit_callback_message(callback, text, **kwargs)
+    else:
+        await callback.message.answer(text, **kwargs)
 
 
 @router.message(CommandStart())
@@ -675,20 +711,7 @@ async def subscription_detail(callback: CallbackQuery, ctx: AppContext) -> None:
     subscription = await get_owned_subscription(callback, ctx, subscription_id)
     if not subscription:
         return
-    await _edit_callback_message(
-        callback,
-        with_footer(
-            "جزئیات اشتراک\n"
-            f"نام کاربری: {html_code(subscription.marzban_username)}\n"
-            f"وضعیت: {subscription.status}\n"
-            f"حجم کل: {subscription.traffic_gb} GB\n"
-            f"روزهای کل خریداری شده: {subscription.duration_days}\n"
-            f"مبلغ کل پرداختی: {subscription.final_price:,} تومان\n"
-            f"{_subscription_link_text(subscription.subscription_url)}"
-        ),
-        reply_markup=subscription_detail_keyboard(subscription.id),
-        parse_mode="HTML",
-    )
+    await _show_subscription_detail(callback, subscription)
     await callback.answer()
 
 
@@ -923,11 +946,7 @@ async def earn(message: Message, ctx: AppContext) -> None:
     bot = await message.bot.me()
     bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
     invite_url = _referral_invite_url(user.referral_code, bot.username)
-    await message.answer(
-        with_footer(_earn_invite_text(bot_name)),
-        reply_markup=earn_keyboard(invite_url, bot_name),
-        parse_mode="HTML",
-    )
+    await _send_earn_invite(message, bot_name=bot_name, invite_url=invite_url)
 
 
 @router.callback_query(F.data == "menu:earn")
@@ -942,14 +961,14 @@ async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
         return
     bot = await callback.bot.me()
     bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
-    bot_username = bot.username
-    invite_url = _referral_invite_url(user.referral_code, bot_username)
+    invite_url = _referral_invite_url(user.referral_code, bot.username)
     await _edit_callback_message(
         callback,
-        with_footer(_earn_invite_text(bot_name)),
-        reply_markup=earn_keyboard(invite_url, bot_name),
+        with_footer(_earn_invite_instructions()),
+        reply_markup=earn_keyboard(),
         parse_mode="HTML",
     )
+    await callback.message.answer(_earn_share_message(bot_name, invite_url))
     await callback.answer()
 
 

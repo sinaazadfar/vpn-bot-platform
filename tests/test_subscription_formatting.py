@@ -1,6 +1,7 @@
 from bot.formatting import html_code, html_link, html_pre
 from bot.db import User
-from bot.handlers.buyer import _config_text, _configs_text_chunks, _earn_details_text, _earn_invite_text, _insufficient_wallet_text, _profile_text, _subscription_link_text
+from bot.handlers.buyer import _config_text, _configs_text_chunks, _earn_details_text, _earn_invite_instructions, _earn_share_message, _insufficient_wallet_text, _profile_text, _referral_invite_url, _subscription_detail_text, _subscription_link_text
+from bot.db import Subscription
 
 
 def test_html_code_escapes_and_wraps_value():
@@ -20,6 +21,32 @@ def test_subscription_link_text_uses_monospace_url():
 
     assert "لینک اشتراک:" in text
     assert "<code>https://sub.example/user?a=1&amp;b=2</code>" in text
+
+
+def test_subscription_detail_text_includes_core_fields():
+    subscription = Subscription(
+        id=42,
+        user_id=1,
+        plan_id=None,
+        marzban_username="user_abc",
+        subscription_url="https://sub.example/user",
+        expires_at="2026-07-20T00:00:00+00:00",
+        traffic_gb=20,
+        duration_days=30,
+        discount_percent=0,
+        base_price=180_000,
+        duration_extra=0,
+        final_price=180_000,
+        purchase_source="manual",
+        status="active",
+    )
+    text = _subscription_detail_text(subscription)
+
+    assert "جزئیات اشتراک" in text
+    assert "<code>user_abc</code>" in text
+    assert "20 GB" in text
+    assert "180,000 تومان" in text
+    assert "https://sub.example/user" in text
 
 
 def test_insufficient_wallet_text_shows_balance_price_and_shortage():
@@ -47,19 +74,23 @@ def test_configs_text_chunks_include_all_configs_without_qr_content():
     assert "<code>vless://one</code>" not in text
 
 
-def test_earn_invite_text_is_user_to_friend_message_without_embedded_link():
-    text = _earn_invite_text("وی‌پی‌ان من")
+def test_earn_invite_instructions_prompt_user_to_forward_message():
+    text = _earn_invite_instructions()
 
     assert "دعوت دوستان و کسب درآمد" in text
     assert "این متن را برای دوستانت بفرست" in text
-    assert "سلام!" in text
-    assert "من از ربات وی‌پی‌ان من برای VPN استفاده می‌کنم" in text
-    assert "وارد وی‌پی‌ان من بشی" in text
-    assert "درآمد ثبت‌شده" not in text
-    assert "پورسانت شما" not in text
-    assert "کد دعوت" not in text
-    assert "لینک رفرال" not in text
+    assert "سلام" not in text
     assert "https://t.me/" not in text
+
+
+def test_earn_share_message_includes_bot_name_and_plain_referral_link():
+    invite_url = _referral_invite_url("abc123xy", "sellerbot")
+    text = _earn_share_message("فروشگاه VPN", invite_url)
+
+    assert text.startswith("سلام و احترام")
+    assert "از ربات فروشگاه VPN میتونید" in text
+    assert "👌👌" in text
+    assert invite_url in text
     assert "<a href=" not in text
 
 
