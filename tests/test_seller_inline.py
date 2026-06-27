@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from aiogram.types import InlineKeyboardMarkup
+
 from vpn_bot_platform.seller_bot.inline_search import (
     SUBS_PREFIX,
     USERS_PREFIX,
-    build_customer_inline_articles,
+    build_customer_inline_article,
     build_empty_inline_article,
-    build_service_inline_articles,
+    build_service_inline_article,
     parse_inline_query,
 )
 
@@ -51,6 +53,10 @@ def _service(**kwargs):
     return SimpleNamespace(**defaults)
 
 
+def _empty_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[])
+
+
 def test_parse_inline_query_users_prefix():
     mode, query = parse_inline_query("users: ali test")
 
@@ -72,21 +78,28 @@ def test_parse_inline_query_without_prefix_returns_none_mode():
     assert query == "plain text"
 
 
-def test_build_customer_inline_articles_uses_placeholder_and_ids():
-    customers = [_customer()]
-    articles = build_customer_inline_articles(customers)
+def test_build_customer_inline_article_includes_full_message_and_markup():
+    customer = _customer()
+    message_text = "اطلاعات کاربر\nآیدی تلگرام: 123456\n\n\n➖➖➖"
+    markup = _empty_markup()
+    article = build_customer_inline_article(customer, message_text=message_text, reply_markup=markup)
 
-    assert articles[0].id == "user:buyer-uuid-1"
-    assert articles[0].input_message_content.message_text == "—"
+    assert article.id == "user:buyer-uuid-1"
+    assert article.input_message_content.message_text == message_text
+    assert article.reply_markup == markup
 
 
-def test_build_service_inline_articles_uses_status_emoji():
-    articles = build_service_inline_articles([_service()])
+def test_build_service_inline_article_includes_full_message_and_markup():
+    service = _service()
+    message_text = "جزئیات سرویس\nنام کاربری: sub_user_abc\n\n\n➖➖➖"
+    markup = _empty_markup()
+    article = build_service_inline_article(service, message_text=message_text, reply_markup=markup)
 
-    assert articles[0].id == "service:service-uuid-1"
-    assert "sub_user_abc" in articles[0].title
-    assert "20GB" in articles[0].description
-    assert articles[0].input_message_content.message_text == "—"
+    assert article.id == "service:service-uuid-1"
+    assert "sub_user_abc" in article.title
+    assert "20GB" in article.description
+    assert article.input_message_content.message_text == message_text
+    assert article.reply_markup == markup
 
 
 def test_build_empty_inline_article_supports_service_label():

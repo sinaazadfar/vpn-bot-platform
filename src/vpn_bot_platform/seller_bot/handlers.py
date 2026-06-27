@@ -346,6 +346,21 @@ def service_detail_text(service: VpnService) -> str:
     )
 
 
+def service_detail_inline_text(service: VpnService) -> str:
+    link_hint = "از دکمه «دریافت لینک» استفاده کنید." if service.subscription_url else "-"
+    return "\n".join(
+        [
+            "جزئیات سرویس",
+            f"نام کاربری: {service.marzban_username}",
+            f"وضعیت: {'فعال' if service.is_active else 'غیرفعال'}",
+            f"حجم: {traffic(service)}",
+            f"زمان باقی‌مانده: {remaining_days(service.expire_at)}",
+            f"تاریخ انقضا: {format_expire_at(service.expire_at)}",
+            f"لینک اشتراک: {link_hint}",
+        ]
+    )
+
+
 def service_detail_kb(service_id: str, *, show_extra_volume: bool) -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = [
         [("دریافت لینک", f"svclink:{service_id}"), ("کد QR", f"svcqr:{service_id}")],
@@ -439,12 +454,17 @@ async def send_service_detail_message(
     *,
     show_extra_volume: bool,
 ) -> None:
-    await bot.send_message(
-        chat_id,
-        render_text(service_detail_text(service)),
-        reply_markup=service_detail_kb(service.id, show_extra_volume=show_extra_volume),
-        parse_mode="Markdown",
-    )
+    markup = service_detail_kb(service.id, show_extra_volume=show_extra_volume)
+    text = render_text(service_detail_inline_text(service))
+    try:
+        await bot.send_message(chat_id, text, reply_markup=markup)
+    except TelegramBadRequest:
+        await bot.send_message(
+            chat_id,
+            render_text(service_detail_text(service)),
+            reply_markup=markup,
+            parse_mode="Markdown",
+        )
 
 
 async def send_customer_detail_message(
@@ -466,7 +486,6 @@ async def send_customer_detail_message(
         chat_id,
         render_text(customer_detail_text(detail)),
         reply_markup=customer_detail_kb(buyer_id),
-        parse_mode="Markdown",
     )
 
 
