@@ -17,6 +17,7 @@ from vpn_bot_platform.common.rate_limit import (
     RateLimitMiddleware,
 )
 from vpn_bot_platform.seller_bot.handlers import router as seller_router
+from vpn_bot_platform.seller_bot.inline_handlers import router as seller_inline_router
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
 from vpn_bot_platform.seller_bot.services import SellerContextService
 
@@ -56,6 +57,7 @@ async def run() -> None:
     dp.message.middleware(admin_rate_limiter)
     dp.callback_query.middleware(admin_rate_limiter)
     dp.include_router(seller_router)
+    dp.include_router(seller_inline_router)
     provisioning_service = ProvisioningService(
         seller_bot_id=settings.seller_bot_id,
         settings=settings,

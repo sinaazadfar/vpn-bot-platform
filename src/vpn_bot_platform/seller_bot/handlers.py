@@ -80,17 +80,27 @@ def kb(rows: Sequence[Sequence[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 
 def main_kb(*, is_admin: bool = False) -> InlineKeyboardMarkup:
-    rows = [
-        [("خرید اشتراک", "plans:0")],
-        [("اشتراک‌های من", "services:0"), ("جستجو اشتراک", "search:services")],
-        [("حساب کاربری", "account")],
-        [("افزایش موجودی", "wallet")],
-        [("کسب درآمد", "earn"), ("آموزش", "tutorial")],
-        [("پشتیبانی", "support")],
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="خرید اشتراک", callback_data="plans:0")],
+        [
+            InlineKeyboardButton(text="اشتراک‌های من", callback_data="services:0"),
+            InlineKeyboardButton(text="🔎 جستجو", switch_inline_query_current_chat="subs:"),
+        ],
+        [
+            InlineKeyboardButton(text="حساب کاربری", callback_data="account"),
+        ],
+        [
+            InlineKeyboardButton(text="افزایش موجودی", callback_data="wallet"),
+        ],
+        [
+            InlineKeyboardButton(text="کسب درآمد", callback_data="earn"),
+            InlineKeyboardButton(text="آموزش", callback_data="tutorial"),
+        ],
+        [InlineKeyboardButton(text="پشتیبانی", callback_data="support")],
     ]
     if is_admin:
-        rows.append([("پنل ادمین", "admin")])
-    return kb(rows)
+        rows.append([InlineKeyboardButton(text="پنل ادمین", callback_data="admin")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def render(
@@ -98,7 +108,18 @@ async def render(
     text: str,
     markup: InlineKeyboardMarkup | None = None,
 ) -> None:
-    text = f"{text}\n\n\n➖➖➖"
+    await _render_text(target, render_text(text), markup)
+
+
+def render_text(text: str) -> str:
+    return f"{text}\n\n\n➖➖➖"
+
+
+async def _render_text(
+    target: Message | CallbackQuery,
+    text: str,
+    markup: InlineKeyboardMarkup | None = None,
+) -> None:
     if isinstance(target, CallbackQuery):
         if target.message:
             try:
@@ -392,13 +413,60 @@ def customer_detail_text(detail: SellerCustomerDetail) -> str:
 
 
 def customer_detail_kb(buyer_id: str) -> InlineKeyboardMarkup:
-    return kb(
-        [
-            [("تغییر موجودی", f"admin:cwallet:{buyer_id}"), ("ارسال پیام", f"admin:cmsg:{buyer_id}")],
-            [("سرویس‌های کاربر", f"admin:cservices:{buyer_id}")],
-            [("جستجو", "search:admin_customers"), ("بروزرسانی", f"admin:customer:{buyer_id}")],
-            [("مدیریت کاربران", "admin:customers:0"), ("پنل ادمین", "admin")],
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="تغییر موجودی", callback_data=f"admin:cwallet:{buyer_id}"),
+                InlineKeyboardButton(text="ارسال پیام", callback_data=f"admin:cmsg:{buyer_id}"),
+            ],
+            [InlineKeyboardButton(text="سرویس‌های کاربر", callback_data=f"admin:cservices:{buyer_id}")],
+            [
+                InlineKeyboardButton(text="🔎 جستجو", switch_inline_query_current_chat="users:"),
+                InlineKeyboardButton(text="بروزرسانی", callback_data=f"admin:customer:{buyer_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="مدیریت کاربران", callback_data="admin:customers:0"),
+                InlineKeyboardButton(text="پنل ادمین", callback_data="admin"),
+            ],
         ]
+    )
+
+
+async def send_service_detail_message(
+    bot,
+    chat_id: int,
+    service: VpnService,
+    *,
+    show_extra_volume: bool,
+) -> None:
+    await bot.send_message(
+        chat_id,
+        render_text(service_detail_text(service)),
+        reply_markup=service_detail_kb(service.id, show_extra_volume=show_extra_volume),
+        parse_mode="Markdown",
+    )
+
+
+async def send_customer_detail_message(
+    bot,
+    chat_id: int,
+    seller_context: SellerContextService,
+    *,
+    admin_telegram_id: int,
+    buyer_id: str,
+) -> None:
+    try:
+        detail = await seller_context.get_customer_detail(
+            admin_telegram_id=admin_telegram_id,
+            buyer_id=buyer_id,
+        )
+    except (PermissionError, ValueError):
+        return
+    await bot.send_message(
+        chat_id,
+        render_text(customer_detail_text(detail)),
+        reply_markup=customer_detail_kb(buyer_id),
+        parse_mode="Markdown",
     )
 
 
@@ -489,21 +557,29 @@ def list_kb(
     total_pages: int,
     page_prefix: str,
     search: str | None = None,
+    inline_search_prefix: str | None = None,
 ) -> InlineKeyboardMarkup:
-    buttons: list[list[tuple[str, str]]] = [[(row.label, row.callback)] for row in rows]
-    nav: list[tuple[str, str]] = []
+    buttons: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=row.label, callback_data=row.callback)]
+        for row in rows
+    ]
+    nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(("قبلی", f"{page_prefix}:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="قبلی", callback_data=f"{page_prefix}:{page - 1}"))
     if page + 1 < total_pages:
-        nav.append(("بعدی", f"{page_prefix}:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="بعدی", callback_data=f"{page_prefix}:{page + 1}"))
     if nav:
         buttons.append(nav)
-    tools: list[tuple[str, str]] = []
-    if search:
-        tools.append(("جستجو", f"search:{search}"))
-    tools.append(("خانه", "home"))
+    tools: list[InlineKeyboardButton] = []
+    if inline_search_prefix:
+        tools.append(
+            InlineKeyboardButton(text="🔎 جستجو", switch_inline_query_current_chat=inline_search_prefix)
+        )
+    elif search:
+        tools.append(InlineKeyboardButton(text="جستجو", callback_data=f"search:{search}"))
+    tools.append(InlineKeyboardButton(text="خانه", callback_data="home"))
     buttons.append(tools)
-    return kb(buttons)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 async def show_home(
@@ -1061,7 +1137,7 @@ async def show_services(
             page=safe_page,
             total_pages=total_pages,
             page_prefix="services",
-            search="services" if len(services) > SEARCH_THRESHOLD else None,
+            inline_search_prefix="subs:",
         ),
     )
 
@@ -2526,7 +2602,15 @@ async def show_admin_customers(
         await render(
             target,
             empty_text,
-            kb([[("جستجو", "search:admin_customers"), ("پنل ادمین", "admin")], [("خانه", "home")]]),
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="🔎 جستجو", switch_inline_query_current_chat="users:"),
+                        InlineKeyboardButton(text="پنل ادمین", callback_data="admin"),
+                    ],
+                    [InlineKeyboardButton(text="خانه", callback_data="home")],
+                ]
+            ),
         )
         return
     page_items, safe_page, total_pages = paginate(customers, page)
@@ -2549,7 +2633,7 @@ async def show_admin_customers(
             page=safe_page,
             total_pages=total_pages,
             page_prefix="admin:customers",
-            search="admin_customers",
+            inline_search_prefix="users:",
         ),
     )
 
