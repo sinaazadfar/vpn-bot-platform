@@ -812,6 +812,28 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
             admin_telegram_id=111,
             order_id=extra_volume_approved.order.id,
         )
+        account_summary = await seller_context.get_buyer_account_summary(buyer_telegram_id=222)
+        customer_services = await seller_context.list_customer_services(
+            admin_telegram_id=111,
+            buyer_id=profile.buyer.id,
+        )
+        refreshed_detail = await seller_context.get_customer_detail(
+            admin_telegram_id=111,
+            buyer_id=profile.buyer.id,
+        )
+        balance_before_adjust = float(refreshed_detail.buyer.wallet_balance)
+        wallet_adjustment = await seller_context.adjust_customer_wallet(
+            admin_telegram_id=111,
+            buyer_id=profile.buyer.id,
+            delta=25000,
+            note="test adjustment",
+        )
+        with pytest.raises(ValueError, match="insufficient_wallet_balance"):
+            await seller_context.adjust_customer_wallet(
+                admin_telegram_id=111,
+                buyer_id=profile.buyer.id,
+                delta=-999999999,
+            )
         reseller_report = await seller_context.sales_report(admin_telegram_id=111, days=7)
         global_report = await master_service.global_report(days=7)
         trial_service = await provisioning.provision_trial(buyer_telegram_id=333)
@@ -910,6 +932,15 @@ async def test_register_buyer_is_scoped_to_seller_reseller() -> None:
     assert volume_applied.vpn_service.data_limit_gb == (
         reseller_plan.data_limit_gb + global_plan.data_limit_gb + extra_volume_plan.data_limit_gb
     )
+    assert account_summary.buyer is not None
+    assert account_summary.buyer.id == profile.buyer.id
+    assert account_summary.service_count == 1
+    assert account_summary.active_service_count == 1
+    assert len(account_summary.recent_orders) >= 1
+    assert len(customer_services) == 1
+    assert customer_services[0].id == provisioned.vpn_service.id
+    assert wallet_adjustment.transaction.transaction_type == "admin_adjustment"
+    assert wallet_adjustment.buyer.wallet_balance == balance_before_adjust + 25000
     assert reseller_report["completed_orders"] >= 3
     assert reseller_report["new_services"] >= 1
     assert global_report["completed_orders"] >= 3

@@ -78,6 +78,8 @@ from vpn_bot_platform.common.repositories import (
     reject_payment,
     reject_buyer_wallet_charge,
     list_vpn_services_for_buyer,
+    list_vpn_services_for_reseller_buyer,
+    adjust_buyer_wallet_manual,
     list_active_plans_for_reseller,
     search_customers_for_reseller,
     set_reseller_setting,
@@ -196,6 +198,21 @@ class CryptoPaymentConfig:
 class BuyerWallet:
     buyer: Buyer | None
     transactions: list[WalletTransaction]
+
+
+@dataclass(frozen=True)
+class BuyerAccountSummary:
+    buyer: Buyer | None
+    telegram_user: TelegramUser | None
+    service_count: int
+    active_service_count: int
+    recent_orders: list[BuyerOrderStatus]
+
+
+@dataclass(frozen=True)
+class AdjustedCustomerWallet:
+    buyer: Buyer
+    transaction: WalletTransaction
 
 
 @dataclass(frozen=True)
@@ -798,6 +815,128 @@ class SellerContextService:
                 order_count=counts["orders"],
                 ticket_count=counts["tickets"],
             )
+
+    async def get_buyer_account_summary(self, *, buyer_telegram_id: int) -> BuyerAccountSummary:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            buyer, transactions = await list_wallet_transactions_for_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+            )
+            telegram_user = None
+            if buyer is not None:
+                telegram_user = await session.get(TelegramUser, buyer.telegram_user_id)
+            services = await list_vpn_services_for_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+            )
+            order_rows = await list_buyer_order_statuses(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                telegram_id=buyer_telegram_id,
+                limit=3,
+            )
+            recent_orders = [
+                BuyerOrderStatus(order=order, payment=payment, plan=plan)
+                for order, payment, plan in order_rows
+            ]
+            _ = transactions
+            return BuyerAccountSummary(
+                buyer=buyer,
+                telegram_user=telegram_user,
+                service_count=len(services),
+                active_service_count=sum(1 for service in services if service.is_active),
+                recent_orders=recent_orders,
+            )
+
+    async def list_customer_services(
+        self,
+        *,
+        admin_telegram_id: int,
+        buyer_id: str,
+    ) -> list[VpnService]:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            customer = await get_customer_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer_id,
+            )
+            if customer is None:
+                raise ValueError("customer_not_found")
+            return await list_vpn_services_for_reseller_buyer(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer_id,
+            )
+
+    async def adjust_customer_wallet(
+        self,
+        *,
+        admin_telegram_id: int,
+        buyer_id: str,
+        delta: float,
+        note: str | None = None,
+    ) -> AdjustedCustomerWallet:
+        if delta == 0:
+            raise ValueError("invalid_amount")
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot_with_reseller(
+                session,
+                seller_bot_id=self.seller_bot_id,
+            )
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            self._ensure_reseller_admin(seller_bot=seller_bot, telegram_id=admin_telegram_id)
+            customer = await get_customer_for_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                buyer_id=buyer_id,
+            )
+            if customer is None:
+                raise ValueError("customer_not_found")
+            try:
+                row = await adjust_buyer_wallet_manual(
+                    session,
+                    reseller_id=seller_bot.reseller_id,
+                    seller_bot_id=seller_bot.id,
+                    buyer_id=buyer_id,
+                    delta=delta,
+                    note=note,
+                    approved_by_telegram_id=admin_telegram_id,
+                )
+            except ValueError as exc:
+                if str(exc) == "insufficient_wallet_balance":
+                    raise ValueError("insufficient_wallet_balance") from exc
+                raise
+            if row is None:
+                raise ValueError("customer_not_found")
+            transaction, buyer = row
+            await record_audit_log(
+                session,
+                action="buyer.wallet.adjust",
+                actor_type=AuditActorType.RESELLER_ADMIN,
+                actor_telegram_id=admin_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="buyer",
+                target_id=buyer.id,
+                metadata={"delta": delta, "note": note, "transaction_id": transaction.id},
+            )
+            await session.flush()
+            return AdjustedCustomerWallet(buyer=buyer, transaction=transaction)
 
     async def list_admin_plans(self, *, admin_telegram_id: int) -> list[Plan]:
         async with session_scope() as session:

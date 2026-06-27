@@ -93,6 +93,7 @@ class WalletTransactionType(StrEnum):
     CHARGE_APPROVED = "charge_approved"
     PURCHASE_DEBIT = "purchase_debit"
     RESELLER_CREDIT = "reseller_credit"
+    ADMIN_ADJUSTMENT = "admin_adjustment"
 
 
 class WalletTransactionStatus(StrEnum):

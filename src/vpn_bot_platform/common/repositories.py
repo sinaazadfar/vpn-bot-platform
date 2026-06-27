@@ -1137,6 +1137,55 @@ async def list_vpn_services_for_buyer(
     return list(result.scalars().all())
 
 
+async def list_vpn_services_for_reseller_buyer(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    buyer_id: str,
+) -> list[VpnService]:
+    result = await session.execute(
+        select(VpnService)
+        .where(
+            VpnService.reseller_id == reseller_id,
+            VpnService.buyer_id == buyer_id,
+        )
+        .order_by(VpnService.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def adjust_buyer_wallet_manual(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+    seller_bot_id: str | None,
+    buyer_id: str,
+    delta: float,
+    note: str | None,
+    approved_by_telegram_id: int,
+) -> tuple[WalletTransaction, Buyer] | None:
+    buyer = await session.get(Buyer, buyer_id)
+    if buyer is None or buyer.reseller_id != reseller_id:
+        return None
+    new_balance = float(buyer.wallet_balance) + float(delta)
+    if new_balance < 0:
+        raise ValueError("insufficient_wallet_balance")
+    transaction = WalletTransaction(
+        reseller_id=reseller_id,
+        seller_bot_id=seller_bot_id,
+        owner_type=WalletOwnerType.BUYER.value,
+        owner_id=buyer_id,
+        transaction_type=WalletTransactionType.ADMIN_ADJUSTMENT.value,
+        status=WalletTransactionStatus.COMPLETED.value,
+        amount=delta,
+        note=note,
+        approved_by_telegram_id=approved_by_telegram_id,
+    )
+    session.add(transaction)
+    buyer.wallet_balance = new_balance
+    return transaction, buyer
+
+
 async def get_vpn_service_for_buyer(
     session: AsyncSession,
     *,

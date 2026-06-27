@@ -14,11 +14,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from vpn_bot_platform.common.models import OrderType, Plan, VpnService
+from vpn_bot_platform.common.models import OrderType, Plan, PlanPurpose, VpnService
 from vpn_bot_platform.common.qr import make_qr_png_bytes
 from vpn_bot_platform.seller_bot.forced_join import missing_required_chats
 from vpn_bot_platform.seller_bot.provisioning import ProvisioningService
-from vpn_bot_platform.seller_bot.services import SellerContextService, WalletChargeRequest
+from vpn_bot_platform.seller_bot.services import (
+    BuyerAccountSummary,
+    SellerContextService,
+    SellerCustomerDetail,
+    WalletChargeRequest,
+)
 
 router = Router(name="seller_button_ui")
 
@@ -43,6 +48,20 @@ class UiState(StatesGroup):
     waiting_ticket_reply = State()
     waiting_admin_ticket_reply = State()
     waiting_receipt = State()
+    waiting_admin_customer_wallet = State()
+    waiting_admin_customer_wallet_confirm = State()
+    waiting_admin_customer_message = State()
+
+
+CONNECTION_GUIDE_TEXT = "\n".join(
+    [
+        "راهنمای اتصال",
+        "1. لینک اشتراک یا QR را از جزئیات سرویس دریافت کنید.",
+        "2. در v2rayNG، v2rayN یا Streisand لینک را import کنید.",
+        "3. پروفایل را انتخاب و اتصال را روشن کنید.",
+        "4. اگر وصل نشد، لینک را یک‌بار تعویض کنید یا با پشتیبانی تماس بگیرید.",
+    ]
+)
 
 
 @dataclass(frozen=True)
@@ -273,6 +292,137 @@ def remaining_days(expire_at: dt.datetime | None) -> str:
     normalized_expire = expire_at if expire_at.tzinfo else expire_at.replace(tzinfo=dt.UTC)
     remaining_seconds = (normalized_expire - now).total_seconds()
     return f"{max(0, ceil(remaining_seconds / 86400))} روز"
+
+
+def format_expire_at(expire_at: dt.datetime | None) -> str:
+    if expire_at is None:
+        return "نامحدود"
+    normalized = expire_at if expire_at.tzinfo else expire_at.replace(tzinfo=dt.UTC)
+    return normalized.strftime("%Y-%m-%d")
+
+
+def format_telegram_user_label(*, telegram_id: int, username: str | None, first_name: str | None) -> str:
+    parts = [str(telegram_id)]
+    if username:
+        parts.append(f"@{username}")
+    if first_name:
+        parts.append(first_name)
+    return " | ".join(parts)
+
+
+def service_detail_text(service: VpnService) -> str:
+    link_hint = "از دکمه «دریافت لینک» استفاده کنید." if service.subscription_url else "-"
+    return "\n".join(
+        [
+            "جزئیات سرویس",
+            f"نام کاربری: `{service.marzban_username}`",
+            f"وضعیت: {'فعال' if service.is_active else 'غیرفعال'}",
+            f"حجم: {traffic(service)}",
+            f"زمان باقی‌مانده: {remaining_days(service.expire_at)}",
+            f"تاریخ انقضا: {format_expire_at(service.expire_at)}",
+            f"لینک اشتراک: {link_hint}",
+        ]
+    )
+
+
+def service_detail_kb(service_id: str, *, show_extra_volume: bool) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = [
+        [("دریافت لینک", f"svclink:{service_id}"), ("کد QR", f"svcqr:{service_id}")],
+        [("تمدید سرویس", f"renewsvc:{service_id}")],
+    ]
+    if show_extra_volume:
+        rows.append([("حجم اضافه", f"extravol:{service_id}")])
+    rows.extend(
+        [
+            [("تعویض لینک", f"revokeask:{service_id}")],
+            [("راهنمای اتصال", f"svcguide:{service_id}"), ("پشتیبانی", "support")],
+            [("بازگشت", "services:0"), ("خانه", "home")],
+        ]
+    )
+    return kb(rows)
+
+
+def account_detail_text(summary: BuyerAccountSummary, *, telegram_id: int, username: str | None) -> str:
+    balance = float(summary.buyer.wallet_balance) if summary.buyer else 0
+    lines = [
+        "حساب کاربری",
+        f"آیدی تلگرام: {telegram_id}",
+    ]
+    if username:
+        lines.append(f"نام کاربری: @{username}")
+    lines.extend(
+        [
+            f"موجودی کیف پول: {money(balance)}",
+            f"تعداد سرویس‌ها: {summary.service_count}",
+            f"سرویس‌های فعال: {summary.active_service_count}",
+        ]
+    )
+    if summary.recent_orders:
+        lines.append("")
+        lines.append("آخرین سفارش‌ها:")
+        for item in summary.recent_orders:
+            plan_name = item.plan.name if item.plan else "بدون پلن"
+            amount = money(item.payment.amount) if item.payment else money(item.order.total_amount)
+            pay_status = payment_status_label(item.payment.status) if item.payment else order_status_label(item.order.status)
+            lines.append(f"- {plan_name} | {amount} | {pay_status}")
+    else:
+        lines.append("")
+        lines.append("هنوز سفارشی ثبت نشده است.")
+    return "\n".join(lines)
+
+
+def customer_detail_text(detail: SellerCustomerDetail) -> str:
+    user = detail.telegram_user
+    username = f"@{user.username}" if user.username else "-"
+    full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip() or "-"
+    created = detail.buyer.created_at.strftime("%Y-%m-%d") if detail.buyer.created_at else "-"
+    return "\n".join(
+        [
+            "اطلاعات کاربر",
+            f"آیدی تلگرام: {user.id}",
+            f"نام کاربری: {username}",
+            f"نام: {full_name}",
+            f"موجودی کیف پول: {money(detail.buyer.wallet_balance)}",
+            f"تعداد سرویس‌ها: {detail.service_count}",
+            f"تعداد سفارش‌ها: {detail.order_count}",
+            f"تعداد تیکت‌ها: {detail.ticket_count}",
+            f"تاریخ عضویت: {created}",
+        ]
+    )
+
+
+def customer_detail_kb(buyer_id: str) -> InlineKeyboardMarkup:
+    return kb(
+        [
+            [("تغییر موجودی", f"admin:cwallet:{buyer_id}"), ("ارسال پیام", f"admin:cmsg:{buyer_id}")],
+            [("سرویس‌های کاربر", f"admin:cservices:{buyer_id}")],
+            [("جستجو", "search:admin_customers"), ("بروزرسانی", f"admin:customer:{buyer_id}")],
+            [("مدیریت کاربران", "admin:customers:0"), ("پنل ادمین", "admin")],
+        ]
+    )
+
+
+async def get_buyer_service(
+    seller_context: SellerContextService,
+    *,
+    buyer_telegram_id: int,
+    service_id: str,
+) -> VpnService | None:
+    services = await seller_context.list_buyer_services(buyer_telegram_id=buyer_telegram_id)
+    return next((item for item in services if item.id == service_id), None)
+
+
+def parse_signed_amount(value: str) -> float | None:
+    raw = value.replace(",", "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = float(raw)
+    except ValueError:
+        return None
+    if parsed == 0:
+        return None
+    return parsed
 
 
 def order_status_label(status: str) -> str:
@@ -676,6 +826,18 @@ async def coupon_text(message: Message, seller_context: SellerContextService, st
             plan_id=str(data["coupon_item_id"]),
             coupon_code=coupon_code,
             service_id=str(data["service_id"]),
+            payment_mode="renewal",
+        )
+        return
+    if data.get("coupon_mode") == "extra_volume":
+        await create_payment_request(
+            message,
+            seller_context,
+            state,
+            plan_id=str(data["coupon_item_id"]),
+            coupon_code=coupon_code,
+            service_id=str(data["service_id"]),
+            payment_mode="extra_volume",
         )
         return
     await create_payment_request(
@@ -696,12 +858,21 @@ async def create_payment_request(
     coupon_code: str | None = None,
     service_id: str | None = None,
     requested_username: str | None = None,
+    payment_mode: str = "purchase",
 ) -> None:
     user = target.from_user
     if user is None:
         return
     try:
-        if service_id:
+        if service_id and payment_mode == "extra_volume":
+            request = await seller_context.request_extra_volume_payment(
+                buyer_telegram_id=user.id,
+                service_id=service_id,
+                plan_id=plan_id,
+                coupon_code=coupon_code,
+            )
+            title = "درخواست حجم اضافه ثبت شد."
+        elif service_id:
             request = await seller_context.request_renewal_payment(
                 buyer_telegram_id=user.id,
                 service_id=service_id,
@@ -900,30 +1071,161 @@ async def service_detail(callback: CallbackQuery, seller_context: SellerContextS
     if callback.from_user is None:
         return
     service_id = (callback.data or "").split(":", 1)[1]
-    services = await seller_context.list_buyer_services(buyer_telegram_id=callback.from_user.id)
-    service = next((item for item in services if item.id == service_id), None)
+    service = await get_buyer_service(
+        seller_context,
+        buyer_telegram_id=callback.from_user.id,
+        service_id=service_id,
+    )
     if service is None:
         await render(callback, "سرویس پیدا نشد.", kb([[("بازگشت", "services:0")]]))
         return
+    extra_plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
     await state.update_data(service_id=service.id)
+    await render(
+        callback,
+        service_detail_text(service),
+        service_detail_kb(service.id, show_extra_volume=bool(extra_plans)),
+    )
+
+
+@router.callback_query(F.data.startswith("svclink:"))
+async def service_link(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    service_id = (callback.data or "").split(":", 1)[1]
+    service = await get_buyer_service(
+        seller_context,
+        buyer_telegram_id=callback.from_user.id,
+        service_id=service_id,
+    )
+    if service is None:
+        await render(callback, "سرویس پیدا نشد.", kb([[("بازگشت", "services:0")]]))
+        return
     await render(
         callback,
         "\n".join(
             [
-                "نام کاربری: ", f"`{service.marzban_username}`",
-                f"حجم: {traffic(service)}",
-                f"زمان باقی‌مانده: {remaining_days(service.expire_at)}",
-                f"وضعیت: {'فعال' if service.is_active else 'غیرفعال'}",
-                "لینک اشتراک: ",f"`{service.subscription_url or '-'}`",
+                "لینک اشتراک",
+                f"نام کاربری: `{service.marzban_username}`",
+                f"`{service.subscription_url or '-'}`",
             ]
         ),
+        kb([[("بازگشت به سرویس", f"svc:{service.id}")], [("خانه", "home")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("svcqr:"))
+async def service_qr(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    service_id = (callback.data or "").split(":", 1)[1]
+    service = await get_buyer_service(
+        seller_context,
+        buyer_telegram_id=callback.from_user.id,
+        service_id=service_id,
+    )
+    if service is None:
+        await render(callback, "سرویس پیدا نشد.", kb([[("بازگشت", "services:0")]]))
+        return
+    if not service.subscription_url or not callback.message:
+        await render(
+            callback,
+            "لینک اشتراک برای این سرویس موجود نیست.",
+            kb([[("بازگشت به سرویس", f"svc:{service.id}")]]),
+        )
+        return
+    qr_file = BufferedInputFile(
+        make_qr_png_bytes(service.subscription_url),
+        filename=f"{service.marzban_username}.png",
+    )
+    await callback.message.answer_photo(
+        qr_file,
+        caption=f"QR اشتراک\nنام کاربری: {service.marzban_username}",
+        reply_markup=kb([[("بازگشت به سرویس", f"svc:{service.id}"), ("خانه", "home")]]),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("svcguide:"))
+async def service_guide(callback: CallbackQuery) -> None:
+    service_id = (callback.data or "").split(":", 1)[1]
+    await render(
+        callback,
+        CONNECTION_GUIDE_TEXT,
+        kb([[("بازگشت به سرویس", f"svc:{service_id}")], [("خانه", "home")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("extravol:"))
+async def extra_volume_service(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
+    service_id = (callback.data or "").split(":", 1)[1]
+    await state.update_data(service_id=service_id)
+    await show_extra_volume_plans(callback, seller_context, 0)
+
+
+@router.callback_query(F.data.startswith("extravolplans:"))
+async def extra_volume_plans_page(
+    callback: CallbackQuery,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    if not data.get("service_id"):
+        await render(callback, "ابتدا سرویس را انتخاب کنید.", kb([[("سرویس‌های من", "services:0")]]))
+        return
+    page = int((callback.data or "extravolplans:0").split(":")[1])
+    await show_extra_volume_plans(callback, seller_context, page)
+
+
+async def show_extra_volume_plans(
+    target: Message | CallbackQuery,
+    seller_context: SellerContextService,
+    page: int,
+) -> None:
+    plans = await seller_context.list_plans(purpose=PlanPurpose.EXTRA_VOLUME)
+    if not plans:
+        await render(target, "فعلا پلنی برای حجم اضافه وجود ندارد.", kb([[("سرویس‌های من", "services:0"), ("خانه", "home")]]))
+        return
+    page_items, safe_page, total_pages = paginate(plans, page)
+    rows = [Row(f"{plan.name} - {traffic(plan)} - {money(plan.price)}", f"extravolplan:{plan.id}") for plan in page_items]
+    await render(
+        target,
+        "پلن حجم اضافه را انتخاب کنید:",
+        list_kb(rows=rows, page=safe_page, total_pages=total_pages, page_prefix="extravolplans"),
+    )
+
+
+@router.callback_query(F.data.startswith("extravolplan:"))
+async def extra_volume_plan(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
+    data = await state.get_data()
+    plan_id = (callback.data or "").split(":", 1)[1]
+    service_id = str(data.get("service_id", ""))
+    if not service_id:
+        await render(callback, "ابتدا سرویس را انتخاب کنید.", kb([[("سرویس‌های من", "services:0")]]))
+        return
+    await render(
+        callback,
+        "خرید حجم اضافه با کد تخفیف انجام شود؟",
         kb(
             [
-                [("تمدید این سرویس", f"renewsvc:{service.id}")],
-                [("تعویض لینک اشتراک", f"revokeask:{service.id}")],
-                [("بازگشت", "services:0"), ("خانه", "home")],
+                [("بدون کد تخفیف", f"extravolpay:{plan_id}")],
+                [("وارد کردن کد تخفیف", f"coupon:extra_volume:{plan_id}")],
+                [("بازگشت", f"svc:{service_id}")],
             ]
         ),
+    )
+
+
+@router.callback_query(F.data.startswith("extravolpay:"))
+async def extra_volume_pay(callback: CallbackQuery, seller_context: SellerContextService, state: FSMContext) -> None:
+    data = await state.get_data()
+    await create_payment_request(
+        callback,
+        seller_context,
+        state,
+        plan_id=(callback.data or "").split(":", 1)[1],
+        service_id=str(data.get("service_id", "")),
+        payment_mode="extra_volume",
     )
 
 
@@ -1091,18 +1393,21 @@ async def wallet_callback(callback: CallbackQuery, seller_context: SellerContext
 async def account_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
     if callback.from_user is None:
         return
-    wallet_info = await seller_context.list_buyer_wallet(buyer_telegram_id=callback.from_user.id)
-    balance = float(wallet_info.buyer.wallet_balance) if wallet_info.buyer else 0
+    summary = await seller_context.get_buyer_account_summary(buyer_telegram_id=callback.from_user.id)
     await render(
         callback,
-        "\n".join(
+        account_detail_text(
+            summary,
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+        ),
+        kb(
             [
-                "حساب کاربری",
-                f"آیدی تلگرام: {callback.from_user.id}",
-                f"موجودی کیف پول: {money(balance)}",
+                [("افزایش موجودی", "wallet"), ("پرداختی‌های من", "orders")],
+                [("سرویس‌های من", "services:0"), ("پشتیبانی", "support")],
+                [("خانه", "home")],
             ]
         ),
-        kb([[("افزایش موجودی", "wallet"), ("پرداختی‌های من", "orders")], [("خانه", "home")]]),
     )
 
 
@@ -1113,7 +1418,11 @@ async def earn_callback(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "tutorial")
 async def tutorial_callback(callback: CallbackQuery) -> None:
-    await render(callback, "بخش آموزش در حال آماده‌سازی است.", kb([[("خانه", "home")]]))
+    await render(
+        callback,
+        CONNECTION_GUIDE_TEXT,
+        kb([[("سرویس‌های من", "services:0"), ("پشتیبانی", "support")], [("خانه", "home")]]),
+    )
 
 
 @router.callback_query(F.data == "support")
@@ -1419,8 +1728,8 @@ async def admin_dashboard(target: Message | CallbackQuery, seller_context: Selle
             [
                 [("پرداخت‌ها", "admin:payments:0"), ("شارژ کیف پول", "admin:wallet:0")],
                 [("تیکت‌ها", "admin:tickets:0"), ("گزارش فروش", "admin:report")],
-                [("پلن‌های فروش", "admin:plans:0"), ("ظرفیت فروش", "admin:quota")],
-                [("پشتیبان", "admin:support")],
+                [("پلن‌های فروش", "admin:plans:0"), ("مدیریت کاربران", "admin:customers:0")],
+                [("ظرفیت فروش", "admin:quota"), ("پشتیبان", "admin:support")],
                 [("خانه", "home")],
             ]
         ),
@@ -2170,6 +2479,300 @@ async def report_callback(callback: CallbackQuery, seller_context: SellerContext
     await render(callback, "\n".join(lines), kb([[("پنل ادمین", "admin")]]))
 
 
+async def show_admin_customer_detail(
+    target: Message | CallbackQuery,
+    seller_context: SellerContextService,
+    *,
+    admin_telegram_id: int,
+    buyer_id: str,
+) -> None:
+    try:
+        detail = await seller_context.get_customer_detail(
+            admin_telegram_id=admin_telegram_id,
+            buyer_id=buyer_id,
+        )
+    except PermissionError:
+        await render(target, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    except ValueError as exc:
+        if str(exc) == "customer_not_found":
+            await render(target, "کاربر پیدا نشد.", kb([[("مدیریت کاربران", "admin:customers:0")]]))
+            return
+        raise
+    await render(target, customer_detail_text(detail), customer_detail_kb(buyer_id))
+
+
+async def show_admin_customers(
+    target: Message | CallbackQuery,
+    seller_context: SellerContextService,
+    page: int,
+    query: str | None = None,
+) -> None:
+    if target.from_user is None:
+        return
+    try:
+        if query:
+            customers = await seller_context.search_customers(
+                admin_telegram_id=target.from_user.id,
+                query=query,
+            )
+        else:
+            customers = await seller_context.list_customers(admin_telegram_id=target.from_user.id)
+    except PermissionError:
+        await render(target, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    if not customers:
+        empty_text = "کاربری پیدا نشد." if query else "هنوز کاربری ثبت نشده است."
+        await render(
+            target,
+            empty_text,
+            kb([[("جستجو", "search:admin_customers"), ("پنل ادمین", "admin")], [("خانه", "home")]]),
+        )
+        return
+    page_items, safe_page, total_pages = paginate(customers, page)
+    rows = [
+        Row(
+            format_telegram_user_label(
+                telegram_id=customer.telegram_user.id,
+                username=customer.telegram_user.username,
+                first_name=customer.telegram_user.first_name,
+            )[:58],
+            f"admin:customer:{customer.buyer.id}",
+        )
+        for customer in page_items
+    ]
+    await render(
+        target,
+        "کاربر مورد نظر را انتخاب کنید:",
+        list_kb(
+            rows=rows,
+            page=safe_page,
+            total_pages=total_pages,
+            page_prefix="admin:customers",
+            search="admin_customers",
+        ),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:customers:"))
+async def admin_customers_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    page = int((callback.data or "admin:customers:0").split(":")[2])
+    await show_admin_customers(callback, seller_context, page)
+
+
+@router.callback_query(F.data.startswith("admin:customer:"))
+async def admin_customer_detail_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    buyer_id = (callback.data or "").split(":", 2)[2]
+    await show_admin_customer_detail(
+        callback,
+        seller_context,
+        admin_telegram_id=callback.from_user.id,
+        buyer_id=buyer_id,
+    )
+
+
+@router.callback_query(F.data.startswith("admin:cservices:"))
+async def admin_customer_services_callback(callback: CallbackQuery, seller_context: SellerContextService) -> None:
+    if callback.from_user is None:
+        return
+    buyer_id = (callback.data or "").split(":", 2)[2]
+    try:
+        services = await seller_context.list_customer_services(
+            admin_telegram_id=callback.from_user.id,
+            buyer_id=buyer_id,
+        )
+    except PermissionError:
+        await render(callback, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    except ValueError as exc:
+        if str(exc) == "customer_not_found":
+            await render(callback, "کاربر پیدا نشد.", kb([[("مدیریت کاربران", "admin:customers:0")]]))
+            return
+        raise
+    if not services:
+        await render(
+            callback,
+            "این کاربر هنوز سرویسی ندارد.",
+            kb([[("بازگشت", f"admin:customer:{buyer_id}")], [("مدیریت کاربران", "admin:customers:0")]]),
+        )
+        return
+    lines = ["سرویس‌های کاربر:"]
+    for service in services[:20]:
+        status = "فعال" if service.is_active else "غیرفعال"
+        lines.append(
+            f"- `{service.marzban_username}` | {traffic(service)} | {remaining_days(service.expire_at)} | {status}"
+        )
+    await render(
+        callback,
+        "\n".join(lines),
+        kb([[("بازگشت", f"admin:customer:{buyer_id}")], [("مدیریت کاربران", "admin:customers:0")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:cwallet:"))
+async def admin_customer_wallet_start(callback: CallbackQuery, state: FSMContext) -> None:
+    buyer_id = (callback.data or "").split(":", 2)[2]
+    await state.set_state(UiState.waiting_admin_customer_wallet)
+    await state.update_data(admin_customer_id=buyer_id)
+    await render(
+        callback,
+        "\n".join(
+            [
+                "مبلغ تغییر موجودی را به تومان ارسال کنید.",
+                "برای کاهش موجودی، عدد منفی بفرستید (مثلا -50000).",
+                "برای لغو، /cancel را بزنید.",
+            ]
+        ),
+    )
+
+
+@router.message(UiState.waiting_admin_customer_wallet, F.text)
+async def admin_customer_wallet_amount(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    buyer_id = str(data.get("admin_customer_id", ""))
+    delta = parse_signed_amount(message.text or "")
+    if delta is None or not buyer_id:
+        await render(message, "مبلغ معتبر نیست. عدد مثبت یا منفی ارسال کنید.")
+        return
+    try:
+        detail = await seller_context.get_customer_detail(
+            admin_telegram_id=message.from_user.id,
+            buyer_id=buyer_id,
+        )
+    except (PermissionError, ValueError):
+        await state.clear()
+        await render(message, "کاربر پیدا نشد.", kb([[("مدیریت کاربران", "admin:customers:0")]]))
+        return
+    current = float(detail.buyer.wallet_balance)
+    new_balance = current + delta
+    if new_balance < 0:
+        await render(message, "موجودی بعد از این تغییر منفی می‌شود. مبلغ دیگری وارد کنید.")
+        return
+    await state.set_state(UiState.waiting_admin_customer_wallet_confirm)
+    await state.update_data(admin_wallet_delta=delta)
+    action = "افزایش" if delta > 0 else "کاهش"
+    await render(
+        message,
+        "\n".join(
+            [
+                "تایید تغییر موجودی",
+                f"کاربر: {detail.telegram_user.id}",
+                f"موجودی فعلی: {money(current)}",
+                f"{action}: {money(abs(delta))}",
+                f"موجودی جدید: {money(new_balance)}",
+            ]
+        ),
+        kb(
+            [
+                [("تایید", f"admin:cwalletok:{buyer_id}")],
+                [("لغو", f"admin:customer:{buyer_id}")],
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:cwalletok:"))
+async def admin_customer_wallet_confirm(
+    callback: CallbackQuery,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if callback.from_user is None:
+        return
+    buyer_id = (callback.data or "").split(":", 2)[2]
+    data = await state.get_data()
+    delta = float(data.get("admin_wallet_delta", 0))
+    if delta == 0:
+        await state.clear()
+        await render(callback, "تغییر موجودی لغو شد.", kb([[("مدیریت کاربران", "admin:customers:0")]]))
+        return
+    try:
+        result = await seller_context.adjust_customer_wallet(
+            admin_telegram_id=callback.from_user.id,
+            buyer_id=buyer_id,
+            delta=delta,
+            note="manual admin adjustment",
+        )
+    except PermissionError:
+        await render(callback, "دسترسی ندارید.", kb([[("خانه", "home")]]))
+        return
+    except ValueError as exc:
+        messages = {
+            "customer_not_found": "کاربر پیدا نشد.",
+            "invalid_amount": "مبلغ معتبر نیست.",
+            "insufficient_wallet_balance": "موجودی کافی نیست.",
+        }
+        await render(callback, messages.get(str(exc), "تغییر موجودی انجام نشد."), kb([[("بازگشت", f"admin:customer:{buyer_id}")]]))
+        return
+    await state.clear()
+    await render(
+        callback,
+        "\n".join(
+            [
+                "موجودی کاربر بروزرسانی شد.",
+                f"موجودی جدید: {money(result.buyer.wallet_balance)}",
+            ]
+        ),
+        kb([[("اطلاعات کاربر", f"admin:customer:{buyer_id}")], [("مدیریت کاربران", "admin:customers:0")]]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:cmsg:"))
+async def admin_customer_message_start(callback: CallbackQuery, state: FSMContext) -> None:
+    buyer_id = (callback.data or "").split(":", 2)[2]
+    await state.set_state(UiState.waiting_admin_customer_message)
+    await state.update_data(admin_customer_id=buyer_id)
+    await render(callback, "متن پیام را برای کاربر ارسال کنید.\nبرای لغو، /cancel را بزنید.")
+
+
+@router.message(UiState.waiting_admin_customer_message, F.text)
+async def admin_customer_message_send(
+    message: Message,
+    seller_context: SellerContextService,
+    state: FSMContext,
+) -> None:
+    if message.from_user is None:
+        return
+    data = await state.get_data()
+    buyer_id = str(data.get("admin_customer_id", ""))
+    text = (message.text or "").strip()
+    if not buyer_id or not text:
+        await render(message, "متن پیام خالی است.")
+        return
+    try:
+        detail = await seller_context.get_customer_detail(
+            admin_telegram_id=message.from_user.id,
+            buyer_id=buyer_id,
+        )
+    except (PermissionError, ValueError):
+        await state.clear()
+        await render(message, "کاربر پیدا نشد.", kb([[("مدیریت کاربران", "admin:customers:0")]]))
+        return
+    try:
+        await message.bot.send_message(detail.telegram_user.id, text)
+    except TelegramAPIError:
+        await render(
+            message,
+            "ارسال پیام به کاربر ناموفق بود. ممکن است ربات را block کرده باشد.",
+            kb([[("بازگشت", f"admin:customer:{buyer_id}")]]),
+        )
+        return
+    await state.clear()
+    await render(
+        message,
+        "پیام برای کاربر ارسال شد.",
+        kb([[("اطلاعات کاربر", f"admin:customer:{buyer_id}")], [("مدیریت کاربران", "admin:customers:0")]]),
+    )
+
+
 @router.callback_query(F.data.startswith("search:"))
 async def search_callback(callback: CallbackQuery, state: FSMContext) -> None:
     target = (callback.data or "").split(":", 1)[1]
@@ -2200,6 +2803,8 @@ async def search_text(message: Message, seller_context: SellerContextService, st
         await show_admin_tickets(message, seller_context, 0, query)
     elif target == "admin_plans":
         await show_admin_plans(message, seller_context, 0, query)
+    elif target == "admin_customers":
+        await show_admin_customers(message, seller_context, 0, query)
     else:
         await render(message, "جستجو برای این بخش فعال نیست.", kb([[("خانه", "home")]]))
 
