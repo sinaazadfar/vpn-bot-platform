@@ -183,6 +183,37 @@ async def test_subscription_pagination_returns_latest_ten(repository):
 
 
 @pytest.mark.asyncio
+async def test_search_user_subscriptions_filters_by_marzban_username(repository):
+    user = await repository.ensure_user(2010, set())
+    await repository.adjust_wallet(user.id, 1_000_000, "seed")
+    await repository.db.commit()
+    user = await repository.get_user_by_telegram_id(2010)
+    settings = await repository.update_pricing_settings(per_gb_price=1_000)
+    offer = repository.build_offer(settings, 1, 30, "manual")
+    await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "alpha_sub",
+        "https://panel.example/sub/alpha_sub",
+        "2026-07-20T00:00:00+00:00",
+    )
+    await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "beta_sub",
+        "https://panel.example/sub/beta_sub",
+        "2026-07-20T00:00:00+00:00",
+    )
+
+    results = await repository.search_user_subscriptions(user.id, "alpha")
+    all_results = await repository.search_user_subscriptions(user.id, "")
+
+    assert len(results) == 1
+    assert results[0].marzban_username == "alpha_sub"
+    assert len(all_results) == 2
+
+
+@pytest.mark.asyncio
 async def test_extend_subscription_updates_same_row_and_charges_wallet(repository):
     user = await repository.ensure_user(2002, set())
     await repository.adjust_wallet(user.id, 1_000_000, "seed")
@@ -291,7 +322,7 @@ async def test_disabled_earning_creates_no_commission(repository):
 
 
 @pytest.mark.asyncio
-async def test_extension_does_not_credit_referrer(repository):
+async def test_extension_also_credits_referrer(repository):
     referrer = await repository.ensure_user(3005, set())
     buyer = await repository.ensure_user(3006, set(), referred_by=referrer.id)
     await repository.adjust_wallet(buyer.id, 500_000, "seed")
@@ -319,6 +350,118 @@ async def test_extension_does_not_credit_referrer(repository):
         "2026-08-19T00:00:00+00:00",
     )
     referrer_after_extension = await repository.get_user_by_telegram_id(3005)
+    commission_rows = await repository._fetchall(
+        "SELECT * FROM wallet_transactions WHERE reason = 'referral_commission' AND user_id = ?",
+        (referrer.id,),
+    )
 
     assert referrer_after_purchase.wallet_balance == 10_000
-    assert referrer_after_extension.wallet_balance == 10_000
+    assert referrer_after_extension.wallet_balance == 15_000
+    assert await repository.get_referral_earnings_total(referrer.id) == 15_000
+    assert len(commission_rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_trial_traffic_mb_defaults_to_512(repository):
+    assert await repository.get_trial_traffic_mb() == 512
+
+
+@pytest.mark.asyncio
+async def test_trial_traffic_mb_can_be_set(repository):
+    await repository.set_trial_traffic_mb(256)
+    assert await repository.get_trial_traffic_mb() == 256
+
+
+@pytest.mark.asyncio
+async def test_trial_grant_is_one_time(repository):
+    user = await repository.ensure_user(4001, set())
+    assert not await repository.has_trial_grant(user.id)
+    await repository.grant_trial(user.id)
+    assert await repository.has_trial_grant(user.id)
+    await repository.grant_trial(user.id)
+    assert await repository.has_trial_grant(user.id)
+
+
+@pytest.mark.asyncio
+async def test_discount_code_valid_days_and_max_uses(repository):
+    discount = await repository.create_discount_code("save20", 20, max_uses=2, valid_days=7)
+    assert discount.max_uses == 2
+    assert discount.expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_update_discount_code_changes_percent_and_max_uses(repository):
+    discount = await repository.create_discount_code("editme", 10, max_uses=5, valid_days=0)
+    updated = await repository.update_discount_code(discount.id, discount_percent=25, max_uses=10)
+
+    assert updated is not None
+    assert updated.discount_percent == 25
+    assert updated.max_uses == 10
+    assert updated.active is True
+
+
+@pytest.mark.asyncio
+async def test_update_discount_code_rejects_max_uses_below_used_count(repository):
+    discount = await repository.create_discount_code("limited", 10, max_uses=3, valid_days=0)
+    user_a = await repository.ensure_user(5010, set())
+    user_b = await repository.ensure_user(5012, set())
+    await repository._redeem_discount_code_in_tx(user_a.id, discount.id)
+    await repository._redeem_discount_code_in_tx(user_b.id, discount.id)
+    await repository.db.commit()
+
+    with pytest.raises(ValueError, match="discount_max_uses_below_used_count"):
+        await repository.update_discount_code(discount.id, max_uses=1)
+
+
+@pytest.mark.asyncio
+async def test_deactivate_discount_code_blocks_validation(repository):
+    discount = await repository.create_discount_code("gone", 15, max_uses=0, valid_days=0)
+    user = await repository.ensure_user(5011, set())
+    assert await repository.deactivate_discount_code(discount.id)
+
+    with pytest.raises(ValueError, match="discount_not_found"):
+        await repository.validate_discount_for_user("gone", user.id)
+
+
+@pytest.mark.asyncio
+async def test_discount_code_one_use_per_user(repository):
+    user_a = await repository.ensure_user(5001, set())
+    user_b = await repository.ensure_user(5002, set())
+    await repository.create_discount_code("once10", 10, max_uses=10, valid_days=0)
+    validated = await repository.validate_discount_for_user("once10", user_a.id)
+    assert validated.discount_percent == 10
+    assert await repository._redeem_discount_code_in_tx(user_a.id, validated.id)
+    await repository.db.commit()
+    with pytest.raises(ValueError, match="discount_already_used"):
+        await repository.validate_discount_for_user("once10", user_a.id)
+    await repository.validate_discount_for_user("once10", user_b.id)
+
+
+@pytest.mark.asyncio
+async def test_apply_coupon_to_offer_reduces_final_price(repository):
+    settings = await repository.update_pricing_settings(per_gb_price=10_000)
+    offer = repository.build_offer(settings, 10, 30, "manual")
+    discounted = repository.apply_coupon_to_offer(offer, 20)
+    assert discounted.final_price == offer.final_price * 80 // 100
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_redeems_coupon_once(repository):
+    user = await repository.ensure_user(5003, set())
+    await repository.adjust_wallet(user.id, 500_000, "seed")
+    await repository.db.commit()
+    user = await repository.get_user_by_telegram_id(5003)
+    discount = await repository.create_discount_code("buy15", 15, max_uses=1, valid_days=0)
+    settings = await repository.update_pricing_settings(per_gb_price=10_000)
+    offer = repository.apply_coupon_to_offer(repository.build_offer(settings, 5, 30, "manual"), 15)
+    subscription = await repository.create_subscription_after_charge(
+        user,
+        offer,
+        "user_buy15",
+        "https://panel.example/sub/user_buy15",
+        "2026-07-20T00:00:00+00:00",
+        coupon_code_id=discount.id,
+    )
+    assert subscription.id > 0
+    with pytest.raises(ValueError, match="discount_already_used"):
+        await repository.validate_discount_for_user("buy15", user.id)

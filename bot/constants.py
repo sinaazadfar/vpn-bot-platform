@@ -8,6 +8,7 @@ SUPPORT = "پشتیبانی"
 ADMIN_PANEL = "پنل ادمین"
 
 ADMIN_PLANS = "مدیریت پلن ها"
+ADMIN_QUOTA = "ظرفیت فروش"
 ADMIN_USERS = "کاربران"
 ADMIN_PAYMENTS = "پرداخت های در انتظار"
 ADMIN_BROADCAST = "ارسال همگانی"

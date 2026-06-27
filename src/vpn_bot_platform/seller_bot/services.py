@@ -1764,10 +1764,16 @@ class SellerContextService:
             await session.flush()
             return transaction
 
-    @staticmethod
-    def _ensure_reseller_admin(*, seller_bot: SellerBot, telegram_id: int) -> None:
-        if seller_bot.reseller.telegram_user_id != telegram_id:
-            raise PermissionError("not_reseller_admin")
+    def _ensure_reseller_admin(self, *, seller_bot: SellerBot, telegram_id: int) -> None:
+        if seller_bot.reseller.telegram_user_id == telegram_id:
+            return
+        if (
+            self.settings is not None
+            and self.settings.super_user_telegram_id is not None
+            and self.settings.super_user_telegram_id == telegram_id
+        ):
+            return
+        raise PermissionError("not_reseller_admin")
 
     async def _ensure_reseller_payment_approver(self, session, *, seller_bot: SellerBot, telegram_id: int) -> None:
         if seller_bot.reseller.telegram_user_id == telegram_id:

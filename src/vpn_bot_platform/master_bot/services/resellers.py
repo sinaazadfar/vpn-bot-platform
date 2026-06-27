@@ -9,7 +9,7 @@ import subprocess
 from aiogram.utils.token import TokenValidationError, validate_token
 
 from vpn_bot_platform.common.config import Settings
-from vpn_bot_platform.common.crypto import SecretBox
+from vpn_bot_platform.common.crypto import SecretBox, hash_secret
 from vpn_bot_platform.common.db import session_scope
 from vpn_bot_platform.common.forced_join import (
     FORCED_JOIN_CHATS_KEY,
@@ -27,18 +27,22 @@ from vpn_bot_platform.common.repositories import (
     create_reseller,
     create_seller_bot,
     count_panel_assignments,
+    deactivate_reseller_panel_assignments,
     get_marzban_panel,
+    get_marzban_panel_by_base_url,
     get_external_bot_template,
     get_external_bot_template_by_key,
     get_global_broadcast,
     get_global_setting,
     get_discount_code,
     get_panel_assignment,
+    get_primary_panel_assignment,
     get_plan,
     get_seller_bot_quota_usage,
     global_sales_report,
     get_reseller_by_telegram_id,
     get_seller_bot,
+    get_seller_bot_by_token_hash,
     list_external_bot_templates,
     list_all_plans,
     list_active_panel_assignments,
@@ -55,6 +59,7 @@ from vpn_bot_platform.common.repositories import (
     set_plan_active,
     list_marzban_panels,
     list_resellers,
+    update_marzban_panel_credentials,
     update_panel_assignment_routing,
     update_external_bot_template_sync_state,
     update_seller_bot_volume,
@@ -120,6 +125,18 @@ class SellerBotQuota:
 
 
 @dataclass(frozen=True)
+class SellerBotAdminContact:
+    seller_bot: SellerBot
+    admin_telegram_id: int
+
+
+@dataclass(frozen=True)
+class SellerRuntimeSpec:
+    environment: dict[str, str]
+    command: list[str]
+
+
+@dataclass(frozen=True)
 class ExternalTemplateSyncResult:
     template: ExternalBotTemplate
     ok: bool
@@ -162,6 +179,38 @@ class ResellerService:
         self.secret_box = secret_box
         self.settings = settings
         self.runtime_controller = runtime_controller
+
+    async def _resolve_seller_bot_for_provision(
+        self,
+        session,
+        *,
+        reseller_id: str,
+        bot_name: str,
+        bot_token: str,
+        volume_limit_gb: int | None,
+        ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
+    ) -> tuple[SellerBot, bool]:
+        existing = await get_seller_bot_by_token_hash(
+            session,
+            token_hash=hash_secret(bot_token),
+        )
+        if existing is not None:
+            existing.reseller_id = reseller_id
+            existing.name = bot_name
+            existing.volume_limit_gb = volume_limit_gb or 0
+            existing.ui_profile = ui_profile.value
+            existing.token_encrypted = self.secret_box.encrypt(bot_token) or existing.token_encrypted
+            return existing, True
+        seller_bot = await create_seller_bot(
+            session,
+            reseller_id=reseller_id,
+            name=bot_name,
+            token=bot_token,
+            secret_box=self.secret_box,
+            volume_limit_gb=volume_limit_gb,
+            ui_profile=ui_profile,
+        )
+        return seller_bot, False
 
     async def register_reseller(
         self,
@@ -345,24 +394,25 @@ class ResellerService:
                     },
                 )
                 await session.flush()
-            panel = await create_marzban_panel(
-                session,
-                name=panel_name,
-                base_url=panel_base_url,
-                username=panel_username,
-                password=panel_password,
-                secret_box=self.secret_box,
-            )
-            await session.flush()
-            seller_bot = await create_seller_bot(
+            normalized_panel_url = panel_base_url.rstrip("/")
+            panel = await get_marzban_panel_by_base_url(session, base_url=normalized_panel_url)
+            if panel is None:
+                panel = await create_marzban_panel(
+                    session,
+                    name=panel_name,
+                    base_url=normalized_panel_url,
+                    username=panel_username,
+                    password=panel_password,
+                    secret_box=self.secret_box,
+                )
+                await session.flush()
+            seller_bot, seller_bot_existed = await self._resolve_seller_bot_for_provision(
                 session,
                 reseller_id=reseller.id,
-                name=bot_name,
-                token=bot_token,
-                secret_box=self.secret_box,
+                bot_name=bot_name,
+                bot_token=bot_token,
                 volume_limit_gb=volume_limit_gb,
             )
-            await session.flush()
             assignment = await assign_panel_to_reseller(
                 session,
                 reseller_id=reseller.id,
@@ -384,6 +434,119 @@ class ResellerService:
                     "panel_name": panel_name,
                     "marzban_admin_username": assignment.marzban_admin_username,
                     "volume_limit_gb": volume_limit_gb,
+                    "seller_bot_existed": seller_bot_existed,
+                },
+            )
+            await session.flush()
+            return SellerBotProvisionResult(
+                reseller=reseller,
+                reseller_existed=reseller_existed,
+                panel=panel,
+                seller_bot=seller_bot,
+                assignment=assignment,
+            )
+
+    async def provision_seller_bot_bundle(
+        self,
+        *,
+        reseller_telegram_id: int,
+        reseller_display_name: str,
+        bot_name: str,
+        bot_token: str,
+        panel_name: str,
+        panel_base_url: str,
+        ui_profile: SellerBotUiProfile = SellerBotUiProfile.PLATFORM,
+        reseller_username: str | None = None,
+        panel_username: str | None = None,
+        panel_password: str | None = None,
+        panel_token: str | None = None,
+        marzban_admin_username: str | None = None,
+        volume_limit_gb: int | None = 0,
+        actor_telegram_id: int | None = None,
+    ) -> SellerBotProvisionResult:
+        if not panel_token and not (panel_username and panel_password):
+            raise ValueError("panel_credentials_required")
+        normalized_url = panel_base_url.rstrip("/")
+        if not normalized_url.startswith(("http://", "https://")):
+            raise ValueError("panel_base_url_invalid")
+        async with session_scope() as session:
+            await upsert_telegram_user(
+                session,
+                telegram_id=reseller_telegram_id,
+                username=reseller_username,
+                first_name=reseller_display_name,
+            )
+            reseller = await get_reseller_by_telegram_id(
+                session,
+                telegram_id=reseller_telegram_id,
+            )
+            reseller_existed = reseller is not None
+            if reseller is None:
+                reseller = await create_reseller(
+                    session,
+                    telegram_user_id=reseller_telegram_id,
+                    display_name=reseller_display_name,
+                )
+                await record_audit_log(
+                    session,
+                    action="reseller.create",
+                    actor_type=AuditActorType.SUPER_USER,
+                    actor_telegram_id=actor_telegram_id,
+                    reseller_id=reseller.id,
+                    target_type="reseller",
+                    target_id=reseller.id,
+                    metadata={
+                        "telegram_user_id": reseller_telegram_id,
+                        "display_name": reseller_display_name,
+                    },
+                )
+                await session.flush()
+            panel = await get_marzban_panel_by_base_url(session, base_url=normalized_url)
+            panel_existed = panel is not None
+            if panel is None:
+                panel = await create_marzban_panel(
+                    session,
+                    name=panel_name,
+                    base_url=normalized_url,
+                    username=panel_username,
+                    password=panel_password,
+                    token=panel_token,
+                    secret_box=self.secret_box,
+                )
+                await session.flush()
+            seller_bot, seller_bot_existed = await self._resolve_seller_bot_for_provision(
+                session,
+                reseller_id=reseller.id,
+                bot_name=bot_name,
+                bot_token=bot_token,
+                volume_limit_gb=volume_limit_gb,
+                ui_profile=ui_profile,
+            )
+            assignment = await assign_panel_to_reseller(
+                session,
+                reseller_id=reseller.id,
+                panel_id=panel.id,
+                marzban_admin_username=marzban_admin_username or panel_username,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.provision_bundle",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=reseller.id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "reseller_telegram_id": reseller_telegram_id,
+                    "bot_name": bot_name,
+                    "panel_id": panel.id,
+                    "panel_name": panel_name,
+                    "ui_profile": ui_profile.value,
+                    "marzban_admin_username": assignment.marzban_admin_username,
+                    "volume_limit_gb": volume_limit_gb,
+                    "reseller_existed": reseller_existed,
+                    "panel_existed": panel_existed,
+                    "seller_bot_existed": seller_bot_existed,
                 },
             )
             await session.flush()
@@ -712,6 +875,19 @@ class ResellerService:
                 reserved_gb=usage.reserved_gb,
                 remaining_gb=usage.remaining_gb or 0,
             )
+
+    async def seller_bot_admin_contact(self, *, seller_bot_id: str) -> SellerBotAdminContact:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            reseller = await session.get(Reseller, seller_bot.reseller_id)
+            if reseller is None:
+                raise ValueError("reseller_not_found")
+            return SellerBotAdminContact(
+                seller_bot=seller_bot,
+                admin_telegram_id=reseller.telegram_user_id,
+            )
     async def rename_reseller(
         self,
         *,
@@ -779,11 +955,17 @@ class ResellerService:
     ) -> MarzbanPanel:
         if not token and not (username and password):
             raise ValueError("panel_credentials_required")
+        normalized_url = base_url.rstrip("/")
+        if not normalized_url.startswith(("http://", "https://")):
+            raise ValueError("panel_base_url_invalid")
         async with session_scope() as session:
+            existing = await get_marzban_panel_by_base_url(session, base_url=normalized_url)
+            if existing is not None:
+                raise ValueError("panel_base_url_exists")
             panel = await create_marzban_panel(
                 session,
                 name=name,
-                base_url=base_url,
+                base_url=normalized_url,
                 username=username,
                 password=password,
                 token=token,
@@ -795,10 +977,80 @@ class ResellerService:
                 actor_type=AuditActorType.SUPER_USER,
                 target_type="marzban_panel",
                 target_id=panel.id,
-                metadata={"name": name, "base_url": base_url.rstrip("/")},
+                metadata={"name": name, "base_url": normalized_url},
             )
             await session.flush()
             return panel
+
+    async def update_panel_password(
+        self,
+        *,
+        panel_id: str,
+        password: str,
+        actor_telegram_id: int | None = None,
+    ) -> PanelDetail:
+        if not password:
+            raise ValueError("panel_password_required")
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            if panel.token_encrypted:
+                raise ValueError("panel_token_auth_only")
+            await update_marzban_panel_credentials(
+                session,
+                panel=panel,
+                secret_box=self.secret_box,
+                password=password,
+            )
+            await record_audit_log(
+                session,
+                action="marzban_panel.password_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="marzban_panel",
+                target_id=panel.id,
+                metadata={"name": panel.name, "base_url": panel.base_url},
+            )
+            assignment_count = await count_panel_assignments(session, panel_id=panel.id)
+            await session.flush()
+            auth_type = "token" if panel.token_encrypted else "password"
+            return PanelDetail(panel=panel, assignment_count=assignment_count, auth_type=auth_type)
+
+    async def update_panel_token(
+        self,
+        *,
+        panel_id: str,
+        token: str,
+        actor_telegram_id: int | None = None,
+    ) -> PanelDetail:
+        if not token:
+            raise ValueError("panel_token_required")
+        async with session_scope() as session:
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            if not panel.token_encrypted:
+                raise ValueError("panel_password_auth_only")
+            await update_marzban_panel_credentials(
+                session,
+                panel=panel,
+                secret_box=self.secret_box,
+                token=token,
+            )
+            await record_audit_log(
+                session,
+                action="marzban_panel.token_update",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                target_type="marzban_panel",
+                target_id=panel.id,
+                metadata={"name": panel.name, "base_url": panel.base_url},
+            )
+            assignment_count = await count_panel_assignments(session, panel_id=panel.id)
+            await session.flush()
+            auth_type = "token" if panel.token_encrypted else "password"
+            return PanelDetail(panel=panel, assignment_count=assignment_count, auth_type=auth_type)
 
     async def list_marzban_panels(self) -> list[MarzbanPanel]:
         async with session_scope() as session:
@@ -917,6 +1169,52 @@ class ResellerService:
             await session.flush()
             return assignment
 
+    async def change_seller_bot_panel(
+        self,
+        *,
+        seller_bot_id: str,
+        panel_id: str,
+        marzban_admin_username: str | None = None,
+        actor_telegram_id: int | None = None,
+    ) -> ResellerPanelSummary:
+        async with session_scope() as session:
+            seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
+            if seller_bot is None:
+                raise ValueError("seller_bot_not_found")
+            panel = await get_marzban_panel(session, panel_id=panel_id)
+            if panel is None:
+                raise ValueError("panel_not_found")
+            if not panel.is_active:
+                raise ValueError("panel_disabled")
+            primary = await get_primary_panel_assignment(session, reseller_id=seller_bot.reseller_id)
+            if primary is not None and primary[1].id == panel.id:
+                raise ValueError("panel_already_assigned")
+            await deactivate_reseller_panel_assignments(session, reseller_id=seller_bot.reseller_id)
+            assignment = await assign_panel_to_reseller(
+                session,
+                reseller_id=seller_bot.reseller_id,
+                panel_id=panel.id,
+                marzban_admin_username=marzban_admin_username,
+                priority=10,
+                weight=1,
+            )
+            await record_audit_log(
+                session,
+                action="seller_bot.panel_change",
+                actor_type=AuditActorType.SUPER_USER,
+                actor_telegram_id=actor_telegram_id,
+                reseller_id=seller_bot.reseller_id,
+                target_type="seller_bot",
+                target_id=seller_bot.id,
+                metadata={
+                    "panel_id": panel.id,
+                    "panel_name": panel.name,
+                    "marzban_admin_username": marzban_admin_username,
+                },
+            )
+            await session.flush()
+            return ResellerPanelSummary(assignment=assignment, panel=panel)
+
     async def update_panel_assignment_routing(
         self,
         *,
@@ -979,12 +1277,13 @@ class ResellerService:
                     last_error=f"invalid seller token: {exc}",
                 )
                 raise ValueError("seller_token_invalid") from exc
-            env = self._seller_environment(seller_bot_id=seller_bot.id, token=token)
+            spec = await self._seller_runtime_spec(session, seller_bot=seller_bot, token=token)
             try:
                 container_id = runtime.start_seller(
                     seller_bot_id=seller_bot.id,
-                    environment=env,
+                    environment=spec.environment,
                     container_id=seller_bot.container_id,
+                    command=spec.command,
                 )
             except Exception as exc:
                 await update_seller_runtime_state(
@@ -1073,12 +1372,13 @@ class ResellerService:
                     last_error=f"invalid seller token: {exc}",
                 )
                 raise ValueError("seller_token_invalid") from exc
-            env = self._seller_environment(seller_bot_id=seller_bot.id, token=token)
+            spec = await self._seller_runtime_spec(session, seller_bot=seller_bot, token=token)
             try:
                 container_id = runtime.start_seller(
                     seller_bot_id=seller_bot.id,
-                    environment=env,
+                    environment=spec.environment,
                     container_id=seller_bot.container_id,
+                    command=spec.command,
                 )
             except Exception as exc:
                 await update_seller_runtime_state(
@@ -1458,7 +1758,53 @@ class ResellerService:
             return self.runtime_controller
         return DockerSellerRuntimeController.from_settings(self.settings)
 
-    def _seller_environment(self, *, seller_bot_id: str, token: str) -> dict[str, str]:
+    async def _seller_runtime_spec(self, session, *, seller_bot: SellerBot, token: str) -> SellerRuntimeSpec:
+        if seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value:
+            return await self._simple_seller_runtime_spec(session, seller_bot=seller_bot, token=token)
+        return SellerRuntimeSpec(
+            environment=self._platform_seller_environment(seller_bot_id=seller_bot.id, token=token),
+            command=["python", "-m", "vpn_bot_platform.seller_bot.main"],
+        )
+
+    def _simple_seller_admin_ids(self, reseller_telegram_id: int) -> str:
+        admin_ids = [str(reseller_telegram_id)]
+        if self.settings is not None and self.settings.super_user_telegram_id is not None:
+            super_user_id = str(self.settings.super_user_telegram_id)
+            if super_user_id not in admin_ids:
+                admin_ids.append(super_user_id)
+        return ",".join(admin_ids)
+
+    async def _simple_seller_runtime_spec(self, session, *, seller_bot: SellerBot, token: str) -> SellerRuntimeSpec:
+        if self.settings is None:
+            raise RuntimeError("settings_required")
+        primary_assignment = await get_primary_panel_assignment(session, reseller_id=seller_bot.reseller_id)
+        if primary_assignment is None:
+            raise ValueError("seller_panel_assignment_not_found")
+        assignment, panel = primary_assignment
+        reseller = await session.get(Reseller, seller_bot.reseller_id)
+        if reseller is None:
+            raise ValueError("reseller_not_found")
+        env = {
+            "APP_ROLE": "simple_seller_bot",
+            "SELLER_BOT_ID": seller_bot.id,
+            "BOT_TOKEN": token,
+            "DATABASE_PATH": f"/app/data/sellers/{seller_bot.id}/bot.sqlite3",
+            "SELLER_DATABASE_PATH": f"/app/data/sellers/{seller_bot.id}/bot.sqlite3",
+            "PLATFORM_DATABASE_URL": self.settings.database_url,
+            "ADMIN_IDS": self._simple_seller_admin_ids(reseller.telegram_user_id),
+            "MARZBAN_BASE_URL": panel.base_url,
+            "MARZBAN_USERNAME": self.secret_box.decrypt(panel.username_encrypted) or "",
+            "MARZBAN_PASSWORD": self.secret_box.decrypt(panel.password_encrypted) or "",
+            "MARZBAN_TOKEN": self.secret_box.decrypt(panel.token_encrypted) or "",
+            "MARZBAN_DEFAULT_PROXIES_JSON": self.settings.marzban_default_proxies_json,
+            "API_TIMEOUT_SECONDS": str(self.settings.api_timeout_seconds),
+        }
+        if assignment.marzban_admin_username:
+            env["MARZBAN_ADMIN_USERNAME"] = assignment.marzban_admin_username
+        self._copy_proxy_env(env)
+        return SellerRuntimeSpec(environment=env, command=["python", "-m", "bot"])
+
+    def _platform_seller_environment(self, *, seller_bot_id: str, token: str) -> dict[str, str]:
         if self.settings is None:
             raise RuntimeError("settings_required")
         env = {
@@ -1470,8 +1816,12 @@ class ResellerService:
             "MARZBAN_TOKEN_PATH": self.settings.marzban_token_path,
             "API_TIMEOUT_SECONDS": str(self.settings.api_timeout_seconds),
         }
+        self._copy_proxy_env(env)
+        return env
+
+    @staticmethod
+    def _copy_proxy_env(env: dict[str, str]) -> None:
         for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
             value = os.getenv(key)
             if value:
                 env[key] = value
-        return env

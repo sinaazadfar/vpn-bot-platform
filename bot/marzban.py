@@ -26,6 +26,15 @@ class MarzbanSubscription:
     expires_at: str
 
 
+@dataclass(slots=True)
+class MarzbanUserStats:
+    username: str
+    status: str
+    used_traffic: int
+    data_limit: int
+    expire: int | None
+
+
 class MarzbanClient:
     def __init__(self, base_url: str, username: str = "", password: str = "", token: str = "", default_proxies_json: str = ""):
         self.base_url = base_url.rstrip("/")
@@ -99,6 +108,59 @@ class MarzbanClient:
             expires_at=datetime.fromtimestamp(body.get("expire", expire), UTC).isoformat(),
         )
 
+    async def create_trial_subscription(
+        self,
+        username: str,
+        *,
+        data_limit_mb: int,
+        duration_days: int,
+    ) -> MarzbanSubscription:
+        if not self.base_url:
+            raise MarzbanError("MARZBAN_BASE_URL is not configured")
+        if data_limit_mb < 1:
+            raise MarzbanError("Trial data limit must be at least 1 MB")
+
+        access_token = self.token or await self._login()
+        proxies, inbounds = await self._resolve_protocol_config(access_token)
+        marzban_username = self._username(username)
+        expire = int((datetime.now(UTC) + timedelta(days=duration_days)).timestamp())
+        data_limit = data_limit_mb * 1024 * 1024
+
+        payload = {
+            "username": marzban_username,
+            "proxies": proxies,
+            "expire": expire,
+            "data_limit": data_limit,
+            "data_limit_reset_strategy": "no_reset",
+            "status": "active",
+            "note": f"trial; traffic_mb={data_limit_mb}; duration_days={duration_days}",
+        }
+        if inbounds:
+            payload["inbounds"] = inbounds
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await self._retry_request(
+                    lambda: client.post(
+                        f"{self.base_url}/api/user",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                )
+        except httpx.RequestError as exc:
+            raise MarzbanError(f"Cannot connect to Marzban panel while creating trial user: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise MarzbanError(f"Marzban trial user creation failed: {response.status_code} {response.text[:500]}")
+
+        body = response.json()
+        subscription_url = self._extract_subscription_url(body) or f"{self.base_url}/sub/{marzban_username}"
+        return MarzbanSubscription(
+            username=body.get("username", marzban_username),
+            subscription_url=subscription_url,
+            expires_at=datetime.fromtimestamp(body.get("expire", expire), UTC).isoformat(),
+        )
+
     async def revoke_subscription(self, username: str) -> str | None:
         access_token = self.token or await self._login()
         try:
@@ -145,6 +207,32 @@ class MarzbanClient:
             expires_at=datetime.fromtimestamp(body.get("expire", expire), UTC).isoformat(),
         )
 
+    async def get_user_stats(self, username: str) -> MarzbanUserStats | None:
+        if not self.base_url:
+            return None
+        access_token = self.token or await self._login()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await self._retry_request(
+                    lambda: client.get(
+                        f"{self.base_url}/api/user/{username}",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                )
+        except httpx.RequestError:
+            return None
+        if response.status_code >= 400:
+            return None
+        body = response.json()
+        expire = body.get("expire")
+        return MarzbanUserStats(
+            username=body.get("username", username),
+            status=str(body.get("status") or "unknown"),
+            used_traffic=int(body.get("used_traffic") or 0),
+            data_limit=int(body.get("data_limit") or 0),
+            expire=int(expire) if expire is not None else None,
+        )
+
     async def fetch_subscription_text(self, subscription_url: str) -> str:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -176,10 +264,7 @@ class MarzbanClient:
         return parsed if parsed > now else now
 
     async def _resolve_protocol_config(self, access_token: str) -> tuple[dict[str, Any], dict[str, list[str]] | None]:
-        try:
-            default_proxies = json.loads(self.default_proxies_json)
-        except json.JSONDecodeError as exc:
-            raise MarzbanError(f"MARZBAN_DEFAULT_PROXIES_JSON is invalid JSON: {exc}") from exc
+        default_proxies = self._load_default_proxies()
         if not isinstance(default_proxies, dict) or not default_proxies:
             raise MarzbanError("MARZBAN_DEFAULT_PROXIES_JSON must be a non-empty JSON object")
 
@@ -200,6 +285,19 @@ class MarzbanClient:
             return default_proxies, None
         proxies = {protocol: default_proxies.get(protocol, {}) for protocol in inbounds}
         return proxies, inbounds
+
+    def _load_default_proxies(self) -> dict[str, Any]:
+        raw = (self.default_proxies_json or "").strip()
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            try:
+                value, _index = json.JSONDecoder().raw_decode(raw)
+            except json.JSONDecodeError:
+                raise MarzbanError(f"MARZBAN_DEFAULT_PROXIES_JSON is invalid JSON: {exc}") from exc
+        if not isinstance(value, dict):
+            raise MarzbanError("MARZBAN_DEFAULT_PROXIES_JSON must be a non-empty JSON object")
+        return value
 
     def _extract_inbounds_by_protocol(self, response: dict[str, Any]) -> dict[str, list[str]]:
         source = response.get("inbounds") if isinstance(response.get("inbounds"), dict) else response

@@ -6,9 +6,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot import constants as c
+from bot.admin_users import notify_wallet_admin_adjustment
 from bot.context import AppContext
 from bot.db import Repository, normalize_support_username
 from bot.formatting import with_footer
+from bot.notifications import notify_wallet_payment_review
 from bot.keyboards import admin_back_keyboard, admin_earning_keyboard, admin_menu, admin_pricing_keyboard, back_to_main_keyboard, main_menu, wallet_after_approval_keyboard
 from bot.states import Broadcast, EarningEdit, PricingEdit, SupportEdit
 
@@ -27,8 +29,8 @@ def _earning_settings_text(enabled: bool, percent: int) -> str:
     return (
         "تنظیمات کسب درآمد\n"
         f"وضعیت: {'فعال' if enabled else 'غیرفعال'}\n"
-        f"پورسانت خرید جدید: {percent}٪\n\n"
-        "پورسانت فقط برای خرید اشتراک جدید محاسبه می‌شود و تمدید اشتراک پورسانت ندارد."
+        f"پورسانت هر پرداخت: {percent}٪\n\n"
+        "با هر خرید یا تمدید اشتراک زیرمجموعه، پورسانت به کیف پول دعوت‌کننده اضافه می‌شود."
     )
 
 
@@ -52,6 +54,30 @@ async def admin_panel_callback(callback: CallbackQuery, ctx: AppContext) -> None
         await callback.answer("دسترسی ندارید.", show_alert=True)
         return
     await _edit_callback_message(callback, with_footer("پنل ادمین"), reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:quota")
+async def admin_quota(callback: CallbackQuery, ctx: AppContext) -> None:
+    if callback.from_user.id not in ctx.settings.admin_ids:
+        await callback.answer("دسترسی ندارید.", show_alert=True)
+        return
+    async with ctx.database.session() as db:
+        quota = await ctx.quota.status(Repository(db))
+    if quota is None:
+        text = "ظرفیت فروش از مستر بات متصل نشده است."
+    else:
+        text = "\n".join(
+            [
+                "ظرفیت فروش ربات",
+                f"سقف کل: {quota.limit_gb} گیگ",
+                f"مصرف‌شده: {quota.used_gb} گیگ",
+                f"باقی‌مانده: {quota.remaining_gb} گیگ",
+                "",
+                "افزایش ظرفیت فقط از ربات مستر انجام می‌شود.",
+            ]
+        )
+    await _edit_callback_message(callback, with_footer(text), reply_markup=admin_back_keyboard())
     await callback.answer()
 
 
@@ -129,7 +155,7 @@ async def earning_percent_start(callback: CallbackQuery, state: FSMContext, ctx:
         await callback.answer("دسترسی ندارید.", show_alert=True)
         return
     await state.set_state(EarningEdit.percent)
-    await _edit_callback_message(callback, "درصد پورسانت خرید جدید را از 0 تا 100 وارد کنید.", reply_markup=admin_back_keyboard())
+    await _edit_callback_message(callback, "درصد پورسانت هر پرداخت را از 0 تا 100 وارد کنید.", reply_markup=admin_back_keyboard())
     await callback.answer()
 
 
@@ -309,76 +335,28 @@ async def preset_discount_finish(message: Message, state: FSMContext, ctx: AppCo
 async def users(message: Message, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
         return
-    async with ctx.database.session() as db:
-        users_list = await Repository(db).list_users(20)
-    text = "\n".join(f"{user.telegram_id} | {user.role} | {user.wallet_balance:,} تومان" for user in users_list) or "کاربری ثبت نشده است."
-    await message.answer(text + "\n\nبرای تغییر موجودی: /adjust TELEGRAM_ID AMOUNT", reply_markup=admin_back_keyboard())
+    from bot.handlers.admin_users import _render_users_list
 
-
-@router.callback_query(F.data == "admin:users")
-async def users_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    if callback.from_user.id not in ctx.settings.admin_ids:
-        await callback.answer("دسترسی ندارید.", show_alert=True)
-        return
-    async with ctx.database.session() as db:
-        users_list = await Repository(db).list_users(20)
-    text = "\n".join(f"{user.telegram_id} | {user.role} | {user.wallet_balance:,} تومان" for user in users_list) or "کاربری ثبت نشده است."
-    await _edit_callback_message(callback, text + "\n\nبرای تغییر موجودی: /adjust TELEGRAM_ID AMOUNT", reply_markup=admin_back_keyboard())
-    await callback.answer()
+    await _render_users_list(message, ctx, page=1)
 
 
 @router.message(F.text.startswith("/adjust"))
 async def adjust_wallet_command(message: Message, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
         return
-    parts = (message.text or "").split()
-    if len(parts) != 3:
-        await message.answer("فرمت: /adjust TELEGRAM_ID AMOUNT", reply_markup=admin_back_keyboard())
-        return
-    try:
-        telegram_id = int(parts[1])
-        amount = int(parts[2])
-    except ValueError:
-        await message.answer("شناسه و مبلغ باید عددی باشند.", reply_markup=admin_back_keyboard())
-        return
-    async with ctx.database.session() as db:
-        repository = Repository(db)
-        target = await repository.get_user_by_telegram_id(telegram_id)
-        if not target:
-            await message.answer("کاربر پیدا نشد.", reply_markup=admin_back_keyboard())
-            return
-        await repository.adjust_wallet(target.id, amount, "admin_adjust")
-        await db.commit()
-    await message.answer("موجودی تغییر کرد.", reply_markup=admin_back_keyboard())
+    await message.answer(
+        "دستور /adjust منسوخ شده است.\nاز پنل ادمین → کاربران → شارژ کیف پول استفاده کنید.",
+        reply_markup=admin_back_keyboard(),
+    )
 
 
 @router.message(F.text == c.ADMIN_PAYMENTS)
 async def pending_payments(message: Message, ctx: AppContext) -> None:
     if not await require_admin(message, ctx):
         return
-    async with ctx.database.session() as db:
-        payments = await Repository(db).list_pending_payments()
-    if not payments:
-        await message.answer("پرداخت در انتظاری وجود ندارد.", reply_markup=admin_back_keyboard())
-        return
-    text = "\n".join(f"#{payment.id} | user_id={payment.user_id} | {payment.amount:,} تومان" for payment in payments)
-    await message.answer(text, reply_markup=admin_back_keyboard())
+    from bot.handlers.admin_payments import _render_payments_list_message
 
-
-@router.callback_query(F.data == "admin:payments")
-async def pending_payments_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    if callback.from_user.id not in ctx.settings.admin_ids:
-        await callback.answer("دسترسی ندارید.", show_alert=True)
-        return
-    async with ctx.database.session() as db:
-        payments = await Repository(db).list_pending_payments()
-    if not payments:
-        await _edit_callback_message(callback, "پرداخت در انتظاری وجود ندارد.", reply_markup=admin_back_keyboard())
-        await callback.answer()
-        return
-    text = "\n".join(f"#{payment.id} | user_id={payment.user_id} | {payment.amount:,} تومان" for payment in payments)
-    await _edit_callback_message(callback, text, reply_markup=admin_back_keyboard())
-    await callback.answer()
+    await _render_payments_list_message(message, ctx, page=1)
 
 
 @router.callback_query(F.data.startswith("pay_ok:") | F.data.startswith("pay_no:"))
@@ -390,23 +368,27 @@ async def review_payment(callback: CallbackQuery, ctx: AppContext) -> None:
     approved = action == "pay_ok"
     async with ctx.database.session() as db:
         repository = Repository(db)
-        admin_user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        admin_user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         payment = await repository.review_payment(int(raw_id), admin_user.id, approved)
         buyer = await repository.get_user(payment.user_id) if payment else None
+        balance = buyer.wallet_balance if buyer and approved else 0
     if not payment:
         await callback.answer("این پرداخت قبلا بررسی شده یا پیدا نشد.", show_alert=True)
         return
     if buyer:
-        text = (
-            f"پرداخت شما به مبلغ {payment.amount:,} تومان تایید شد و کیف پول شارژ شد."
-            if approved
-            else f"پرداخت شما به مبلغ {payment.amount:,} تومان رد شد."
+        await notify_wallet_payment_review(
+            callback.bot,
+            buyer,
+            amount=payment.amount,
+            approved=approved,
+            balance=balance,
         )
-        reply_markup = wallet_after_approval_keyboard() if approved else None
-        reply_markup = reply_markup or back_to_main_keyboard()
-        await callback.bot.send_message(buyer.telegram_id, text, reply_markup=reply_markup)
     await callback.answer("ثبت شد.", show_alert=True)
-    await callback.message.edit_caption((callback.message.caption or "") + f"\nوضعیت: {'تایید شد' if approved else 'رد شد'}", reply_markup=admin_back_keyboard())
+    status = "تایید شد" if approved else "رد شد"
+    if callback.message.photo:
+        await callback.message.edit_caption((callback.message.caption or "") + f"\nوضعیت: {status}", reply_markup=admin_back_keyboard())
+    else:
+        await _edit_callback_message(callback, (callback.message.text or "") + f"\n\nوضعیت: {status}", reply_markup=admin_back_keyboard())
 
 
 @router.message(F.text == c.ADMIN_BROADCAST)

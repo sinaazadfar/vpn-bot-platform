@@ -4,18 +4,33 @@ import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from bot import constants as c
+from bot.connection_guides import (
+    get_app,
+    get_platform,
+    guides_app_keyboard,
+    guides_app_text,
+    guides_apps_keyboard,
+    guides_home_text,
+    guides_platform_text,
+    guides_platforms_keyboard,
+)
 from bot.configs import build_configs_txt, parse_v2ray_configs
+from bot.discount_flow import discount_error_message, purchase_confirm_text
 from bot.context import AppContext
-from bot.db import User, Repository, normalize_referral_code
-from bot.formatting import html_code, html_link, html_pre, with_footer
-from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, subscription_back_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
+from bot.db import User, Repository, Subscription, normalize_referral_code
+from bot.formatting import html_code, html_pre, with_footer
+from bot.keyboards import MAX_WALLET_TOP_UP, MIN_WALLET_TOP_UP, back_to_main_keyboard, confirm_extension_keyboard, confirm_purchase_keyboard, duration_keyboard, earn_details_keyboard, earn_keyboard, main_menu, payment_review_keyboard, profile_keyboard, purchase_coupon_keyboard, subscription_back_keyboard, subscription_configs_keyboard, subscription_detail_keyboard, subscriptions_page_keyboard, traffic_presets_keyboard, wallet_payment_keyboard, wallet_top_up_keyboard
 from bot.marzban import MarzbanError
+from bot.menu_helpers import main_menu_for_user
+from bot.quota import VolumeQuotaError
 from bot.qr import make_qr_png
-from bot.states import PurchaseUsername, WalletTopUp
+from bot.states import PurchaseCoupon, PurchaseUsername, WalletTopUp
+from bot.trial_flow import should_show_trial_button
 
 router = Router()
 SUBS_PER_PAGE = 10
@@ -52,22 +67,54 @@ def _referral_invite_url(referral_code: str, bot_username: str) -> str:
     return f"https://t.me/{bot_username}?start={display_code}"
 
 
-def _earn_invite_text(invite_url: str) -> str:
+def _bot_display_name(*, first_name: str | None, username: str | None) -> str:
+    if first_name and first_name.strip():
+        return first_name.strip()
+    if username:
+        return f"@{username.lstrip('@')}"
+    return "ربات"
+
+
+def _earn_invite_instructions(earning_percent: int) -> str:
+    example_purchase = 200_000
+    example_commission = example_purchase * earning_percent // 100
     return (
-        "دعوت دوستان و کسب درآمد\n\n"
-        "این لینک را برای دوستانت بفرست تا وارد ربات شوند و از خدمات VPN استفاده کنند.\n\n"
-        f"لینک رفرال: {html_link('ورود با لینک رفرال', invite_url)}"
+        "دوستاتو دعوت کن، از خریدشون درآمد داشته باش😍\n\n"
+        "خلاصه‌ش اینه:\n"
+        "۱) پیام پایین رو برای دوستات بفرست (یا فقط لینک داخلش رو کپی کن).\n"
+        "۲) با لینک تو وارد ربات میشن و زیرمجموعه‌ات ثبت میشن.\n"
+        f"۳) هر بار که پرداخت کنن، {earning_percent}٪ مبلغ پرداختشون تو کیف پولت میشینه.\n\n"
+        "یه مثال:\n"
+        f"دوستت اشتراک 200,000 تومنی بگیره → {example_commission:,} تومن برات.\n\n"
+        "این متن رو بفرست:"
     )
+
+
+def _earn_share_message(bot_name: str, invite_url: str) -> str:
+    return (
+        "سلام!\n"
+        f"از ربات {bot_name} می‌تونی راحت اشتراک VPN بگیری. پشتیبانی‌شون عالیه و کیفیت‌شون خیلی خوبه 👌👌\n"
+        f"{invite_url}"
+    )
+
+
+async def _send_earn_invite(message: Message, *, bot_name: str, invite_url: str, earning_percent: int) -> None:
+    await message.answer(
+        with_footer(_earn_invite_instructions(earning_percent)),
+        reply_markup=earn_keyboard(),
+        parse_mode="HTML",
+    )
+    await message.answer(_earn_share_message(bot_name, invite_url))
 
 
 def _earn_details_text(referral_code: str, percent: int, total_earned: int) -> str:
     return (
-        "جزئیات کسب درآمد\n\n"
-        f"کد دعوت شما:\n{html_code(referral_code.upper())}\n\n"
-        f"پورسانت فعلی: {percent}٪ از خرید اشتراک جدید\n"
-        f"درآمد ثبت‌شده شما: {total_earned:,} تومان\n\n"
-        "سیستم کسب درآمد یک‌سطحی است. یعنی فقط خرید کاربران مستقیمی که با لینک دعوت شما وارد شده‌اند برای شما پورسانت دارد.\n\n"
-        "پورسانت بعد از خرید موفق اشتراک جدید به کیف پول شما اضافه می‌شود. تمدید اشتراک شامل پورسانت نیست."
+        "آمار کسب درآمدت\n\n"
+        f"کد دعوتت:\n{html_code(referral_code.upper())}\n\n"
+        f"پورسانت فعلی: {percent}٪ از هر پرداخت\n"
+        f"تا الان دراوردی: {total_earned:,} تومن\n\n"
+        "فقط کسایی که مستقیم با لینک دعوت تو اومدن برات پورسانت می‌ذارن.\n"
+        "بعد هر پرداخت موفق، سهمت خودکار میره کیف پولت."
     )
 
 
@@ -102,6 +149,56 @@ def _insufficient_wallet_text(wallet_balance: int, final_price: int) -> str:
     )
 
 
+def _parse_coupon_offer_suffix(parts: list[str]) -> tuple[int, int, str, int]:
+    raw_duration, raw_gb, source, raw_discount = parts[2], parts[3], parts[4], parts[5]
+    return int(raw_duration), int(raw_gb), source, int(raw_discount)
+
+
+async def _show_purchase_confirm(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repository: Repository,
+    *,
+    traffic_gb: int,
+    duration_days: int,
+    source: str,
+    preset_discount: int,
+    coupon_code_id: int = 0,
+    coupon_percent: int = 0,
+    coupon_code: str = "",
+) -> None:
+    settings = await repository.get_pricing_settings()
+    offer = repository.build_offer(settings, traffic_gb, duration_days, source, preset_discount)
+    final_offer = repository.apply_coupon_to_offer(offer, coupon_percent) if coupon_percent else offer
+    await state.update_data(
+        traffic_gb=traffic_gb,
+        duration_days=duration_days,
+        source=source,
+        discount_percent=preset_discount,
+        coupon_code_id=coupon_code_id,
+        coupon_percent=coupon_percent,
+        coupon_code=coupon_code,
+    )
+    await _edit_callback_message(
+        callback,
+        purchase_confirm_text(final_offer, coupon_percent=coupon_percent, coupon_code=coupon_code),
+        reply_markup=confirm_purchase_keyboard(final_offer),
+        parse_mode="HTML",
+    )
+
+
+def _build_purchase_offer_from_state(repository: Repository, data: dict, settings) -> tuple:
+    traffic_gb = int(data["traffic_gb"])
+    duration_days = int(data["duration_days"])
+    source = str(data["source"])
+    preset_discount = int(data["discount_percent"])
+    coupon_percent = int(data.get("coupon_percent") or 0)
+    offer = repository.build_offer(settings, traffic_gb, duration_days, source, preset_discount)
+    if coupon_percent:
+        offer = repository.apply_coupon_to_offer(offer, coupon_percent)
+    return offer, int(data.get("coupon_code_id") or 0), str(data.get("coupon_code") or "")
+
+
 async def _edit_callback_message(callback: CallbackQuery, text: str, **kwargs) -> None:
     try:
         await callback.message.edit_text(text, **kwargs)
@@ -110,7 +207,38 @@ async def _edit_callback_message(callback: CallbackQuery, text: str, **kwargs) -
             raise
 
 
-@router.message(F.text.startswith("/start"))
+def _subscription_detail_text(subscription: Subscription) -> str:
+    return with_footer(
+        "جزئیات اشتراک\n"
+        f"نام کاربری: {html_code(subscription.marzban_username)}\n"
+        f"وضعیت: {subscription.status}\n"
+        f"حجم کل: {subscription.traffic_gb} GB\n"
+        f"روزهای کل خریداری شده: {subscription.duration_days}\n"
+        f"مبلغ کل پرداختی: {subscription.final_price:,} تومان\n"
+        f"{_subscription_link_text(subscription.subscription_url)}"
+    )
+
+
+async def _show_subscription_detail(callback: CallbackQuery, subscription: Subscription) -> None:
+    text = _subscription_detail_text(subscription)
+    markup = subscription_detail_keyboard(subscription.id)
+    kwargs = {"reply_markup": markup, "parse_mode": "HTML"}
+    if callback.message.text:
+        await _edit_callback_message(callback, text, **kwargs)
+    else:
+        await callback.message.answer(text, **kwargs)
+
+
+async def send_subscription_detail_message(bot, chat_id: int, subscription: Subscription) -> None:
+    await bot.send_message(
+        chat_id,
+        _subscription_detail_text(subscription),
+        reply_markup=subscription_detail_keyboard(subscription.id),
+        parse_mode="HTML",
+    )
+
+
+@router.message(CommandStart())
 async def start(message: Message, ctx: AppContext) -> None:
     referred_by = None
     referral_feedback = ""
@@ -133,16 +261,21 @@ async def start(message: Message, ctx: AppContext) -> None:
                 else:
                     referral_feedback = "کد رفرال قبلا برای حساب شما ثبت شده است."
                     referred_by = None
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids, referred_by=referred_by)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids, referred_by=referred_by)
+        if user.is_blocked and message.from_user.id not in ctx.settings.admin_ids:
+            await message.answer(with_footer("حساب شما توسط ادمین مسدود شده است."), reply_markup=back_to_main_keyboard())
+            return
         if referred_by:
             referral_feedback = "کد رفرال با موفقیت برای حساب شما ثبت شد."
-        support_username = await repository.get_support_username()
-        earning_enabled = await repository.get_earning_enabled()
     if referral_feedback:
         await message.answer(referral_feedback, reply_markup=back_to_main_keyboard())
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        keyboard = await main_menu_for_user(repository, user, ctx)
     await message.answer(
         with_footer("به ربات فروش VPN خوش آمدید."),
-        reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled),
+        reply_markup=keyboard,
     )
 
 
@@ -162,20 +295,18 @@ async def show_id(message: Message, ctx: AppContext) -> None:
 async def back(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
-        support_username = await repository.get_support_username()
-        earning_enabled = await repository.get_earning_enabled()
-    await message.answer(with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        keyboard = await main_menu_for_user(repository, user, ctx)
+    await message.answer(with_footer("منوی اصلی"), reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "menu:home")
 async def back_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
-        support_username = await repository.get_support_username()
-        earning_enabled = await repository.get_earning_enabled()
-    await _edit_callback_message(callback, with_footer("منوی اصلی"), reply_markup=main_menu(user.role == "admin", ctx.settings.web_app_url, support_username, earning_enabled))
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
+        keyboard = await main_menu_for_user(repository, user, ctx)
+    await _edit_callback_message(callback, with_footer("منوی اصلی"), reply_markup=keyboard)
     await callback.answer()
 
 
@@ -188,7 +319,7 @@ async def noop(callback: CallbackQuery) -> None:
 async def wallet(message: Message, state: FSMContext, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         support_username = await repository.get_support_username()
     await message.answer(
         with_footer(f"موجودی کیف پول: {user.wallet_balance:,} تومان\nمبلغ شارژ را انتخاب کنید:"),
@@ -200,7 +331,7 @@ async def wallet(message: Message, state: FSMContext, ctx: AppContext) -> None:
 async def wallet_callback(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         support_username = await repository.get_support_username()
     await _edit_callback_message(
         callback,
@@ -271,7 +402,7 @@ async def wallet_screenshot(message: Message, state: FSMContext, ctx: AppContext
     photo_id = message.photo[-1].file_id
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         payment = await repository.create_payment(user.id, amount, photo_id)
     for admin_id in ctx.settings.admin_ids:
         await message.bot.send_photo(
@@ -293,18 +424,27 @@ async def wallet_screenshot_invalid(message: Message) -> None:
 async def buy_subscription(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         presets = await repository.list_traffic_presets()
-    await message.answer(with_footer("حجم اشتراک را انتخاب کنید:"), reply_markup=traffic_presets_keyboard(presets))
+        show_trial = await should_show_trial_button(repository, user.id)
+    await message.answer(
+        with_footer("حجم اشتراک را انتخاب کنید:"),
+        reply_markup=traffic_presets_keyboard(presets, show_trial=show_trial),
+    )
 
 
 @router.callback_query(F.data == "menu:buy")
 async def buy_subscription_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         presets = await repository.list_traffic_presets()
-    await _edit_callback_message(callback, with_footer("حجم اشتراک را انتخاب کنید:"), reply_markup=traffic_presets_keyboard(presets))
+        show_trial = await should_show_trial_button(repository, user.id)
+    await _edit_callback_message(
+        callback,
+        with_footer("حجم اشتراک را انتخاب کنید:"),
+        reply_markup=traffic_presets_keyboard(presets, show_trial=show_trial),
+    )
     await callback.answer()
 
 
@@ -362,22 +502,99 @@ async def choose_duration(callback: CallbackQuery, ctx: AppContext) -> None:
         repository = Repository(db)
         settings = await repository.get_pricing_settings()
         try:
-            offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
+            repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
         except ValueError:
             await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
             return
     await _edit_callback_message(
         callback,
-        with_footer("تایید خرید\n"
-        f"حجم: {offer.traffic_gb} GB\n"
-        f"مدت: {offer.duration_days} روز\n"
-        f"قیمت حجم: {offer.base_price:,} تومان\n"
-        f"هزینه مدت: {offer.duration_extra:,} تومان\n"
-        f"تخفیف: {offer.discount_percent}٪\n"
-        f"مبلغ نهایی: {offer.final_price:,} تومان"),
-        reply_markup=confirm_purchase_keyboard(offer),
+        with_footer(f"حجم انتخابی: {traffic_gb} GB\nمدت: {duration_days} روز\n\nکد تخفیف دارید؟"),
+        reply_markup=purchase_coupon_keyboard(traffic_gb, duration_days, source, discount_percent),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("coupon:skip:"))
+async def purchase_coupon_skip(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    duration_days, traffic_gb, source, preset_discount = _parse_coupon_offer_suffix(callback.data.split(":"))
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        settings = await repository.get_pricing_settings()
+        try:
+            repository.build_offer(settings, traffic_gb, duration_days, source, preset_discount)
+        except ValueError:
+            await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
+            return
+        await _show_purchase_confirm(
+            callback,
+            state,
+            repository,
+            traffic_gb=traffic_gb,
+            duration_days=duration_days,
+            source=source,
+            preset_discount=preset_discount,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("coupon:ask:"))
+async def purchase_coupon_ask(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
+    duration_days, traffic_gb, source, preset_discount = _parse_coupon_offer_suffix(callback.data.split(":"))
+    await state.update_data(
+        traffic_gb=traffic_gb,
+        duration_days=duration_days,
+        source=source,
+        discount_percent=preset_discount,
+        coupon_code_id=0,
+        coupon_percent=0,
+        coupon_code="",
+    )
+    await state.set_state(PurchaseCoupon.code)
+    await _edit_callback_message(
+        callback,
+        with_footer("کد تخفیف را ارسال کنید."),
+        reply_markup=back_to_main_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(PurchaseCoupon.code)
+async def purchase_coupon_entered(message: Message, state: FSMContext, ctx: AppContext) -> None:
+    code = (message.text or "").strip()
+    data = await state.get_data()
+    async with ctx.database.session() as db:
+        repository = Repository(db)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        try:
+            discount = await repository.validate_discount_for_user(code, user.id)
+        except ValueError as exc:
+            await message.answer(with_footer(discount_error_message(exc)), reply_markup=back_to_main_keyboard())
+            return
+        settings = await repository.get_pricing_settings()
+        try:
+            offer = repository.build_offer(
+                settings,
+                int(data["traffic_gb"]),
+                int(data["duration_days"]),
+                str(data["source"]),
+                int(data["discount_percent"]),
+            )
+        except ValueError:
+            await message.answer("این انتخاب معتبر یا فعال نیست.", reply_markup=back_to_main_keyboard())
+            await state.clear()
+            return
+        final_offer = repository.apply_coupon_to_offer(offer, discount.discount_percent)
+    await state.update_data(
+        coupon_code_id=discount.id,
+        coupon_percent=discount.discount_percent,
+        coupon_code=discount.code,
+    )
+    await state.set_state(None)
+    await message.answer(
+        purchase_confirm_text(final_offer, coupon_percent=discount.discount_percent, coupon_code=discount.code),
+        reply_markup=confirm_purchase_keyboard(final_offer),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("extend_duration:"))
@@ -421,7 +638,7 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
     discount_percent = int(raw_discount)
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         subscription = await repository.get_user_subscription(user.id, subscription_id)
         settings = await repository.get_pricing_settings()
         if not subscription:
@@ -440,6 +657,11 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
             )
             await callback.answer()
             return
+        try:
+            await ctx.quota.ensure_available(repository, requested_gb=offer.traffic_gb)
+        except VolumeQuotaError:
+            await callback.answer("ظرفیت فروش این ربات کافی نیست.", show_alert=True)
+            return
     await _edit_callback_message(callback, "در حال تمدید اشتراک...", reply_markup=subscription_back_keyboard(subscription.id))
     try:
         marzban_sub = await ctx.marzban.extend_subscription(
@@ -455,7 +677,7 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
         return
     async with ctx.database.session() as db:
         repository = Repository(db)
-        fresh_user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        fresh_user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         fresh_subscription = await repository.get_user_subscription(fresh_user.id, subscription_id)
         if not fresh_subscription:
             await callback.answer("اشتراک پیدا نشد.", show_alert=True)
@@ -479,19 +701,27 @@ async def extend_confirm(callback: CallbackQuery, ctx: AppContext) -> None:
 
 @router.callback_query(F.data.startswith("confirm:"))
 async def confirm_purchase(callback: CallbackQuery, state: FSMContext, ctx: AppContext) -> None:
-    _, raw_gb, raw_duration, source, raw_discount = callback.data.split(":")
-    traffic_gb = int(raw_gb)
-    duration_days = int(raw_duration)
-    discount_percent = int(raw_discount)
+    data = await state.get_data()
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         settings = await repository.get_pricing_settings()
         try:
-            offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
-        except ValueError:
-            await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
-            return
+            offer, coupon_code_id, coupon_code = _build_purchase_offer_from_state(repository, data, settings)
+        except (ValueError, KeyError):
+            _, raw_gb, raw_duration, source, raw_discount = callback.data.split(":")
+            try:
+                offer = repository.build_offer(settings, int(raw_gb), int(raw_duration), source, int(raw_discount))
+                coupon_code_id, coupon_code = 0, ""
+            except ValueError:
+                await callback.answer("این انتخاب معتبر یا فعال نیست.", show_alert=True)
+                return
+        if coupon_code_id and coupon_code:
+            try:
+                await repository.validate_discount_for_user(coupon_code, user.id)
+            except ValueError as exc:
+                await callback.answer(discount_error_message(exc), show_alert=True)
+                return
         if user.wallet_balance < offer.final_price:
             await _edit_callback_message(
                 callback,
@@ -500,12 +730,20 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext, ctx: AppC
             )
             await callback.answer()
             return
+        try:
+            await ctx.quota.ensure_available(repository, requested_gb=offer.traffic_gb)
+        except VolumeQuotaError:
+            await callback.answer("ظرفیت فروش این ربات کافی نیست.", show_alert=True)
+            return
 
     await state.update_data(
-        traffic_gb=traffic_gb,
-        duration_days=duration_days,
-        source=source,
-        discount_percent=discount_percent,
+        traffic_gb=offer.traffic_gb,
+        duration_days=offer.duration_days,
+        source=offer.source,
+        discount_percent=int(data.get("discount_percent") or 0),
+        coupon_code_id=coupon_code_id,
+        coupon_percent=int(data.get("coupon_percent") or 0),
+        coupon_code=coupon_code,
     )
     await state.set_state(PurchaseUsername.username)
     await _edit_callback_message(
@@ -525,22 +763,31 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
         await message.answer("نام کاربری معتبر نیست. فقط حروف انگلیسی، عدد و _ وارد کنید.", reply_markup=back_to_main_keyboard())
         return
     data = await state.get_data()
-    traffic_gb = int(data["traffic_gb"])
-    duration_days = int(data["duration_days"])
-    source = str(data["source"])
-    discount_percent = int(data["discount_percent"])
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         settings = await repository.get_pricing_settings()
         try:
-            offer = repository.build_offer(settings, traffic_gb, duration_days, source, discount_percent)
-        except ValueError:
+            offer, coupon_code_id, coupon_code = _build_purchase_offer_from_state(repository, data, settings)
+        except (ValueError, KeyError):
             await message.answer("این انتخاب معتبر یا فعال نیست.", reply_markup=back_to_main_keyboard())
             await state.clear()
             return
+        if coupon_code_id and coupon_code:
+            try:
+                await repository.validate_discount_for_user(coupon_code, user.id)
+            except ValueError as exc:
+                await message.answer(with_footer(discount_error_message(exc)), reply_markup=back_to_main_keyboard())
+                await state.clear()
+                return
         if user.wallet_balance < offer.final_price:
             await message.answer(with_footer(_insufficient_wallet_text(user.wallet_balance, offer.final_price)), reply_markup=back_to_main_keyboard())
+            await state.clear()
+            return
+        try:
+            await ctx.quota.ensure_available(repository, requested_gb=offer.traffic_gb)
+        except VolumeQuotaError:
+            await message.answer("ظرفیت فروش این ربات کافی نیست.", reply_markup=back_to_main_keyboard())
             await state.clear()
             return
 
@@ -554,14 +801,23 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
 
     async with ctx.database.session() as db:
         repository = Repository(db)
-        fresh_user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
-        subscription = await repository.create_subscription_after_charge(
-            fresh_user,
-            offer,
-            marzban_sub.username,
-            marzban_sub.subscription_url,
-            marzban_sub.expires_at,
-        )
+        fresh_user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
+        try:
+            subscription = await repository.create_subscription_after_charge(
+                fresh_user,
+                offer,
+                marzban_sub.username,
+                marzban_sub.subscription_url,
+                marzban_sub.expires_at,
+                coupon_code_id=coupon_code_id or None,
+            )
+        except ValueError as exc:
+            if str(exc) == "coupon_redeem_failed":
+                await message.answer(with_footer(discount_error_message(exc)), reply_markup=back_to_main_keyboard())
+            else:
+                await message.answer("خرید ناموفق بود.", reply_markup=back_to_main_keyboard())
+            await state.clear()
+            return
     await state.clear()
     await message.answer(
         "اشتراک ساخته شد.\n"
@@ -580,14 +836,14 @@ async def purchase_username_received(message: Message, state: FSMContext, ctx: A
 async def my_subscriptions(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         total = await repository.count_user_subscriptions(user.id)
         subscriptions = await repository.list_user_subscriptions_page(user.id, 1, SUBS_PER_PAGE)
     if not subscriptions:
         await message.answer("شما هنوز اشتراکی ندارید.", reply_markup=back_to_main_keyboard())
         return
     total_pages = max((total + SUBS_PER_PAGE - 1) // SUBS_PER_PAGE, 1)
-    await message.answer(with_footer("اشتراک های من"), reply_markup=subscriptions_page_keyboard(subscriptions, 1, total_pages))
+    await message.answer(with_footer("اشتراک‌های من\n\nبرای جستجو روی 🔎 بزنید."), reply_markup=subscriptions_page_keyboard(subscriptions, 1, total_pages))
 
 
 @router.callback_query(F.data == "menu:subs")
@@ -604,7 +860,7 @@ async def subscriptions_page_callback(callback: CallbackQuery, ctx: AppContext) 
 async def send_subscriptions_page(callback: CallbackQuery, ctx: AppContext, page: int) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         total = await repository.count_user_subscriptions(user.id)
         total_pages = max((total + SUBS_PER_PAGE - 1) // SUBS_PER_PAGE, 1)
         page = min(max(page, 1), total_pages)
@@ -613,7 +869,7 @@ async def send_subscriptions_page(callback: CallbackQuery, ctx: AppContext, page
         await _edit_callback_message(callback, "شما هنوز اشتراکی ندارید.", reply_markup=back_to_main_keyboard())
         await callback.answer()
         return
-    await _edit_callback_message(callback, with_footer("اشتراک های من"), reply_markup=subscriptions_page_keyboard(subscriptions, page, total_pages))
+    await _edit_callback_message(callback, with_footer("اشتراک‌های من\n\nبرای جستجو روی 🔎 بزنید."), reply_markup=subscriptions_page_keyboard(subscriptions, page, total_pages))
     await callback.answer()
 
 
@@ -623,19 +879,20 @@ async def subscription_detail(callback: CallbackQuery, ctx: AppContext) -> None:
     subscription = await get_owned_subscription(callback, ctx, subscription_id)
     if not subscription:
         return
+    await _show_subscription_detail(callback, subscription)
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^sub:configs:\d+$"))
+async def subscription_configs_menu(callback: CallbackQuery, ctx: AppContext) -> None:
+    subscription_id = int(callback.data.rsplit(":", 1)[-1])
+    subscription = await get_owned_subscription(callback, ctx, subscription_id)
+    if not subscription:
+        return
     await _edit_callback_message(
         callback,
-        with_footer(
-            "جزئیات اشتراک\n"
-            f"نام کاربری: {html_code(subscription.marzban_username)}\n"
-            f"وضعیت: {subscription.status}\n"
-            f"حجم کل: {subscription.traffic_gb} GB\n"
-            f"روزهای کل خریداری شده: {subscription.duration_days}\n"
-            f"مبلغ کل پرداختی: {subscription.final_price:,} تومان\n"
-            f"{_subscription_link_text(subscription.subscription_url)}"
-        ),
-        reply_markup=subscription_detail_keyboard(subscription.id),
-        parse_mode="HTML",
+        with_footer("نوع دریافت کانفیگ را انتخاب کنید."),
+        reply_markup=subscription_configs_keyboard(subscription.id),
     )
     await callback.answer()
 
@@ -761,7 +1018,7 @@ async def subscription_extend_start(callback: CallbackQuery, ctx: AppContext) ->
 async def get_owned_subscription(callback: CallbackQuery, ctx: AppContext, subscription_id: int):
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         subscription = await repository.get_user_subscription(user.id, subscription_id)
     if not subscription:
         await callback.answer("اشتراک پیدا نشد.", show_alert=True)
@@ -773,7 +1030,7 @@ async def get_owned_subscription(callback: CallbackQuery, ctx: AppContext, subsc
 async def profile(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         subscription_count = await repository.count_user_subscriptions(user.id)
         earning_enabled = await repository.get_earning_enabled()
         referral_total = await repository.get_referral_earnings_total(user.id) if earning_enabled else 0
@@ -789,7 +1046,7 @@ async def profile(message: Message, ctx: AppContext) -> None:
 async def profile_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         subscription_count = await repository.count_user_subscriptions(user.id)
         earning_enabled = await repository.get_earning_enabled()
         referral_total = await repository.get_referral_earnings_total(user.id) if earning_enabled else 0
@@ -805,23 +1062,57 @@ async def profile_callback(callback: CallbackQuery, ctx: AppContext) -> None:
 
 @router.message(F.text == c.TUTORIAL)
 async def tutorial(message: Message, ctx: AppContext) -> None:
-    await message.answer(ctx.settings.tutorial_text, reply_markup=back_to_main_keyboard())
+    await message.answer(
+        with_footer(guides_home_text(extra_note=ctx.settings.tutorial_text)),
+        reply_markup=guides_platforms_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "menu:tutorial")
 async def tutorial_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    await _edit_callback_message(callback, ctx.settings.tutorial_text, reply_markup=back_to_main_keyboard())
+    await _edit_callback_message(
+        callback,
+        with_footer(guides_home_text(extra_note=ctx.settings.tutorial_text)),
+        reply_markup=guides_platforms_keyboard(),
+    )
     await callback.answer()
 
 
-@router.message(F.text == c.SUPPORT)
-async def support(message: Message, ctx: AppContext) -> None:
-    await message.answer(f"{ctx.settings.support_text}\n\nیوزرنیم پشتیبانی هنوز تنظیم نشده است.", reply_markup=back_to_main_keyboard())
+@router.callback_query(F.data.startswith("guide:p:"))
+async def guide_platform_callback(callback: CallbackQuery) -> None:
+    platform_key = callback.data.removeprefix("guide:p:")
+    platform = get_platform(platform_key)
+    if platform is None:
+        await callback.answer("سیستم‌عامل پیدا نشد.", show_alert=True)
+        return
+    await _edit_callback_message(
+        callback,
+        with_footer(guides_platform_text(platform)),
+        reply_markup=guides_apps_keyboard(platform),
+    )
+    await callback.answer()
 
 
-@router.callback_query(F.data == "menu:support")
-async def support_callback(callback: CallbackQuery, ctx: AppContext) -> None:
-    await _edit_callback_message(callback, f"{ctx.settings.support_text}\n\nیوزرنیم پشتیبانی هنوز تنظیم نشده است.", reply_markup=back_to_main_keyboard())
+@router.callback_query(F.data.startswith("guide:a:"))
+async def guide_app_callback(callback: CallbackQuery) -> None:
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4 or parts[0] != "guide" or parts[1] != "a":
+        await callback.answer("درخواست نامعتبر.", show_alert=True)
+        return
+    platform_key, app_key = parts[2], parts[3]
+    platform = get_platform(platform_key)
+    if platform is None:
+        await callback.answer("سیستم‌عامل پیدا نشد.", show_alert=True)
+        return
+    app = get_app(platform_key, app_key)
+    if app is None:
+        await callback.answer("اپ پیدا نشد.", show_alert=True)
+        return
+    await _edit_callback_message(
+        callback,
+        with_footer(guides_app_text(platform, app)),
+        reply_markup=guides_app_keyboard(platform, app),
+    )
     await callback.answer()
 
 
@@ -829,38 +1120,39 @@ async def support_callback(callback: CallbackQuery, ctx: AppContext) -> None:
 async def earn(message: Message, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(message.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(message.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
+        earning_percent = await repository.get_earning_percent()
     if not earning_enabled:
         await message.answer(with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
         return
-    bot_username = (await message.bot.me()).username
-    invite_url = _referral_invite_url(user.referral_code, bot_username)
-    await message.answer(
-        with_footer(_earn_invite_text(invite_url)),
-        reply_markup=earn_keyboard(),
-        parse_mode="HTML",
-    )
+    bot = await message.bot.me()
+    bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
+    invite_url = _referral_invite_url(user.referral_code, bot.username)
+    await _send_earn_invite(message, bot_name=bot_name, invite_url=invite_url, earning_percent=earning_percent)
 
 
 @router.callback_query(F.data == "menu:earn")
 async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
+        earning_percent = await repository.get_earning_percent()
     if not earning_enabled:
         await _edit_callback_message(callback, with_footer("بخش کسب درآمد در حال حاضر فعال نیست."), reply_markup=back_to_main_keyboard())
         await callback.answer()
         return
-    bot_username = (await callback.bot.me()).username
-    invite_url = _referral_invite_url(user.referral_code, bot_username)
+    bot = await callback.bot.me()
+    bot_name = _bot_display_name(first_name=bot.first_name, username=bot.username)
+    invite_url = _referral_invite_url(user.referral_code, bot.username)
     await _edit_callback_message(
         callback,
-        with_footer(_earn_invite_text(invite_url)),
+        with_footer(_earn_invite_instructions(earning_percent)),
         reply_markup=earn_keyboard(),
         parse_mode="HTML",
     )
+    await callback.message.answer(_earn_share_message(bot_name, invite_url))
     await callback.answer()
 
 
@@ -868,7 +1160,7 @@ async def earn_callback(callback: CallbackQuery, ctx: AppContext) -> None:
 async def earn_details_callback(callback: CallbackQuery, ctx: AppContext) -> None:
     async with ctx.database.session() as db:
         repository = Repository(db)
-        user = await repository.ensure_user(callback.from_user.id, ctx.settings.admin_ids)
+        user = await repository.ensure_user_from_telegram(callback.from_user, ctx.settings.admin_ids)
         earning_enabled = await repository.get_earning_enabled()
         percent = await repository.get_earning_percent()
         total_earned = await repository.get_referral_earnings_total(user.id)

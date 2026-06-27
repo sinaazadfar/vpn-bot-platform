@@ -30,9 +30,11 @@ services:
       APP_ROLE: master_bot
       DOCKER_HOST: unix:///var/run/docker.sock
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
+      SELLER_DATA_HOST_PATH: ${SELLER_DATA_HOST_PATH:-/opt/vpn-bot-platform/data/sellers}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./external:/app/external:ro
+      - ./data/sellers:/app/data/sellers
     extra_hosts:
       - "api.telegram.org:${TELEGRAM_API_IP:-149.154.167.220}"
     command: ["python", "-m", "vpn_bot_platform.master_bot.main"]
@@ -66,6 +68,9 @@ services:
       APP_ROLE: seller_bot
       SELLER_BOT_ID: ${SELLER_BOT_ID:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vpn_platform}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-vpn_platform}
+      SELLER_DATABASE_PATH: /app/data/sellers/${SELLER_BOT_ID:-dev}/bot.sqlite3
+    volumes:
+      - ./data/sellers:/app/data/sellers
     extra_hosts:
       - "api.telegram.org:${TELEGRAM_API_IP:-149.154.167.220}"
     command: ["python", "-m", "vpn_bot_platform.seller_bot.main"]

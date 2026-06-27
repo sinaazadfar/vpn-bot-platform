@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 import json
+import os
 
 from sqlalchemy import or_, select
 from sqlalchemy import func
@@ -161,6 +162,30 @@ async def get_marzban_panel(session: AsyncSession, *, panel_id: str) -> MarzbanP
     return await session.get(MarzbanPanel, panel_id)
 
 
+async def get_marzban_panel_by_base_url(session: AsyncSession, *, base_url: str) -> MarzbanPanel | None:
+    normalized_url = base_url.rstrip("/")
+    result = await session.execute(select(MarzbanPanel).where(MarzbanPanel.base_url == normalized_url))
+    return result.scalar_one_or_none()
+
+
+async def update_marzban_panel_credentials(
+    session: AsyncSession,
+    *,
+    panel: MarzbanPanel,
+    secret_box: SecretBox,
+    username: str | None = None,
+    password: str | None = None,
+    token: str | None = None,
+) -> MarzbanPanel:
+    if username is not None:
+        panel.username_encrypted = secret_box.encrypt(username)
+    if password is not None:
+        panel.password_encrypted = secret_box.encrypt(password)
+    if token is not None:
+        panel.token_encrypted = secret_box.encrypt(token)
+    return panel
+
+
 async def set_marzban_panel_active(
     session: AsyncSession,
     *,
@@ -223,6 +248,24 @@ async def update_panel_assignment_routing(
     assignment.priority = priority
     assignment.weight = weight
     return assignment
+
+
+async def deactivate_reseller_panel_assignments(
+    session: AsyncSession,
+    *,
+    reseller_id: str,
+) -> int:
+    result = await session.execute(
+        select(ResellerPanelAssignment).where(
+            ResellerPanelAssignment.reseller_id == reseller_id,
+            ResellerPanelAssignment.is_active.is_(True),
+        )
+    )
+    deactivated = 0
+    for assignment in result.scalars():
+        assignment.is_active = False
+        deactivated += 1
+    return deactivated
 
 
 async def create_seller_bot(
@@ -408,6 +451,18 @@ async def get_seller_bot_quota_usage(
     seller_bot = await get_seller_bot(session, seller_bot_id=seller_bot_id)
     if seller_bot is None:
         raise ValueError("seller_bot_not_found")
+    if seller_bot.ui_profile == SellerBotUiProfile.SIMPLE_SELLER.value:
+        from vpn_bot_platform.common.simple_seller_quota import read_simple_seller_used_gb
+
+        used_gb = await read_simple_seller_used_gb(
+            seller_bot_id=seller_bot_id,
+            seller_data_host_path=os.getenv("SELLER_DATA_HOST_PATH", "./data/sellers"),
+        )
+        return SellerBotQuotaUsage(
+            limit_gb=seller_bot.volume_limit_gb or 0,
+            used_gb=used_gb,
+            reserved_gb=0,
+        )
     now = utcnow()
     used_gb = await session.scalar(
         select(func.coalesce(func.sum(VpnService.data_limit_gb), 0)).where(

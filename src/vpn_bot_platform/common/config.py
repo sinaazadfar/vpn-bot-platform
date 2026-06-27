@@ -32,6 +32,7 @@ class Settings(BaseSettings):
         default="vpn-bot-platform",
         alias="SELLER_CONTAINER_LABEL_PREFIX",
     )
+    seller_data_host_path: str = Field(default="./data/sellers", alias="SELLER_DATA_HOST_PATH")
     auto_start_seller_on_create: bool = Field(default=True, alias="AUTO_START_SELLER_ON_CREATE")
 
     marzban_token_path: str = Field(default="/api/admin/token", alias="MARZBAN_TOKEN_PATH")

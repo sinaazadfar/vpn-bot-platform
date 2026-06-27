@@ -14,6 +14,7 @@ class SellerRuntimeController(Protocol):
         seller_bot_id: str,
         environment: dict[str, str],
         container_id: str | None = None,
+        command: list[str] | None = None,
     ) -> str:
         pass
 
@@ -39,6 +40,7 @@ class DockerSellerRuntimeController:
                     image=settings.seller_runtime_image,
                     network=settings.seller_docker_network,
                     label_prefix=settings.seller_container_label_prefix,
+                    data_host_path=settings.seller_data_host_path,
                 )
             )
         )
@@ -49,11 +51,13 @@ class DockerSellerRuntimeController:
         seller_bot_id: str,
         environment: dict[str, str],
         container_id: str | None = None,
+        command: list[str] | None = None,
     ) -> str:
         return self.runtime.start_seller(
             seller_bot_id=seller_bot_id,
             environment=environment,
             container_id=container_id,
+            command=command,
         )
 
     def stop_seller(self, *, container_id: str | None) -> None:

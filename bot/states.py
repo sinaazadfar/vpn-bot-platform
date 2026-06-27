@@ -21,6 +21,49 @@ class WalletAdjust(StatesGroup):
     amount = State()
 
 
+class ForcedJoinAdd(StatesGroup):
+    ref = State()
+
+
+class TicketCreate(StatesGroup):
+    subject = State()
+    text = State()
+
+
+class TicketReply(StatesGroup):
+    text = State()
+
+
+class BuyerTicketReply(StatesGroup):
+    text = State()
+
+
+class DiscountCreate(StatesGroup):
+    code = State()
+    percent = State()
+    max_uses = State()
+    valid_days = State()
+
+
+class DiscountEdit(StatesGroup):
+    percent = State()
+    max_uses = State()
+    valid_days = State()
+
+
+class PurchaseCoupon(StatesGroup):
+    code = State()
+
+
+class AdminUserWallet(StatesGroup):
+    amount = State()
+    confirm = State()
+
+
+class AdminUserMessage(StatesGroup):
+    text = State()
+
+
 class Broadcast(StatesGroup):
     text = State()
 
