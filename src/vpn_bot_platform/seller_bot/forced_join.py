@@ -25,4 +25,3 @@ async def missing_required_chats(bot: Bot, *, user_id: int) -> list[ForcedJoinCh
         if member.status in {"left", "kicked"}:
             missing.append(chat)
     return missing
-
